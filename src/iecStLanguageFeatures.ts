@@ -1,4 +1,4 @@
-﻿import * as vscode from 'vscode';
+import * as vscode from 'vscode';
 import * as xml2js from 'xml2js';
 import { getProjectAnalyzer } from './twinCATProjectAnalyzer';
 import { buildAstAnalysis } from './iecStAst';
@@ -1279,7 +1279,7 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
     // Validate all open documents
     vscode.workspace.textDocuments.forEach(doc => { void validateDocument(doc); });
 
-    const validateSyntaxCommand = vscode.commands.registerCommand('twincat.validateSyntax', async () => {
+    const validateSyntaxCommand = vscode.commands.registerCommand('tcview.validateSyntax', async () => {
         const editor = vscode.window.activeTextEditor;
         if (!editor || editor.document.languageId !== 'iec-st') {
             vscode.window.showInformationMessage('Open an IEC ST document to validate.');
@@ -1290,7 +1290,7 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         vscode.window.showInformationMessage(`Validation complete: ${issues} issue(s).`);
     });
 
-    const indexStatsCommand = vscode.commands.registerCommand('twincat.showIndexStats', () => {
+    const indexStatsCommand = vscode.commands.registerCommand('tcview.showIndexStats', () => {
         const analyzer = getProjectAnalyzer();
         const symbols = analyzer.getAllSymbols().size;
         const globals = analyzer.getGlobalVariables().size;
@@ -1298,7 +1298,7 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         vscode.window.showInformationMessage(`Index stats: ${symbols} symbols, ${globals} globals, ${types} data types.`);
     });
 
-    const statusCommand = vscode.commands.registerCommand('twincat.checkLspStatus', () => {
+    const statusCommand = vscode.commands.registerCommand('tcview.checkLspStatus', () => {
         const parts = [...featureStats.entries()]
             .map(([name, s]) => `${name}: ${s.calls} calls, ${Math.round(s.totalMs / Math.max(1, s.calls))} ms avg`)
             .join(' | ');

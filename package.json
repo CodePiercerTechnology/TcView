@@ -38,46 +38,46 @@
     },
     "commands": [
       {
-        "command": "twincat.refreshFiles",
+        "command": "tcview.refreshFiles",
         "title": "Refresh TcView Files",
         "icon": "$(refresh)"
       },
       {
-        "command": "twincat.openFile",
+        "command": "tcview.openFile",
         "title": "Open in TcView"
       },
       {
-        "command": "twincat.openFromExplorer",
+        "command": "tcview.openFromExplorer",
         "title": "Open in TcView",
         "icon": "$(file-code)"
       },
       {
-        "command": "twincat.saveToXml",
+        "command": "tcview.saveToXml",
         "title": "Save TcView File",
         "icon": "$(save)"
       },
       {
-        "command": "twincat.switchToXml",
+        "command": "tcview.switchToXml",
         "title": "Switch TcView View",
         "icon": "$(file-code)"
       },
       {
-        "command": "twincat.validateSyntax",
+        "command": "tcview.validateSyntax",
         "title": "Validate TcView ST Syntax",
         "icon": "$(check)"
       },
       {
-        "command": "twincat.showIndexStats",
+        "command": "tcview.showIndexStats",
         "title": "Show TcView Index Statistics",
         "icon": "$(graph)"
       },
       {
-        "command": "twincat.checkLspStatus",
+        "command": "tcview.checkLspStatus",
         "title": "Check TcView Language Status",
         "icon": "$(pulse)"
       },
       {
-        "command": "twincat.showPerfStats",
+        "command": "tcview.showPerfStats",
         "title": "Show TcView Performance Stats",
         "icon": "$(dashboard)"
       }
@@ -176,28 +176,28 @@
     "menus": {
       "view/title": [
         {
-          "command": "twincat.refreshFiles",
+          "command": "tcview.refreshFiles",
           "when": "view == twincat.files",
           "group": "navigation"
         }
       ],
       "view/item/context": [
         {
-          "command": "twincat.openFile",
+          "command": "tcview.openFile",
           "when": "view == twincat.files",
           "group": "inline"
         }
       ],
       "explorer/context": [
         {
-          "command": "twincat.openFromExplorer",
+          "command": "tcview.openFromExplorer",
           "when": "resourceExtname == .TcPOU || resourceExtname == .TcGVL || resourceExtname == .TcDUT || resourceExtname == .TcPRG || resourceExtname == .TcAPP || resourceExtname == .TcCOM || resourceExtname == .TcVAR || resourceExtname == .TcGDS || resourceExtname == .TcIO || resourceExtname == .TcITF || resourceExtname == .tcpou || resourceExtname == .tcgvl || resourceExtname == .tcdut || resourceExtname == .tcprg || resourceExtname == .tcapp || resourceExtname == .tccom || resourceExtname == .tcvar || resourceExtname == .tcgds || resourceExtname == .tcio || resourceExtname == .tcitf",
           "group": "navigation@1"
         }
       ],
       "editor/title": [
         {
-          "command": "twincat.switchToXml",
+          "command": "tcview.switchToXml",
           "when": "resourceScheme == twincat || (resourceScheme == file && (resourceExtname == .TcPOU || resourceExtname == .TcGVL || resourceExtname == .TcDUT || resourceExtname == .TcPRG || resourceExtname == .TcAPP || resourceExtname == .TcCOM || resourceExtname == .TcVAR || resourceExtname == .TcGDS || resourceExtname == .TcIO || resourceExtname == .TcITF || resourceExtname == .tcpou || resourceExtname == .tcgvl || resourceExtname == .tcdut || resourceExtname == .tcprg || resourceExtname == .tcapp || resourceExtname == .tccom || resourceExtname == .tcvar || resourceExtname == .tcgds || resourceExtname == .tcio || resourceExtname == .tcitf))",
           "group": "navigation@2"
         }

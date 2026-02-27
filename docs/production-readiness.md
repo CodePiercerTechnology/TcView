@@ -1,4 +1,4 @@
-﻿# TcView Production Readiness
+# TcView Production Readiness
 
 ## Release Gates
 
@@ -30,7 +30,7 @@ Acceptance checks:
 
 ### 3) Performance and Scale
 - `PASS` Operation timing metrics for open/save paths.
-- `PASS` Command to inspect performance summary (`twincat.showPerfStats`).
+- `PASS` Command to inspect performance summary (`tcview.showPerfStats`).
 - `PARTIAL` Indexing and diagnostics are optimized but not yet full incremental graph-based.
 - `TODO` performance budgets and hard fail thresholds in CI.
 

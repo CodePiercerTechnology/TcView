@@ -24,11 +24,11 @@ export async function runIntegrationChecks(): Promise<void> {
 
     const sourceUri = vscode.Uri.file(tempTarget);
     try {
-        await vscode.commands.executeCommand('twincat.openFromExplorer', sourceUri);
+        await vscode.commands.executeCommand('tcview.openFromExplorer', sourceUri);
         await waitFor(() => vscode.window.activeTextEditor?.document.uri.scheme === 'twincat');
 
         const fragmentUri = sourceUri.with({ fragment: 'PropertyGet:SpeedCommand' });
-        await vscode.commands.executeCommand('twincat.openFile', fragmentUri);
+        await vscode.commands.executeCommand('tcview.openFile', fragmentUri);
         await waitFor(() => vscode.window.activeTextEditor?.document.uri.fragment === 'PropertyGet:SpeedCommand');
 
         const editor = vscode.window.activeTextEditor;

@@ -1,4 +1,4 @@
-﻿import * as vscode from 'vscode';
+import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as xml2js from 'xml2js';
@@ -82,7 +82,7 @@ export class TwinCATFileTreeItem extends vscode.TreeItem {
 
         if (OPENABLE_TYPES.has(itemType)) {
             this.command = {
-                command: 'twincat.openFile',
+                command: 'tcview.openFile',
                 title: 'Open in TcView',
                 arguments: [this]
             };
@@ -386,7 +386,7 @@ export class TwinCATFileExplorerProvider
         }
 
         // -------------------------
-        // RETURN â€” folders ALWAYS on top
+        // RETURN - folders ALWAYS on top
         // -------------------------
         return [...sortItems(folderItems), ...sortItems(rootItems)];
     }

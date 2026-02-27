@@ -1,4 +1,4 @@
-﻿import * as vscode from 'vscode';
+import * as vscode from 'vscode';
 import * as path from 'path';
 import { TwinCATFileExplorerProvider, TwinCATFileTreeItem } from './twinCATFileExplorerProvider';
 import { TwinCATFileSystemProvider } from './twinCATFileSystemProvider';
@@ -41,12 +41,12 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     // Command: Refresh files in sidebar
-    const refreshCommand = vscode.commands.registerCommand('twincat.refreshFiles', () => {
+    const refreshCommand = vscode.commands.registerCommand('tcview.refreshFiles', () => {
         fileExplorerProvider.refresh();
     });
 
     // Command: Open file from sidebar
-    const openFileCommand = vscode.commands.registerCommand('twincat.openFile', async (item: TwinCATFileTreeItem | vscode.Uri, itemType?: string) => {
+    const openFileCommand = vscode.commands.registerCommand('tcview.openFile', async (item: TwinCATFileTreeItem | vscode.Uri, itemType?: string) => {
         // Handle both direct URI and TreeItem with resourceUri
         let fileUri: vscode.Uri;
         let type = itemType;
@@ -66,12 +66,12 @@ export function activate(context: vscode.ExtensionContext) {
 
 
     // Command: Open file from explorer context menu
-    const openFromExplorerCommand = vscode.commands.registerCommand('twincat.openFromExplorer', async (uri: vscode.Uri) => {
+    const openFromExplorerCommand = vscode.commands.registerCommand('tcview.openFromExplorer', async (uri: vscode.Uri) => {
         await openTwinCATFile(uri);
     });
 
     // Command: Switch to XML view
-    const switchToXmlCommand = vscode.commands.registerCommand('twincat.switchToXml', async () => {
+    const switchToXmlCommand = vscode.commands.registerCommand('tcview.switchToXml', async () => {
         const editor = vscode.window.activeTextEditor;
         if (!editor) {
             vscode.window.showErrorMessage('No active editor');
@@ -129,7 +129,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    const showPerfStatsCommand = vscode.commands.registerCommand('twincat.showPerfStats', () => {
+    const showPerfStatsCommand = vscode.commands.registerCommand('tcview.showPerfStats', () => {
         showPerfSummary();
         vscode.window.showInformationMessage('TcView performance stats written to the TcView output channel.');
     });
