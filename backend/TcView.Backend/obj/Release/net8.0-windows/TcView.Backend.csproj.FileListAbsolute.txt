@@ -1,0 +1,14 @@
+C:\Users\TwinCAT\Documents\MyStuff\TcView\backend\TcView.Backend\bin\Release\net8.0-windows\TcView.Backend.exe
+C:\Users\TwinCAT\Documents\MyStuff\TcView\backend\TcView.Backend\bin\Release\net8.0-windows\TcView.Backend.deps.json
+C:\Users\TwinCAT\Documents\MyStuff\TcView\backend\TcView.Backend\bin\Release\net8.0-windows\TcView.Backend.runtimeconfig.json
+C:\Users\TwinCAT\Documents\MyStuff\TcView\backend\TcView.Backend\bin\Release\net8.0-windows\TcView.Backend.dll
+C:\Users\TwinCAT\Documents\MyStuff\TcView\backend\TcView.Backend\bin\Release\net8.0-windows\TcView.Backend.pdb
+C:\Users\TwinCAT\Documents\MyStuff\TcView\backend\TcView.Backend\obj\Release\net8.0-windows\TcView.Backend.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\TwinCAT\Documents\MyStuff\TcView\backend\TcView.Backend\obj\Release\net8.0-windows\TcView.Backend.AssemblyInfoInputs.cache
+C:\Users\TwinCAT\Documents\MyStuff\TcView\backend\TcView.Backend\obj\Release\net8.0-windows\TcView.Backend.AssemblyInfo.cs
+C:\Users\TwinCAT\Documents\MyStuff\TcView\backend\TcView.Backend\obj\Release\net8.0-windows\TcView.Backend.csproj.CoreCompileInputs.cache
+C:\Users\TwinCAT\Documents\MyStuff\TcView\backend\TcView.Backend\obj\Release\net8.0-windows\TcView.Backend.dll
+C:\Users\TwinCAT\Documents\MyStuff\TcView\backend\TcView.Backend\obj\Release\net8.0-windows\refint\TcView.Backend.dll
+C:\Users\TwinCAT\Documents\MyStuff\TcView\backend\TcView.Backend\obj\Release\net8.0-windows\TcView.Backend.pdb
+C:\Users\TwinCAT\Documents\MyStuff\TcView\backend\TcView.Backend\obj\Release\net8.0-windows\TcView.Backend.genruntimeconfig.cache
+C:\Users\TwinCAT\Documents\MyStuff\TcView\backend\TcView.Backend\obj\Release\net8.0-windows\ref\TcView.Backend.dll

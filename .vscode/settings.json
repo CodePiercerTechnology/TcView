@@ -1,3 +1,5 @@
 {
-  "twincat.performanceLogging": true
+  "twincat.backend.enabled": true,
+  "twincat.backend.executablePath": "c:\\Users\\TwinCAT\\Documents\\MyStuff\\TcView\\backend\\TcView.Backend\\bin\\Release\\net8.0-windows\\TcView.Backend.exe",
+  "twincat.backend.preferAutomationInterface": true
 }

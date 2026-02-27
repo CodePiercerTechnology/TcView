@@ -1019,6 +1019,83 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
             astProjectSymbolTypes.set(symbol.name.toUpperCase(), normalizeTypeName(symbol.type));
         });
 
+        const getDeclarationTypeStatus = (typeName: string): 'known' | 'metadata_only' | 'unknown' => {
+            if (!typeName) return 'known';
+            if (standardIecDefinitions[typeName.toUpperCase()]) return 'known';
+            const analyzerStatus = astProjectAnalyzer.getTypeResolutionStatus(typeName);
+            if (analyzerStatus !== 'unknown') return analyzerStatus;
+            const key = typeName.toUpperCase();
+            if (astProjectTypes.has(key)) return 'known';
+            const sym = astProjectSymbols.get(key);
+            if (!sym) return 'unknown';
+            return sym.kind === 'type' || sym.kind === 'functionBlock' || sym.kind === 'program'
+                ? 'known'
+                : 'unknown';
+        };
+
+        ast.declarations.forEach(decl => {
+            const typeInfo = parseDeclarationTypeInfo(decl.type);
+            if (!typeInfo.baseType) {
+                return;
+            }
+
+            const typeStatus = getDeclarationTypeStatus(typeInfo.baseType);
+            if (typeStatus === 'unknown') {
+                const typeRange = findDeclarationTypeRange(lines[decl.line] ?? '', decl.line);
+                diagnostics.push(new vscode.Diagnostic(
+                    typeRange,
+                    `Unknown or unresolved type '${typeInfo.baseType}' for declaration '${decl.name}'.`,
+                    severityUndefined
+                ));
+                return;
+            }
+            if (typeStatus === 'metadata_only') {
+                const typeRange = findDeclarationTypeRange(lines[decl.line] ?? '', decl.line);
+                diagnostics.push(new vscode.Diagnostic(
+                    typeRange,
+                    `Type '${typeInfo.baseType}' is referenced from metadata-only library context and is not fully verified.`,
+                    vscode.DiagnosticSeverity.Warning
+                ));
+            }
+
+            if (typeInfo.hasInitializer && !typeInfo.initializer) {
+                const typeRange = findDeclarationTypeRange(lines[decl.line] ?? '', decl.line);
+                diagnostics.push(new vscode.Diagnostic(
+                    typeRange,
+                    `Missing initializer expression for declaration '${decl.name}'.`,
+                    vscode.DiagnosticSeverity.Error
+                ));
+                return;
+            }
+
+            if (typeInfo.initializer) {
+                const exprType = inferExpressionPrimitiveType(typeInfo.initializer);
+                if (exprType !== 'UNKNOWN' && !isTypeCompatible(typeInfo.baseType, exprType)) {
+                    const typeRange = findDeclarationTypeRange(lines[decl.line] ?? '', decl.line);
+                    diagnostics.push(new vscode.Diagnostic(
+                        typeRange,
+                        `Type mismatch in declaration '${decl.name}': cannot assign ${exprType} to ${typeInfo.baseType}.`,
+                        severityTypeMismatch
+                    ));
+                }
+            }
+        });
+
+        // Add inferred type names to reduce false undefined-variable errors
+        // for enum/type-qualified literals (e.g. E_Type.Member).
+        astSymbolTypes.forEach(typeName => {
+            const normalized = normalizeTypeName(typeName);
+            if (/^[A-Z_]\w*$/.test(normalized)) {
+                allKnownVars.add(normalized.toUpperCase());
+            }
+        });
+        astProjectSymbolTypes.forEach(typeName => {
+            const normalized = normalizeTypeName(typeName);
+            if (/^[A-Z_]\w*$/.test(normalized)) {
+                allKnownVars.add(normalized.toUpperCase());
+            }
+        });
+
         const astUsedIdentifiers = new Set<string>();
         ast.usages.forEach(u => {
             if (iecStKeywords.includes(u.upper)) return;
@@ -1136,6 +1213,14 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
     });
     const closeListener = vscode.workspace.onDidCloseTextDocument(doc => diagnosticCollection.delete(doc.uri));
     const closeCacheListener = vscode.workspace.onDidCloseTextDocument(doc => localSymbolCache.delete(doc.uri.toString()));
+    const analyzerRefreshListener = getProjectAnalyzer().onDidRefreshIndex(() => {
+        const docs = vscode.workspace.textDocuments.filter(doc => doc.languageId === 'iec-st');
+        for (const doc of docs) {
+            void validateDocument(doc);
+            const source = getSourcePathForDocument(doc);
+            if (source) scheduleRelatedValidation(source);
+        }
+    });
 
     // Quick fixes for common diagnostics
     const codeActionProvider = vscode.languages.registerCodeActionsProvider(
@@ -1325,6 +1410,7 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         saveListener,
         closeListener,
         closeCacheListener,
+        analyzerRefreshListener,
         validateSyntaxCommand,
         indexStatsCommand,
         statusCommand
@@ -1379,6 +1465,56 @@ function normalizeTypeName(rawType: string): string {
     cleaned = cleaned.replace(/\b(CONSTANT|RETAIN|PERSISTENT|AT)\b/g, '').trim();
     const tokenMatch = cleaned.match(/[A-Z_]\w*/);
     return tokenMatch ? tokenMatch[0] : cleaned;
+}
+
+function parseDeclarationTypeInfo(rawType: string): { baseType: string; initializer?: string; hasInitializer: boolean } {
+    const typeAndInit = rawType.split(':=');
+    const declaredType = (typeAndInit[0] || '').trim();
+    const initializer = typeAndInit.length > 1 ? typeAndInit.slice(1).join(':=').trim() : undefined;
+
+    const baseType = extractBaseTypeName(declaredType);
+    return { baseType, initializer, hasInitializer: typeAndInit.length > 1 };
+}
+
+function extractBaseTypeName(typeExpr: string): string {
+    if (!typeExpr) return '';
+
+    let working = typeExpr.trim();
+    working = working.replace(/\b(CONSTANT|RETAIN|PERSISTENT)\b/gi, '').trim();
+    working = working.replace(/\bAT\s+%[A-Za-z0-9_.]+\b/gi, '').trim();
+
+    const arrayMatch = working.match(/\bARRAY\b[\s\S]*\bOF\s+(.+)$/i);
+    if (arrayMatch) {
+        return extractBaseTypeName(arrayMatch[1]);
+    }
+
+    const refMatch = working.match(/\b(?:REFERENCE|POINTER)\s+TO\s+(.+)$/i);
+    if (refMatch) {
+        return extractBaseTypeName(refMatch[1]);
+    }
+
+    if (/^\s*STRING\s*\(/i.test(working)) return 'STRING';
+    if (/^\s*WSTRING\s*\(/i.test(working)) return 'WSTRING';
+
+    const normalized = normalizeTypeName(working);
+    return normalized;
+}
+
+function findDeclarationTypeRange(lineText: string, lineNumber: number): vscode.Range {
+    const line = lineText.replace(/\r/g, '');
+    const colon = line.indexOf(':');
+    if (colon < 0) {
+        const end = Math.max(1, line.length);
+        return new vscode.Range(lineNumber, 0, lineNumber, end);
+    }
+
+    const afterColon = line.substring(colon + 1);
+    const semicolonRel = afterColon.indexOf(';');
+    const typeStart = colon + 1 + (afterColon.match(/^\s*/)?.[0].length ?? 0);
+    const typeEnd = semicolonRel >= 0 ? colon + 1 + semicolonRel : line.length;
+    const start = Math.max(0, Math.min(typeStart, line.length));
+    const end = Math.max(start + 1, Math.min(typeEnd, line.length));
+    return new vscode.Range(lineNumber, start, lineNumber, end);
 }
 
 function getKnownFbMembers(typeName: string): string[] {

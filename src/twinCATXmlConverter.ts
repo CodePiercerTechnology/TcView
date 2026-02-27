@@ -6,7 +6,7 @@ export class TwinCATXmlConverter {
 
     constructor() {
         this.parser = new xml2js.Parser({
-            trim: true,
+            trim: false,
             normalize: false,
             explicitArray: false,
             mergeAttrs: false
@@ -14,6 +14,7 @@ export class TwinCATXmlConverter {
         
         this.builder = new xml2js.Builder({
             headless: true,
+            cdata: true,
             renderOpts: { pretty: true, indent: '  ', newline: '\n' }
         });
     }
@@ -48,7 +49,7 @@ export class TwinCATXmlConverter {
                 try {
                     const updatedXml = this.updateXmlWithST(result, stContent);
                     const xmlString = this.builder.buildObject(updatedXml);
-                    resolve(xmlString);
+                    resolve(this.prependOriginalXmlDeclaration(xmlString, originalXml));
                 } catch (error) {
                     reject(error);
                 }
@@ -64,28 +65,117 @@ export class TwinCATXmlConverter {
         
         // Handle TcPlcObject - update nested POU
         if (rootKey === 'TcPlcObject' && root.POU) {
-            if (root.POU.Implementation) {
-                if (typeof root.POU.Implementation.ST === 'string') {
-                    root.POU.Implementation.ST = stContent;
-                } else if (root.POU.Implementation.ST && root.POU.Implementation.ST._ !== undefined) {
-                    root.POU.Implementation.ST._ = stContent;
-                }
-            }
+            this.applyPouStToNode(root.POU, stContent);
             return data;
         }
         
-        // Handle direct TcPOU/TcDUT/etc
-        if (root && root.Implementation) {
-            if (typeof root.Implementation.ST === 'string') {
-                root.Implementation.ST = stContent;
-            } else if (root.Implementation.ST && root.Implementation.ST._ !== undefined) {
-                root.Implementation.ST._ = stContent;
-            } else if (root.Implementation.ST) {
-                root.Implementation.ST = stContent;
-            }
+        // Handle direct TcPOU-like roots.
+        if (root && (rootKey === 'TcPOU' || rootKey === 'TcPrg' || rootKey === 'TcFct')) {
+            this.applyPouStToNode(root, stContent);
+            return data;
+        }
+
+        // Fallback: if object has an implementation node, treat incoming ST as implementation only.
+        if (root?.Implementation) {
+            this.setImplementationText(root, stContent);
         }
         
         return data;
+    }
+
+    private applyPouStToNode(node: any, stContent: string): void {
+        const existingDeclaration = this.getTextContent(node?.Declaration);
+        const split = this.splitPouSt(stContent, existingDeclaration);
+        if (split.declaration) {
+            this.setTextField(node, 'Declaration', split.declaration);
+        }
+        this.setImplementationText(node, split.implementation);
+    }
+
+    private splitPouSt(stContent: string, existingDeclaration: string): { declaration: string; implementation: string } {
+        const normalized = stContent.replace(/\r\n?/g, '\n');
+        const lines = normalized.split('\n');
+        while (lines.length > 0 && !lines[lines.length - 1].trim()) lines.pop();
+
+        if (lines.length === 0) {
+            return { declaration: existingDeclaration.trim(), implementation: '' };
+        }
+
+        let start = 0;
+        while (start < lines.length && !lines[start].trim()) start++;
+        if (start >= lines.length) {
+            return { declaration: existingDeclaration.trim(), implementation: '' };
+        }
+
+        const headerRx = /^(PROGRAM|FUNCTION_BLOCK|FUNCTION)\b/i;
+        if (!headerRx.test(lines[start].trim())) {
+            return { declaration: existingDeclaration.trim(), implementation: lines.slice(start).join('\n').trim() };
+        }
+
+        let index = start + 1;
+        let lastDeclLine = start;
+        let inVarBlock = false;
+        const varStartRx = /^VAR(?:_(?:INPUT|OUTPUT|IN_OUT|TEMP|CONSTANT|STAT|RETAIN))?\b/i;
+        const commentOrBlankRx = /^(\/\/|\/\*|\(\*|\{.*\}\s*$)?\s*$/;
+
+        while (index < lines.length) {
+            const text = lines[index].trim();
+
+            if (varStartRx.test(text)) {
+                inVarBlock = true;
+                lastDeclLine = index;
+                index++;
+                continue;
+            }
+
+            if (inVarBlock) {
+                lastDeclLine = index;
+                if (/^END_VAR\b/i.test(text)) {
+                    inVarBlock = false;
+                }
+                index++;
+                continue;
+            }
+
+            if (commentOrBlankRx.test(text)) {
+                lastDeclLine = index;
+                index++;
+                continue;
+            }
+
+            break;
+        }
+
+        const declaration = lines.slice(start, lastDeclLine + 1).join('\n').trim();
+        const implementation = lines.slice(lastDeclLine + 1).join('\n').trim();
+        return { declaration, implementation };
+    }
+
+    private setImplementationText(target: any, text: string): void {
+        target.Implementation = target.Implementation || {};
+        const existing = target.Implementation.ST;
+        if (typeof existing === 'string') {
+            target.Implementation.ST = text;
+            return;
+        }
+        if (existing && typeof existing === 'object' && existing._ !== undefined) {
+            existing._ = text;
+            return;
+        }
+        target.Implementation.ST = text;
+    }
+
+    private setTextField(target: any, key: string, text: string): void {
+        const existing = target?.[key];
+        if (typeof existing === 'string') {
+            target[key] = text;
+            return;
+        }
+        if (existing && typeof existing === 'object' && existing._ !== undefined) {
+            existing._ = text;
+            return;
+        }
+        target[key] = text;
     }
 
     private parseTwinCATStructure(data: any): string {
@@ -509,5 +599,16 @@ export class TwinCATXmlConverter {
 
     private generateErrorOutput(error: Error): string {
         return `// Error converting XML to IEC ST\n// ${error.message}\n`;
+    }
+
+    private prependOriginalXmlDeclaration(xml: string, originalXml: string): string {
+        const match = originalXml.match(/^\uFEFF?\s*(<\?xml[\s\S]*?\?>)/i);
+        if (!match) {
+            return xml;
+        }
+
+        const declaration = match[1].trim();
+        const body = xml.replace(/^\uFEFF?\s*/, '');
+        return `${declaration}\n${body}`;
     }
 }

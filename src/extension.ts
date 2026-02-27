@@ -3,7 +3,7 @@ import * as path from 'path';
 import { TwinCATFileExplorerProvider, TwinCATFileTreeItem } from './twinCATFileExplorerProvider';
 import { TwinCATFileSystemProvider } from './twinCATFileSystemProvider';
 import { registerLanguageFeatures } from './iecStLanguageFeatures';
-import { initializeProjectAnalyzer } from './twinCATProjectAnalyzer';
+import { getProjectAnalyzer, initializeProjectAnalyzer } from './twinCATProjectAnalyzer';
 import { disposeTelemetry, logError, showPerfSummary, withPerfMetric } from './twinCATTelemetry';
 
 export function activate(context: vscode.ExtensionContext) {
@@ -132,6 +132,37 @@ export function activate(context: vscode.ExtensionContext) {
     const showPerfStatsCommand = vscode.commands.registerCommand('tcview.showPerfStats', () => {
         showPerfSummary();
         vscode.window.showInformationMessage('TcView performance stats written to the TcView output channel.');
+    });
+
+    const showLibrariesCommand = vscode.commands.registerCommand('tcview.showLibraries', async () => {
+        const analyzer = getProjectAnalyzer();
+        const libs = analyzer.getLibraryReferences();
+        if (libs.length === 0) {
+            vscode.window.showInformationMessage('TcView: no TwinCAT libraries detected yet. Run after project scan.');
+            return;
+        }
+
+        const lines = libs.map(lib =>
+            `${lib.vendor ?? 'Unknown vendor'} | ${lib.name} | ${lib.version} | ${lib.mode}`
+        );
+
+        const doc = await vscode.workspace.openTextDocument({
+            language: 'plaintext',
+            content: ['Detected TwinCAT Libraries', '==========================', '', ...lines].join('\n')
+        });
+        await vscode.window.showTextDocument(doc, { preview: false });
+    });
+
+    const backendStatusCommand = vscode.commands.registerCommand('tcview.showBackendStatus', () => {
+        const analyzer = getProjectAnalyzer();
+        const status = analyzer.getBackendStatus();
+        const diagnostics = analyzer.getBackendDiagnostics();
+        const mode = status.mode === 'external' ? 'External backend' : 'Local fallback scanner';
+        const configured = status.externalConfigured ? 'configured' : 'not configured';
+        const running = status.externalRunning ? 'running' : 'not running';
+        const error = status.lastError ? ` Last error: ${status.lastError}` : '';
+        const diagSummary = diagnostics.length > 0 ? ` Diagnostics: ${diagnostics.slice(0, 2).join(' | ')}` : '';
+        vscode.window.showInformationMessage(`TcView backend: ${mode} (${configured}, ${running}).${error}${diagSummary}`);
     });
 
     // Helper function to open TwinCAT file
@@ -265,6 +296,8 @@ export function activate(context: vscode.ExtensionContext) {
         openFromExplorerCommand,
         switchToXmlCommand,
         showPerfStatsCommand,
+        showLibrariesCommand,
+        backendStatusCommand,
         saveListener,
         openListener
     );

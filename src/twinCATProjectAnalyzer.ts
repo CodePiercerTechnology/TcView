@@ -3,6 +3,8 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as xml2js from 'xml2js';
 import { TwinCATXmlConverter } from './twinCATXmlConverter';
+import { TwinCATBackendClient } from './backend/twinCATBackendClient';
+import { TwinCATBackendSymbol, TwinCATLibraryRef } from './backend/twinCATBackendTypes';
 
 /**
  * Represents a symbol in the TwinCAT project (variable, type, FB, etc.)
@@ -48,6 +50,12 @@ export class TwinCATProjectAnalyzer {
         dataTypeKeys: Set<string>;
         globalVarKeys: Set<string>;
     }>();
+    private libraryRefs: TwinCATLibraryRef[] = [];
+    private backendSymbols = new Map<string, TwinCATSymbol>();
+    private backendSymbolOrigins = new Map<string, TwinCATBackendSymbol['origin']>();
+    private libraryContextModes = new Map<string, TwinCATLibraryRef['mode']>();
+    private backendClient: TwinCATBackendClient;
+    private readonly indexRefreshedEmitter = new vscode.EventEmitter<void>();
     
     // Standard TwinCAT libraries
     private standardLibraries = new Set([
@@ -59,6 +67,14 @@ export class TwinCATProjectAnalyzer {
 
     constructor() {
         this.converter = new TwinCATXmlConverter();
+        this.backendClient = new TwinCATBackendClient({
+            useExternalBackend: vscode.workspace.getConfiguration('twincat').get<boolean>('backend.enabled', true),
+            executablePath: vscode.workspace.getConfiguration('twincat').get<string>('backend.executablePath', ''),
+            preferAutomationInterface: vscode.workspace.getConfiguration('twincat').get<boolean>('backend.preferAutomationInterface', false),
+            librarySourceRoots: vscode.workspace.getConfiguration('twincat').get<string[]>('backend.librarySourceRoots', []),
+            tmcRoots: vscode.workspace.getConfiguration('twincat').get<string[]>('backend.tmcRoots', []),
+            autoBuildTmcIfMissing: vscode.workspace.getConfiguration('twincat').get<boolean>('backend.autoBuildTmcIfMissing', true)
+        });
     }
 
     private isPerfLoggingEnabled(): boolean {
@@ -87,6 +103,7 @@ export class TwinCATProjectAnalyzer {
         if (!this.projectRoot) {
             this.projectRoot = workspaceFolders[0].uri.fsPath;
         }
+        await this.backendClient.initialize(this.projectRoot);
 
         // Setup file watcher
         this.setupFileWatcher();
@@ -210,6 +227,9 @@ export class TwinCATProjectAnalyzer {
             this.symbols.clear();
             this.dataTypes.clear();
             this.globalVars.clear();
+            this.backendSymbols.clear();
+            this.backendSymbolOrigins.clear();
+            this.libraryContextModes.clear();
             this.fileContributions.clear();
             this.fileFingerprints.clear();
 
@@ -218,6 +238,8 @@ export class TwinCATProjectAnalyzer {
 
             // Parse files in parallel
             await Promise.allSettled(plcFiles.map(file => this.parseFile(file)));
+            await this.refreshLibraryMetadata();
+            this.indexRefreshedEmitter.fire();
 
             console.log(`Project scan complete. Found ${this.symbols.size} symbols, ${this.dataTypes.size} data types, ${this.globalVars.size} global variables.`);
             if (this.isPerfLoggingEnabled()) {
@@ -577,6 +599,90 @@ export class TwinCATProjectAnalyzer {
             .includes(path.extname(filePath).toLowerCase());
     }
 
+    private async refreshLibraryMetadata(): Promise<void> {
+        if (!this.projectRoot) {
+            this.libraryRefs = [];
+            return;
+        }
+
+        const scanResult = await this.backendClient.scanProject(this.projectRoot);
+        this.libraryRefs = scanResult.libraries;
+        this.libraryContextModes.clear();
+        for (const lib of this.libraryRefs) {
+            this.libraryContextModes.set(lib.name.toUpperCase(), lib.mode);
+        }
+
+        for (const lib of this.libraryRefs) {
+            const key = lib.name.toUpperCase();
+            if (this.symbols.has(key) || this.globalVars.has(key)) {
+                continue;
+            }
+
+            this.symbols.set(key, {
+                name: lib.name,
+                type: `LIBRARY ${lib.version}`,
+                kind: 'type',
+                source: lib.path,
+                documentation: `${lib.vendor ?? 'Unknown vendor'} (${lib.mode})`
+            });
+        }
+
+        const backendSymbolList = scanResult.librarySymbols.length > 0
+            ? scanResult.librarySymbols
+            : scanResult.symbols;
+
+        for (const backendSymbol of backendSymbolList) {
+            const converted = this.convertBackendSymbol(backendSymbol);
+            const key = converted.name.toUpperCase();
+            if (this.symbols.has(key) || this.globalVars.has(key) || this.dataTypes.has(key)) {
+                continue;
+            }
+            this.backendSymbols.set(key, converted);
+            this.backendSymbolOrigins.set(key, backendSymbol.origin);
+            if (backendSymbol.library) {
+                const libKey = backendSymbol.library.toUpperCase();
+                const current = this.libraryContextModes.get(libKey);
+                const nextMode: TwinCATLibraryRef['mode'] =
+                    backendSymbol.origin === 'ai' ? 'public_symbols' :
+                    backendSymbol.origin === 'tmc' ? 'public_symbols' :
+                    backendSymbol.origin === 'source' ? 'full_source' :
+                    backendSymbol.origin === 'library_public' ? 'public_symbols' :
+                    'metadata_only';
+                if (!current || (current === 'metadata_only' && nextMode !== 'metadata_only')) {
+                    this.libraryContextModes.set(libKey, nextMode);
+                }
+            }
+        }
+    }
+
+    private convertBackendSymbol(symbol: TwinCATBackendSymbol): TwinCATSymbol {
+        let kind: TwinCATSymbol['kind'] = 'type';
+        switch (symbol.kind) {
+            case 'function_block':
+                kind = 'functionBlock';
+                break;
+            case 'function':
+                kind = 'function';
+                break;
+            case 'variable':
+                kind = 'variable';
+                break;
+            case 'type':
+            default:
+                kind = 'type';
+                break;
+        }
+
+        const libName = symbol.library ? `${symbol.library}${symbol.version ? ` ${symbol.version}` : ''}` : 'TwinCAT Library';
+        return {
+            name: symbol.name,
+            type: symbol.signature || libName,
+            kind,
+            source: symbol.library ?? 'library',
+            documentation: symbol.documentation
+        };
+    }
+
     /**
      * Check if a variable name is known (declared or global)
      */
@@ -592,7 +698,7 @@ export class TwinCATProjectAnalyzer {
      */
     public getSymbol(name: string): TwinCATSymbol | undefined {
         const upperName = name.toUpperCase();
-        return this.symbols.get(upperName) || this.globalVars.get(upperName);
+        return this.symbols.get(upperName) || this.globalVars.get(upperName) || this.backendSymbols.get(upperName);
     }
 
     /**
@@ -620,7 +726,38 @@ export class TwinCATProjectAnalyzer {
      * Get all symbols
      */
     public getAllSymbols(): Map<string, TwinCATSymbol> {
-        return new Map([...this.symbols, ...this.globalVars]);
+        return new Map([...this.symbols, ...this.globalVars, ...this.backendSymbols]);
+    }
+
+    public getLibraryReferences(): TwinCATLibraryRef[] {
+        return [...this.libraryRefs];
+    }
+
+    public getBackendStatus() {
+        return this.backendClient.getStatus();
+    }
+
+    public getBackendDiagnostics(): string[] {
+        return this.backendClient.getDiagnostics();
+    }
+
+    public getLibraryContextModes(): Map<string, TwinCATLibraryRef['mode']> {
+        return new Map(this.libraryContextModes);
+    }
+
+    public getTypeResolutionStatus(typeName: string): 'known' | 'metadata_only' | 'unknown' {
+        const upperType = typeName.toUpperCase();
+        if (this.isValidType(upperType) || this.dataTypes.has(upperType)) {
+            return 'known';
+        }
+
+        const backendSymbol = this.backendSymbols.get(upperType);
+        if (backendSymbol) {
+            const origin = this.backendSymbolOrigins.get(upperType);
+            return origin === 'library_meta' ? 'metadata_only' : 'known';
+        }
+
+        return 'unknown';
     }
 
     /**
@@ -651,6 +788,12 @@ export class TwinCATProjectAnalyzer {
         if (symbol && (symbol.kind === 'functionBlock' || symbol.kind === 'type')) {
             return true;
         }
+
+        const backendSymbol = this.backendSymbols.get(upperType);
+        if (backendSymbol && (backendSymbol.kind === 'functionBlock' || backendSymbol.kind === 'type')) {
+            const origin = this.backendSymbolOrigins.get(upperType);
+            return origin !== 'library_meta';
+        }
         
         return false;
     }
@@ -670,6 +813,12 @@ export class TwinCATProjectAnalyzer {
         if (this.fileWatcher) {
             this.fileWatcher.dispose();
         }
+        this.indexRefreshedEmitter.dispose();
+        this.backendClient.dispose();
+    }
+
+    public onDidRefreshIndex(listener: () => void): vscode.Disposable {
+        return this.indexRefreshedEmitter.event(listener);
     }
 }
 

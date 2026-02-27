@@ -294,6 +294,17 @@ export async function applyFragmentSTToXml(xmlString: string, fragment: string, 
     if (!element) throw new Error(`Fragment not found: ${rawType}:${fragmentName}`);
 
     applyStToFragmentElement(fragmentType, element, stCode);
-    return builder.buildObject(xmlObj);
+    return prependOriginalXmlDeclaration(builder.buildObject(xmlObj), xmlString);
+}
+
+function prependOriginalXmlDeclaration(xml: string, originalXml: string): string {
+    const match = originalXml.match(/^\uFEFF?\s*(<\?xml[\s\S]*?\?>)/i);
+    if (!match) {
+        return xml;
+    }
+
+    const declaration = match[1].trim();
+    const body = xml.replace(/^\uFEFF?\s*/, '');
+    return `${declaration}\n${body}`;
 }
 

@@ -80,6 +80,16 @@
         "command": "tcview.showPerfStats",
         "title": "Show TcView Performance Stats",
         "icon": "$(dashboard)"
+      },
+      {
+        "command": "tcview.showLibraries",
+        "title": "Show TcView Libraries",
+        "icon": "$(library)"
+      },
+      {
+        "command": "tcview.showBackendStatus",
+        "title": "Show TcView Backend Status",
+        "icon": "$(pulse)"
       }
     ],
     "configuration": {
@@ -89,6 +99,42 @@
           "type": "boolean",
           "default": false,
           "description": "Enable performance timing logs for TcView open/scan operations."
+        },
+        "twincat.backend.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable the TcView C# backend process for TwinCAT project/library scanning."
+        },
+        "twincat.backend.executablePath": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to TcView.Backend executable. Leave empty for auto-discovery (recommended)."
+        },
+        "twincat.backend.preferAutomationInterface": {
+          "type": "boolean",
+          "default": false,
+          "description": "Try TwinCAT Automation Interface first. When false, TcView uses TMC/source-first and uses Automation Interface as fallback."
+        },
+        "twincat.backend.librarySourceRoots": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "description": "Additional root folders to search for TwinCAT library source projects so TcView can resolve concrete library symbols."
+        },
+        "twincat.backend.tmcRoots": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "description": "Root folders to search for TwinCAT .tmc files used as compiled symbol/type context (ai > tmc > source > metadata)."
+        },
+        "twincat.backend.autoBuildTmcIfMissing": {
+          "type": "boolean",
+          "default": true,
+          "description": "If no .tmc is found in the project path, TcView backend will attempt a best-effort TwinCAT Automation Interface build to generate one."
         },
         "twincat.diagnostics.profile": {
           "type": "string",

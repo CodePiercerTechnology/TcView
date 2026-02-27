@@ -64,6 +64,7 @@ interface ParsedLine {
     line: number;
     raw: string;
     code: string;
+    semicolonCode: string;
     tokens: Token[];
     parenDepthStart: number;
     parenDelta: number;
@@ -129,7 +130,16 @@ export function buildAstAnalysis(text: string): AstAnalysis {
             });
         }
         if (lexed.tokens.length === 0 && !lexed.code.trim()) {
-            parsedLines.push({ line: i, raw, code: lexed.code, tokens: [], parenDepthStart: parenBalance, parenDelta: 0, firstUpper: '' });
+            parsedLines.push({
+                line: i,
+                raw,
+                code: lexed.code,
+                semicolonCode: stripLineCommentPreserveStrings(raw),
+                tokens: [],
+                parenDepthStart: parenBalance,
+                parenDelta: 0,
+                firstUpper: ''
+            });
             continue;
         }
 
@@ -150,6 +160,7 @@ export function buildAstAnalysis(text: string): AstAnalysis {
             line: i,
             raw,
             code: lexed.code,
+            semicolonCode: stripLineCommentPreserveStrings(raw),
             tokens: lexed.tokens,
             parenDepthStart,
             parenDelta,
@@ -268,7 +279,7 @@ export function buildAstAnalysis(text: string): AstAnalysis {
     for (let i = 0; i < parsedLines.length; i++) {
         const pl = parsedLines[i];
         if (!pl.code.trim()) continue;
-        const trimmed = pl.code.trim();
+        const trimmed = pl.semicolonCode.trim();
         const t0 = pl.firstUpper;
         if (/\bCASE\b[\s\S]*\bOF\b/i.test(trimmed)) caseDepth++;
         if (/\bEND_CASE\b/i.test(trimmed)) caseDepth = Math.max(0, caseDepth - 1);
@@ -276,7 +287,7 @@ export function buildAstAnalysis(text: string): AstAnalysis {
         if (shouldSkipSemicolonLine(trimmed, inTypeLikeContext(trimmed), caseDepth)) continue;
 
         const next = findNextRelevantParsedLine(parsedLines, i + 1);
-        if (needsSemicolon(trimmed, next?.code || '', caseDepth)) {
+        if (needsSemicolon(trimmed, next?.semicolonCode || '', caseDepth)) {
             const col = lineEndInsertCol(pl.raw);
             missingSemicolons.push({
                 line: pl.line,
@@ -304,11 +315,11 @@ function inTypeLikeContext(trimmed: string): boolean {
 }
 
 function parseVarDeclarationLine(pl: ParsedLine): Omit<AstVariableDecl, 'scopeKind'> | undefined {
-    const code = pl.code.trim();
+    const code = pl.semicolonCode.trim();
     const m = code.match(/^([A-Za-z_]\w*)\s*:\s*([^;]+);?$/);
     if (!m) return undefined;
     const name = m[1];
-    const start = pl.code.indexOf(name);
+    const start = pl.semicolonCode.indexOf(name);
     return {
         name,
         upper: name.toUpperCase(),
@@ -480,7 +491,8 @@ function lexLine(line: string, inBlockCommentStart: boolean): { code: string; to
 }
 
 function tokenizeCode(code: string, out: Token[]): void {
-    const re = /\s+|:=|<=|>=|<>|[(){}\[\],;:.+\-*/=<>]|16#[0-9A-Fa-f_]+|2#[01_]+|8#[0-7_]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[A-Za-z_]\w*/g;
+    // Keep IEC time literals (e.g. T#100ms, TIME#1h30m) as a single token.
+    const re = /\s+|:=|<=|>=|<>|[(){}\[\],;:.+\-*/=<>]|(?:T|TIME)#(?:[+-]?\d+(?:\.\d+)?(?:D|H|M|S|MS|US|NS))+|16#[0-9A-Fa-f_]+|2#[01_]+|8#[0-7_]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[A-Za-z_]\w*/gi;
     let m: RegExpExecArray | null;
     while ((m = re.exec(code)) !== null) {
         const text = m[0];
@@ -489,8 +501,42 @@ function tokenizeCode(code: string, out: Token[]): void {
         const end = start + text.length;
         let kind: Token['kind'] = 'symbol';
         if (/^[A-Za-z_]\w*$/.test(text)) kind = 'identifier';
-        else if (/^\d|^(16#|2#|8#)/.test(text)) kind = 'number';
+        else if (/^(?:T|TIME)#/i.test(text) || /^\d|^(16#|2#|8#)/.test(text)) kind = 'number';
         else if (/^(:=|<=|>=|<>|[=<>+\-*/])$/.test(text)) kind = 'operator';
         out.push({ text, upper: text.toUpperCase(), start, end, kind });
     }
+}
+
+function stripLineCommentPreserveStrings(line: string): string {
+    let inSingle = false;
+    let inDouble = false;
+
+    for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        const next = i + 1 < line.length ? line[i + 1] : '';
+
+        if (!inDouble && ch === '\'') {
+            if (inSingle && next === '\'') {
+                i++;
+                continue;
+            }
+            inSingle = !inSingle;
+            continue;
+        }
+
+        if (!inSingle && ch === '"') {
+            if (inDouble && next === '"') {
+                i++;
+                continue;
+            }
+            inDouble = !inDouble;
+            continue;
+        }
+
+        if (!inSingle && !inDouble && ch === '/' && next === '/') {
+            return line.substring(0, i);
+        }
+    }
+
+    return line;
 }
