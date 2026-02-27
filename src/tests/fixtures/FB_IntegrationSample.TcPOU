@@ -1,0 +1,32 @@
+<TcPOU>
+  <Name>FB_IntegrationSample</Name>
+  <Type>FUNCTION_BLOCK</Type>
+  <Method>
+    <Name>FB_Init</Name>
+    <Declaration>METHOD FB_Init : BOOL
+VAR_INPUT
+    bInitRetains : BOOL;
+END_VAR
+// comment in declaration</Declaration>
+    <Implementation>
+      <ST>FB_Init := TRUE;</ST>
+    </Implementation>
+  </Method>
+  <Property>
+    <Name>SpeedCommand</Name>
+    <Declaration>PROPERTY SpeedCommand : REAL</Declaration>
+    <Get>
+      <Declaration>GET</Declaration>
+      <Implementation>
+        <ST>SpeedCommand := rSpeedCommand;</ST>
+      </Implementation>
+    </Get>
+    <Set>
+      <Declaration>SET</Declaration>
+      <Implementation>
+        <ST>rSpeedCommand := SpeedCommand;</ST>
+      </Implementation>
+    </Set>
+  </Property>
+</TcPOU>
+

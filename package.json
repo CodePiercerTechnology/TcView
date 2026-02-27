@@ -1,0 +1,254 @@
+{
+  "name": "tcview",
+  "displayName": "TcView",
+  "description": "TcView: view and edit TwinCAT XML files as IEC Structured Text (ST).",
+  "version": "0.0.1",
+  "publisher": "user",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Formatters"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onStartupFinished",
+    "onFileSystem:twincat"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "twincat",
+          "title": "TcView",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "twincat": [
+        {
+          "id": "twincat.files",
+          "name": "TcView Files",
+          "type": "tree",
+          "icon": "$(file-code)"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "twincat.refreshFiles",
+        "title": "Refresh TcView Files",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "twincat.openFile",
+        "title": "Open in TcView"
+      },
+      {
+        "command": "twincat.openFromExplorer",
+        "title": "Open in TcView",
+        "icon": "$(file-code)"
+      },
+      {
+        "command": "twincat.saveToXml",
+        "title": "Save TcView File",
+        "icon": "$(save)"
+      },
+      {
+        "command": "twincat.switchToXml",
+        "title": "Switch TcView View",
+        "icon": "$(file-code)"
+      },
+      {
+        "command": "twincat.validateSyntax",
+        "title": "Validate TcView ST Syntax",
+        "icon": "$(check)"
+      },
+      {
+        "command": "twincat.showIndexStats",
+        "title": "Show TcView Index Statistics",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "twincat.checkLspStatus",
+        "title": "Check TcView Language Status",
+        "icon": "$(pulse)"
+      },
+      {
+        "command": "twincat.showPerfStats",
+        "title": "Show TcView Performance Stats",
+        "icon": "$(dashboard)"
+      }
+    ],
+    "configuration": {
+      "title": "TcView",
+      "properties": {
+        "twincat.performanceLogging": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable performance timing logs for TcView open/scan operations."
+        },
+        "twincat.diagnostics.profile": {
+          "type": "string",
+          "enum": [
+            "balanced",
+            "strict",
+            "relaxed"
+          ],
+          "default": "balanced",
+          "description": "Preset severity profile for diagnostics. balanced uses per-rule settings; strict and relaxed override them."
+        },
+        "twincat.keywordCasing": {
+          "type": "string",
+          "enum": [
+            "upper",
+            "lower",
+            "preserve"
+          ],
+          "default": "upper",
+          "description": "Keyword casing used by the IEC ST formatter."
+        },
+        "twincat.renameIncludeCommentsStrings": {
+          "type": "boolean",
+          "default": false,
+          "description": "If true, rename/references include matches inside comments and string literals."
+        },
+        "twincat.createMissingVariableDefaultSection": {
+          "type": "string",
+          "enum": [
+            "VAR",
+            "VAR_INPUT",
+            "VAR_OUTPUT",
+            "VAR_IN_OUT",
+            "VAR_TEMP"
+          ],
+          "default": "VAR",
+          "description": "Default declaration section used by quick-fix: Declare missing variable."
+        },
+        "twincat.diagnostics.undefinedVariables": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "information",
+            "hint"
+          ],
+          "default": "error",
+          "description": "Severity for undefined variable diagnostics."
+        },
+        "twincat.diagnostics.unusedVariables": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "information",
+            "hint"
+          ],
+          "default": "warning",
+          "description": "Severity for unused variable diagnostics."
+        },
+        "twincat.diagnostics.duplicateDeclarations": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "information",
+            "hint"
+          ],
+          "default": "error",
+          "description": "Severity for duplicate declaration diagnostics."
+        },
+        "twincat.diagnostics.typeMismatch": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "information",
+            "hint"
+          ],
+          "default": "error",
+          "description": "Severity for simple assignment type mismatch diagnostics."
+        }
+      }
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "twincat.refreshFiles",
+          "when": "view == twincat.files",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "twincat.openFile",
+          "when": "view == twincat.files",
+          "group": "inline"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "twincat.openFromExplorer",
+          "when": "resourceExtname == .TcPOU || resourceExtname == .TcGVL || resourceExtname == .TcDUT || resourceExtname == .TcPRG || resourceExtname == .TcAPP || resourceExtname == .TcCOM || resourceExtname == .TcVAR || resourceExtname == .TcGDS || resourceExtname == .TcIO || resourceExtname == .TcITF || resourceExtname == .tcpou || resourceExtname == .tcgvl || resourceExtname == .tcdut || resourceExtname == .tcprg || resourceExtname == .tcapp || resourceExtname == .tccom || resourceExtname == .tcvar || resourceExtname == .tcgds || resourceExtname == .tcio || resourceExtname == .tcitf",
+          "group": "navigation@1"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "twincat.switchToXml",
+          "when": "resourceScheme == twincat || (resourceScheme == file && (resourceExtname == .TcPOU || resourceExtname == .TcGVL || resourceExtname == .TcDUT || resourceExtname == .TcPRG || resourceExtname == .TcAPP || resourceExtname == .TcCOM || resourceExtname == .TcVAR || resourceExtname == .TcGDS || resourceExtname == .TcIO || resourceExtname == .TcITF || resourceExtname == .tcpou || resourceExtname == .tcgvl || resourceExtname == .tcdut || resourceExtname == .tcprg || resourceExtname == .tcapp || resourceExtname == .tccom || resourceExtname == .tcvar || resourceExtname == .tcgds || resourceExtname == .tcio || resourceExtname == .tcitf))",
+          "group": "navigation@2"
+        }
+      ]
+    },
+    "languages": [
+      {
+        "id": "iec-st",
+        "aliases": [
+          "IEC ST",
+          "Structured Text"
+        ],
+        "extensions": [
+          ".st"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "iec-st",
+        "scopeName": "source.iec-st",
+        "path": "./syntaxes/iec-st.tmLanguage.json"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "test": "npm run compile && node out/tests/languageFeatures.test.js",
+    "test:ci": "npm run test",
+    "test:integration": "npm run compile && node scripts/run-integration-tests.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.80.0",
+    "@types/xml2js": "^0.4.14",
+    "typescript": "^4.9.4",
+    "vscode-test": "^1.0.0"
+  },
+  "dependencies": {
+    "xml2js": "^0.6.2"
+  },
+  "license": "MIT",
+  "icon": "media/icon.svg",
+  "keywords": [
+    "TcView",
+    "TwinCAT",
+    "IEC 61131-3",
+    "Structured Text",
+    "PLC"
+  ]
+}

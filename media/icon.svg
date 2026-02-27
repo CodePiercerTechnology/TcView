@@ -1,0 +1,29 @@
+﻿<svg width="24" height="24" viewBox="0 0 24 24"
+     xmlns="http://www.w3.org/2000/svg" fill="none">
+
+  <!-- Tc in upper-left -->
+  <text x="1" y="7"
+        font-family="Segoe UI, sans-serif"
+        font-size="8.5"
+        font-weight="775"
+        fill="#CFCFCF">
+    Tc
+  </text>
+
+  <!-- Properly centered eye -->
+  <g transform="translate(12,13.7)">
+    <!-- Symmetric eye outline centered on 0,0 -->
+    <path d="M-10 0
+             C-6 -4 -3 -6 0 -6
+             C3 -6 6 -4 10 0
+             C6 4 3 6 0 6
+             C-3 6 -6 4 -10 0 Z"
+          stroke="#CFCFCF"
+          stroke-width="2.0"
+          stroke-linejoin="round"
+          fill="none"/>
+    <!-- Centered iris -->
+    <circle cx="0" cy="0" r="2.6" fill="#CFCFCF"/>
+  </g>
+
+</svg>
