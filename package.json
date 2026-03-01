@@ -4,6 +4,10 @@
   "description": "TcView: view and edit TwinCAT XML files as IEC Structured Text (ST).",
   "version": "0.0.1",
   "publisher": "user",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cody3690/TcView.git"
+  },
   "os": [
     "win32"
   ],
@@ -16,13 +20,6 @@
   ],
   "main": "./out/extension.js",
   "activationEvents": [
-    "onView:twincat.files",
-    "onCommand:tcview.openFile",
-    "onCommand:tcview.openLibraryReference",
-    "onCommand:tcview.openFromExplorer",
-    "onCommand:tcview.openSolution",
-    "onCommand:tcview.buildSolutionWithMsBuild",
-    "onLanguage:iec-st",
     "onFileSystem:twincat"
   ],
   "contributes": {
@@ -325,7 +322,7 @@
     "xml2js": "^0.6.2"
   },
   "license": "MIT",
-  "icon": "media/icon.svg",
+  "icon": "media/icon.png",
   "keywords": [
     "TcView",
     "TwinCAT",
