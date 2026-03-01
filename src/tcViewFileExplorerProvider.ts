@@ -464,9 +464,11 @@ export class TwinCATFileExplorerProvider
             const slnPath = files.find(name => name.toLowerCase().endsWith('.sln'));
             const tsprojPath = files.find(name => name.toLowerCase().endsWith('.tsproj'));
             const plcprojPath = files.find(name => name.toLowerCase().endsWith('.plcproj'));
+            const isTwinCATSolution = !!(slnPath && tsprojPath);
+            const isStandalonePlcProject = !!plcprojPath;
             return {
-                hasTwinCATFiles: !!(slnPath || tsprojPath || plcprojPath),
-                slnPath: slnPath ? path.join(folderPath, slnPath) : undefined,
+                hasTwinCATFiles: isTwinCATSolution || isStandalonePlcProject,
+                slnPath: isTwinCATSolution && slnPath ? path.join(folderPath, slnPath) : undefined,
                 tsprojPath: tsprojPath ? path.join(folderPath, tsprojPath) : undefined,
                 plcprojPath: plcprojPath ? path.join(folderPath, plcprojPath) : undefined
             };
