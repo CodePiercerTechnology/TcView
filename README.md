@@ -2,6 +2,13 @@
 
 TcView is a VS Code extension that lets you work with TwinCAT XML artifacts as IEC 61131-3 Structured Text (ST), so you can read, navigate, and edit PLC logic in a developer-friendly ST view while preserving XML source compatibility.
 
+## Scope
+
+- TcView is a supplemental TwinCAT development tool for VS Code.
+- It is intended for code-centric editing, browsing, lightweight inspection, and quick solution builds.
+- It is not intended to replace TwinCAT XAE.
+- Use TcView alongside XAE, not instead of XAE, when configuration, activation, online change, runtime control, or device engineering is required.
+
 ## Platform Support
 
 - TcView is currently supported on Windows only.
@@ -223,6 +230,7 @@ Project-level `.vscode/settings.json` snippet:
 - TcView is Windows-only by design, aligned with TwinCAT XAE tooling constraints.
 - It currently exposes solution build only, not full TwinCAT XAE runtime operations.
 - Library API views are derived from the current PLC project's `.tmc` and may be partial/project-scoped rather than a full library catalog.
+- TcView is intentionally a supplemental tool, not a full XAE replacement.
 - Use TcView for code-centric editing, review, and lightweight project inspection; use TwinCAT XAE for full runtime/configuration workflows.
 
 ## Development
