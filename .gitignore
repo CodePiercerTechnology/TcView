@@ -5,6 +5,9 @@ node_modules/
 out/
 dist/
 *.tsbuildinfo
+backend/**/bin/
+backend/**/obj/
+*.vsix
 
 # VS Code extension test runtime
 .vscode-test/
@@ -25,8 +28,8 @@ coverage/
 Thumbs.db
 .vscode/*
 !.vscode/extensions.json
-!.vscode/settings.json
 !.vscode/tasks.json
+!.vscode/launch.json
 
 # Env files
 .env

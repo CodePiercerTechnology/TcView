@@ -7,6 +7,12 @@ Status key:
 - `PARTIAL`: implemented but needs broader validation
 - `TODO`: not yet implemented
 
+## Platform Boundary
+
+- `PASS` Extension distribution is explicitly Windows-only.
+- `PASS` Current feature set is aligned with TwinCAT XAE and MSBuild operating constraints on Windows.
+- `TODO` If backend-driven XAE workflows return, document whether the backend is shipped self-contained or requires a user-installed `.NET` runtime.
+
 ### 1) Reliability and Data Safety
 - `PASS` Fragment save support for `METHOD`, `PROPERTY`, `GET`, `SET`, `ACTION`, `TRANSITION`.
 - `PASS` Atomic XML write with backup rollback in filesystem provider.
@@ -41,8 +47,9 @@ Acceptance checks:
 ### 4) UX and Diagnostics
 - `PASS` Quick fixes for missing semicolons, unmatched parentheses, unclosed strings, duplicate/unused declarations, missing variable declaration.
 - `PASS` Property tree UX: only `Get`/`Set` nodes open editors.
-- `PARTIAL` richer symbol docs/signature help for external libraries.
-- `TODO` richer status panel for analyzer health.
+- `PASS` Project-scoped library API viewer backed by local `.tmc` metadata.
+- `PARTIAL` richer symbol docs/signature help for external libraries and deeper library navigation.
+- `TODO` broader library coverage when current PLC `.tmc` only exposes a subset of referenced APIs.
 
 Acceptance checks:
 - Lightbulb fixes appear via `Ctrl+.`.

@@ -1,0 +1,35 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Run TcView Extension",
+            "type": "extensionHost",
+            "request": "launch",
+            "timeout": 30000,
+            "internalConsoleOptions": "neverOpen",
+            "args": [
+                "--extensionDevelopmentPath=${workspaceFolder}",
+                "${workspaceFolder}"
+            ],
+            "outFiles": [
+                "${workspaceFolder}/out/**/*.js"
+            ],
+            "preLaunchTask": "compile"
+        },
+        {
+            "name": "Run TcView Extension (Watch)",
+            "type": "extensionHost",
+            "request": "launch",
+            "timeout": 30000,
+            "internalConsoleOptions": "neverOpen",
+            "args": [
+                "--extensionDevelopmentPath=${workspaceFolder}",
+                "${workspaceFolder}"
+            ],
+            "outFiles": [
+                "${workspaceFolder}/out/**/*.js"
+            ],
+            "preLaunchTask": "watch"
+        }
+    ]
+}

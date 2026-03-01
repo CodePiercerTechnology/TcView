@@ -4,6 +4,9 @@
   "description": "TcView: view and edit TwinCAT XML files as IEC Structured Text (ST).",
   "version": "0.0.1",
   "publisher": "user",
+  "os": [
+    "win32"
+  ],
   "engines": {
     "vscode": "^1.80.0"
   },
@@ -13,7 +16,13 @@
   ],
   "main": "./out/extension.js",
   "activationEvents": [
-    "onStartupFinished",
+    "onView:twincat.files",
+    "onCommand:tcview.openFile",
+    "onCommand:tcview.openLibraryReference",
+    "onCommand:tcview.openFromExplorer",
+    "onCommand:tcview.openSolution",
+    "onCommand:tcview.buildSolutionWithMsBuild",
+    "onLanguage:iec-st",
     "onFileSystem:twincat"
   ],
   "contributes": {
@@ -36,6 +45,18 @@
         }
       ]
     },
+    "viewsWelcome": [
+      {
+        "view": "twincat.files",
+        "contents": "No folder is open.\n[Open TwinCAT Solution or Project](command:tcview.openSolution)",
+        "when": "workspaceFolderCount == 0 && tcview.discoveryComplete"
+      },
+      {
+        "view": "twincat.files",
+        "contents": "No TwinCAT solution or project was found in this folder.\n[Open TwinCAT Solution or Project](command:tcview.openSolution)",
+        "when": "workspaceFolderCount != 0 && tcview.discoveryComplete && !tcview.hasTwinCATFiles && !tcview.isLookingForTwinCAT"
+      }
+    ],
     "commands": [
       {
         "command": "tcview.refreshFiles",
@@ -47,14 +68,19 @@
         "title": "Open in TcView"
       },
       {
+        "command": "tcview.openLibraryReference",
+        "title": "Open TwinCAT Library Reference",
+        "icon": "$(library)"
+      },
+      {
         "command": "tcview.openFromExplorer",
         "title": "Open in TcView",
         "icon": "$(file-code)"
       },
       {
-        "command": "tcview.saveToXml",
-        "title": "Save TcView File",
-        "icon": "$(save)"
+        "command": "tcview.openSolution",
+        "title": "Open TwinCAT Solution or Project",
+        "icon": "$(folder-opened)"
       },
       {
         "command": "tcview.switchToXml",
@@ -82,14 +108,14 @@
         "icon": "$(dashboard)"
       },
       {
+        "command": "tcview.buildSolutionWithMsBuild",
+        "title": "Build TwinCAT Solution",
+        "icon": "$(project)"
+      },
+      {
         "command": "tcview.showLibraries",
         "title": "Show TcView Libraries",
         "icon": "$(library)"
-      },
-      {
-        "command": "tcview.showBackendStatus",
-        "title": "Show TcView Backend Status",
-        "icon": "$(pulse)"
       }
     ],
     "configuration": {
@@ -100,28 +126,28 @@
           "default": false,
           "description": "Enable performance timing logs for TcView open/scan operations."
         },
-        "twincat.backend.enabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable the TcView C# backend process for TwinCAT project/library scanning."
-        },
-        "twincat.backend.executablePath": {
-          "type": "string",
-          "default": "",
-          "description": "Absolute path to TcView.Backend executable. Leave empty for auto-discovery (recommended)."
-        },
-        "twincat.backend.preferAutomationInterface": {
+        "twincat.showSaveNotification": {
           "type": "boolean",
           "default": false,
-          "description": "Try TwinCAT Automation Interface first. When false, TcView uses TMC/source-first and uses Automation Interface as fallback."
+          "description": "Show a confirmation notification after saving ST changes back to the source XML."
         },
-        "twincat.backend.librarySourceRoots": {
+        "twincat.build.msbuildPath": {
+          "type": "string",
+          "default": "",
+          "description": "Optional absolute path to MSBuild.exe. When set, TcView uses this before auto-discovery."
+        },
+        "twincat.build.suppressUnsupportedTsprojWarning": {
+          "type": "boolean",
+          "default": true,
+          "description": "Suppress MSBuild warning MSB4078 for unsupported TwinCAT .tsproj entries when building solutions."
+        },
+        "twincat.build.msbuildNoWarn": {
           "type": "array",
           "default": [],
           "items": {
             "type": "string"
           },
-          "description": "Additional root folders to search for TwinCAT library source projects so TcView can resolve concrete library symbols."
+          "description": "Additional MSBuild warning codes to suppress via /nowarn (for example: [\"MSB4011\"])."
         },
         "twincat.backend.tmcRoots": {
           "type": "array",
@@ -130,11 +156,6 @@
             "type": "string"
           },
           "description": "Root folders to search for TwinCAT .tmc files used as compiled symbol/type context (ai > tmc > source > metadata)."
-        },
-        "twincat.backend.autoBuildTmcIfMissing": {
-          "type": "boolean",
-          "default": true,
-          "description": "If no .tmc is found in the project path, TcView backend will attempt a best-effort TwinCAT Automation Interface build to generate one."
         },
         "twincat.diagnostics.profile": {
           "type": "string",
@@ -225,13 +246,23 @@
           "command": "tcview.refreshFiles",
           "when": "view == twincat.files",
           "group": "navigation"
+        },
+        {
+          "command": "tcview.openSolution",
+          "when": "view == twincat.files",
+          "group": "navigation@1"
+        },
+        {
+          "command": "tcview.buildSolutionWithMsBuild",
+          "when": "view == twincat.files && tcview.hasSolution",
+          "group": "navigation@2"
         }
       ],
       "view/item/context": [
         {
-          "command": "tcview.openFile",
-          "when": "view == twincat.files",
-          "group": "inline"
+          "command": "tcview.buildSolutionWithMsBuild",
+          "when": "view == twincat.files && tcview.hasSolution",
+          "group": "navigation@2"
         }
       ],
       "explorer/context": [
@@ -239,6 +270,11 @@
           "command": "tcview.openFromExplorer",
           "when": "resourceExtname == .TcPOU || resourceExtname == .TcGVL || resourceExtname == .TcDUT || resourceExtname == .TcPRG || resourceExtname == .TcAPP || resourceExtname == .TcCOM || resourceExtname == .TcVAR || resourceExtname == .TcGDS || resourceExtname == .TcIO || resourceExtname == .TcITF || resourceExtname == .tcpou || resourceExtname == .tcgvl || resourceExtname == .tcdut || resourceExtname == .tcprg || resourceExtname == .tcapp || resourceExtname == .tccom || resourceExtname == .tcvar || resourceExtname == .tcgds || resourceExtname == .tcio || resourceExtname == .tcitf",
           "group": "navigation@1"
+        },
+        {
+          "command": "tcview.buildSolutionWithMsBuild",
+          "when": "tcview.hasSolution && (explorerResourceIsFolder || resourceExtname == .sln)",
+          "group": "navigation@2"
         }
       ],
       "editor/title": [

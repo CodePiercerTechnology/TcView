@@ -49,7 +49,8 @@ export class TwinCATXmlConverter {
                 try {
                     const updatedXml = this.updateXmlWithST(result, stContent);
                     const xmlString = this.builder.buildObject(updatedXml);
-                    resolve(this.prependOriginalXmlDeclaration(xmlString, originalXml));
+                    const withPreservedCData = this.preserveOriginalCDataWrappers(xmlString, originalXml);
+                    resolve(this.prependOriginalXmlDeclaration(withPreservedCData, originalXml));
                 } catch (error) {
                     reject(error);
                 }
@@ -610,5 +611,46 @@ export class TwinCATXmlConverter {
         const declaration = match[1].trim();
         const body = xml.replace(/^\uFEFF?\s*/, '');
         return `${declaration}\n${body}`;
+    }
+
+    private preserveOriginalCDataWrappers(xml: string, originalXml: string): string {
+        let output = xml;
+        for (const tagName of ['Declaration', 'ST']) {
+            if (!this.originalUsesCDataForTag(originalXml, tagName)) {
+                continue;
+            }
+            output = this.forceTagContentToCData(output, tagName);
+        }
+        return output;
+    }
+
+    private originalUsesCDataForTag(xml: string, tagName: string): boolean {
+        const pattern = new RegExp(`<${tagName}\\b[^>]*>\\s*<!\\[CDATA\\[`, 'i');
+        return pattern.test(xml);
+    }
+
+    private forceTagContentToCData(xml: string, tagName: string): string {
+        const pattern = new RegExp(`<${tagName}(\\b[^>]*)>([\\s\\S]*?)<\\/${tagName}>`, 'g');
+        return xml.replace(pattern, (full: string, attrs: string, inner: string) => {
+            if (inner.trimStart().startsWith('<![CDATA[')) {
+                return full;
+            }
+            if (/<[A-Za-z_]/.test(inner)) {
+                return full;
+            }
+
+            const decoded = this.decodeXmlEntities(inner);
+            const safe = decoded.replace(/]]>/g, ']]]]><![CDATA[>');
+            return `<${tagName}${attrs}><![CDATA[${safe}]]></${tagName}>`;
+        });
+    }
+
+    private decodeXmlEntities(text: string): string {
+        return text
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&apos;/g, '\'')
+            .replace(/&amp;/g, '&');
     }
 }

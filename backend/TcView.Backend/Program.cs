@@ -1,7 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
-using System.IO.Compression;
 using System.Xml.Linq;
 
 var jsonOptions = new JsonSerializerOptions
@@ -39,6 +38,7 @@ while (true)
     {
         "initialize" => HandleInitialize(request),
         "scanProject" => HandleScanProject(request),
+        "runPipeline" => HandleRunPipeline(request),
         _ => new ScanResult(
             Array.Empty<LibraryRef>(),
             Array.Empty<BackendSymbol>(),
@@ -149,6 +149,168 @@ static object HandleScanProject(JsonObject request)
     }
 
     return new ScanResult(libraries, metadataSymbols, librarySymbols, diagnostics);
+}
+
+static object HandleRunPipeline(JsonObject request)
+{
+    var projectPath = request["params"]?["projectPath"]?.GetValue<string>();
+    var anchorPath = request["params"]?["anchorPath"]?.GetValue<string>();
+    var activateConfiguration = request["params"]?["activateConfiguration"]?.GetValue<bool?>() ?? true;
+    var login = request["params"]?["login"]?.GetValue<bool?>() ?? true;
+    var startRuntime = request["params"]?["startRuntime"]?.GetValue<bool?>() ?? true;
+    var diagnostics = new List<string>();
+
+    if (string.IsNullOrWhiteSpace(projectPath) || !Directory.Exists(projectPath))
+    {
+        return new { success = false, diagnostics = new[] { "runPipeline: project path missing or not found." } };
+    }
+
+    var resolvedProgId = ResolveAutomationProgId();
+    var progIdType = resolvedProgId is not null ? Type.GetTypeFromProgID(resolvedProgId) : null;
+    if (progIdType is null)
+    {
+        return new
+        {
+            success = false,
+            diagnostics = new[] { "runPipeline: Automation Interface not available (ProgID not found)." }
+        };
+    }
+    diagnostics.Add($"runPipeline: using Automation Interface ProgID {resolvedProgId}");
+
+    var tsproj = ResolvePipelineTsproj(projectPath, anchorPath);
+    if (string.IsNullOrWhiteSpace(tsproj))
+    {
+        return new { success = false, diagnostics = new[] { "runPipeline: no .tsproj found." } };
+    }
+    diagnostics.Add($"runPipeline: target tsproj {tsproj}");
+
+    var finished = new ManualResetEventSlim(false);
+    Exception? threadError = null;
+    var success = true;
+
+    var thread = new Thread(() =>
+    {
+        object? sysManager = null;
+        try
+        {
+            sysManager = Activator.CreateInstance(progIdType);
+            if (sysManager is null)
+            {
+                diagnostics.Add("runPipeline: failed to create SysManager instance.");
+                success = false;
+                return;
+            }
+
+            if (!TryInvoke(sysManager, "OpenConfiguration", tsproj) &&
+                !TryInvoke(sysManager, "OpenProject", tsproj) &&
+                !TryInvoke(sysManager, "Open", tsproj))
+            {
+                diagnostics.Add("runPipeline: could not open project via OpenConfiguration/OpenProject/Open.");
+                success = false;
+                return;
+            }
+            diagnostics.Add("runPipeline: project opened.");
+
+            if (activateConfiguration)
+            {
+                var activated =
+                    TryInvoke(sysManager, "ActivateConfiguration") ||
+                    TryInvoke(sysManager, "ActivateConfig") ||
+                    TryInvoke(sysManager, "Activate");
+                diagnostics.Add(activated
+                    ? "runPipeline: configuration activation requested and invoked."
+                    : "runPipeline: configuration activation method unavailable/failed.");
+                success &= activated;
+            }
+
+            if (login)
+            {
+                var loggedIn =
+                    TryInvoke(sysManager, "Login") ||
+                    TryInvoke(sysManager, "LoginAndStart") ||
+                    TryInvoke(sysManager, "Online");
+                diagnostics.Add(loggedIn
+                    ? "runPipeline: PLC login requested and invoked."
+                    : "runPipeline: login method unavailable/failed.");
+                success &= loggedIn;
+            }
+
+            if (startRuntime)
+            {
+                var started =
+                    TryInvoke(sysManager, "StartRestartTwinCAT") ||
+                    TryInvoke(sysManager, "StartRestartTwinCat") ||
+                    TryInvoke(sysManager, "Start") ||
+                    TryInvoke(sysManager, "Run");
+                diagnostics.Add(started
+                    ? "runPipeline: runtime start requested and invoked."
+                    : "runPipeline: runtime start method unavailable/failed.");
+                success &= started;
+            }
+
+            TryInvoke(sysManager, "SaveConfiguration");
+            TryInvoke(sysManager, "CloseConfiguration");
+            TryInvoke(sysManager, "Close");
+        }
+        catch (Exception ex)
+        {
+            threadError = ex;
+            success = false;
+        }
+        finally
+        {
+            finished.Set();
+        }
+    });
+
+    thread.SetApartmentState(ApartmentState.STA);
+    thread.IsBackground = true;
+    thread.Start();
+
+    if (!finished.Wait(TimeSpan.FromSeconds(45)))
+    {
+        diagnostics.Add("runPipeline: timed out after 45 seconds.");
+        success = false;
+        return new { success, diagnostics };
+    }
+
+    if (threadError is not null)
+    {
+        diagnostics.Add($"runPipeline: failed with exception: {threadError.Message}");
+        success = false;
+    }
+
+    return new { success, diagnostics };
+}
+
+static string? ResolvePipelineTsproj(string projectPath, string? anchorPath)
+{
+    var candidates = Directory.EnumerateFiles(projectPath, "*.tsproj", SearchOption.AllDirectories).ToArray();
+    if (candidates.Length == 0)
+    {
+        return null;
+    }
+    if (candidates.Length == 1 || string.IsNullOrWhiteSpace(anchorPath))
+    {
+        return candidates[0];
+    }
+
+    var anchor = anchorPath.Replace('/', Path.DirectorySeparatorChar);
+    var best = candidates
+        .OrderByDescending(candidate => SharedPrefixLength(anchor, candidate))
+        .FirstOrDefault();
+    return best ?? candidates[0];
+}
+
+static int SharedPrefixLength(string a, string b)
+{
+    var max = Math.Min(a.Length, b.Length);
+    var i = 0;
+    while (i < max && char.ToLowerInvariant(a[i]) == char.ToLowerInvariant(b[i]))
+    {
+        i++;
+    }
+    return i;
 }
 
 static IReadOnlyList<LibraryRef> ScanLibrariesViaAutomationInterface(string projectPath, List<string> diagnostics)
@@ -302,20 +464,6 @@ static IReadOnlyList<LibraryRef> ScanLibrariesFromFolders(string projectPath, Li
     foreach (var file in files)
     {
         result.Add(ParseLibraryPath(file));
-    }
-
-    // Add a lightweight archive probe to enrich diagnostics.
-    foreach (var lib in result.Where(r => r.Path.EndsWith(".library", StringComparison.OrdinalIgnoreCase)).Take(3))
-    {
-        try
-        {
-            using var zip = ZipFile.OpenRead(lib.Path);
-            diagnostics.Add($"{lib.Name}: archive entries={zip.Entries.Count}");
-        }
-        catch (Exception ex)
-        {
-            diagnostics.Add($"{lib.Name}: archive probe failed: {ex.Message}");
-        }
     }
 
     return result;
@@ -497,6 +645,12 @@ static IReadOnlyList<BackendSymbol> BuildLibrarySourceSymbols(
 
     foreach (var lib in uniqueLibraries)
     {
+        if (IsMetadataPreferredLibrary(lib.Name))
+        {
+            diagnostics.Add($"Library source skipped for metadata-preferred library: {lib.Name}");
+            continue;
+        }
+
         var sourceDirs = ResolveLibrarySourceDirectories(lib.Name, librarySourceRoots).ToArray();
         if (sourceDirs.Length == 0)
         {
@@ -516,6 +670,13 @@ static IReadOnlyList<BackendSymbol> BuildLibrarySourceSymbols(
     return symbols
         .DistinctBy(s => $"{s.Library}|{s.Name}|{s.Kind}|{s.Origin}".ToUpperInvariant())
         .ToList();
+}
+
+static bool IsMetadataPreferredLibrary(string libraryName)
+{
+    return libraryName.Equals("Tc2_Standard", StringComparison.OrdinalIgnoreCase) ||
+           libraryName.Equals("Tc2_System", StringComparison.OrdinalIgnoreCase) ||
+           libraryName.Equals("Tc3_Module", StringComparison.OrdinalIgnoreCase);
 }
 
 static IReadOnlyList<BackendSymbol> BuildManagedLibraryBrowserCacheSymbols(

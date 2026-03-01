@@ -283,6 +283,7 @@ export async function applyFragmentSTToXml(xmlString: string, fragment: string, 
     const parser = new xml2js.Parser({ explicitArray: false, mergeAttrs: true });
     const builder = new xml2js.Builder({
         headless: true,
+        cdata: true,
         renderOpts: { pretty: true, indent: '  ', newline: '\n' }
     });
     const xmlObj = await parser.parseStringPromise(xmlString);
@@ -294,7 +295,9 @@ export async function applyFragmentSTToXml(xmlString: string, fragment: string, 
     if (!element) throw new Error(`Fragment not found: ${rawType}:${fragmentName}`);
 
     applyStToFragmentElement(fragmentType, element, stCode);
-    return prependOriginalXmlDeclaration(builder.buildObject(xmlObj), xmlString);
+    const rebuilt = builder.buildObject(xmlObj);
+    const withPreservedCData = preserveOriginalCDataWrappers(rebuilt, xmlString);
+    return prependOriginalXmlDeclaration(withPreservedCData, xmlString);
 }
 
 function prependOriginalXmlDeclaration(xml: string, originalXml: string): string {
@@ -306,5 +309,46 @@ function prependOriginalXmlDeclaration(xml: string, originalXml: string): string
     const declaration = match[1].trim();
     const body = xml.replace(/^\uFEFF?\s*/, '');
     return `${declaration}\n${body}`;
+}
+
+function preserveOriginalCDataWrappers(xml: string, originalXml: string): string {
+    let output = xml;
+    for (const tagName of ['Declaration', 'ST']) {
+        if (!originalUsesCDataForTag(originalXml, tagName)) {
+            continue;
+        }
+        output = forceTagContentToCData(output, tagName);
+    }
+    return output;
+}
+
+function originalUsesCDataForTag(xml: string, tagName: string): boolean {
+    const pattern = new RegExp(`<${tagName}\\b[^>]*>\\s*<!\\[CDATA\\[`, 'i');
+    return pattern.test(xml);
+}
+
+function forceTagContentToCData(xml: string, tagName: string): string {
+    const pattern = new RegExp(`<${tagName}(\\b[^>]*)>([\\s\\S]*?)<\\/${tagName}>`, 'g');
+    return xml.replace(pattern, (full: string, attrs: string, inner: string) => {
+        if (inner.trimStart().startsWith('<![CDATA[')) {
+            return full;
+        }
+        if (/<[A-Za-z_]/.test(inner)) {
+            return full;
+        }
+
+        const decoded = decodeXmlEntities(inner);
+        const safe = decoded.replace(/]]>/g, ']]]]><![CDATA[>');
+        return `<${tagName}${attrs}><![CDATA[${safe}]]></${tagName}>`;
+    });
+}
+
+function decodeXmlEntities(text: string): string {
+    return text
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&apos;/g, '\'')
+        .replace(/&amp;/g, '&');
 }
 

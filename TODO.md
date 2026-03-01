@@ -1,24 +1,21 @@
-# Cleanup Complete
+# TcView Roadmap
 
-## Summary of Changes
+## Current State
 
-### Removed Files (dead code):
-- `src/twinCATXmlViewerProvider.ts` - Unused custom editor provider
-- `src/twinCATXmlViewerProvider.js` - Stale compiled file
-- `src/extension.js` - Stale compiled file  
-- `src/twinCATXmlConverter.js` - Stale compiled file
-- `out/twinCATXmlViewerProvider.js` - Unused webview provider
-- `out/twinCATXmlViewerProvider.js.map` - Unused source map
-- `media/webview.css` - Unused webview styles
-- `media/webview.js` - Unused webview scripts
+- ST-first editing for TwinCAT XML artifacts is in place.
+- TcView sidebar is solution/project aware and groups content into `SYSTEM`, `PLC`, and `I/O`.
+- Library references can be opened in a project-scoped API viewer backed by local `.tmc` data.
+- Solution build is available through `MSBuild`.
 
-### Updated Files:
-- `README.md` - Updated project structure to reflect current state
+## Near-Term Work
 
-### Key Finding:
-The extension's ST code already ties to VSCode themes through:
-1. Native text editor integration (VSCode's own editor)
-2. TextMate grammar (`syntaxes/iec-st.tmLanguage.json`) with scope names
-3. VSCode automatically maps scopes to current theme colors
+1. Tighten library viewer coverage and presentation.
+2. Add more fixture-based save and parsing regressions.
+3. Improve large-workspace scan/index performance.
+4. Expand `.tsproj`-driven tree structure beyond top-level grouping.
 
-No code changes were needed - the integration was already working correctly!
+## Later Work
+
+1. Design a TwinCAT XAE-style runtime/configuration workflow before reintroducing activate/login/start actions.
+2. Add richer source/TMC cross-navigation from library API items.
+3. Add broader TwinCAT schema compatibility testing across versions.

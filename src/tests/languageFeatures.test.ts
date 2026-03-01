@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import { buildAstAnalysis } from '../iecStAst';
-import { applyFragmentSTToXml, extractFragmentSTFromXml } from '../twinCATFragmentCodec';
+import { applyFragmentSTToXml, extractFragmentSTFromXml } from '../tcViewFragmentCodec';
 
 function isCaseLabel(line: string): boolean {
     return /^\s*([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*|\d+)(\s*\.\.\s*([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*|\d+))?(\s*,\s*([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*|\d+)(\s*\.\.\s*([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*|\d+))?)*\s*:\s*(\/\/.*)?$/i.test(line);

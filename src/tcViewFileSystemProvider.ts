@@ -1,9 +1,9 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as xml2js from 'xml2js';
-import { TwinCATXmlConverter } from './twinCATXmlConverter';
-import { logError } from './twinCATTelemetry';
-import { applyFragmentSTToXml, extractFragmentSTFromXml } from './twinCATFragmentCodec';
+import { TwinCATXmlConverter } from './tcViewXmlConverter';
+import { logError } from './tcViewTelemetry';
+import { applyFragmentSTToXml, extractFragmentSTFromXml } from './tcViewFragmentCodec';
 
 export class TwinCATFileSystemProvider implements vscode.FileSystemProvider {
     private _onDidChangeFile = new vscode.EventEmitter<vscode.FileChangeEvent[]>();
