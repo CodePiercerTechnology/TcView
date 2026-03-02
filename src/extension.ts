@@ -19,6 +19,15 @@ export function activate(context: vscode.ExtensionContext) {
     const redirectInProgress = new Set<string>();
     const skipNextAutoRedirect = new Set<string>();
     const lastFragmentBySource = new Map<string, string>();
+    const isInterfaceAccessorFragment = (uri: vscode.Uri) => {
+        const fragment = (uri.fragment || '').toLowerCase();
+        if (fragment !== 'propertyget' && !fragment.startsWith('propertyget:') && fragment !== 'propertyset' && !fragment.startsWith('propertyset:')) {
+            return false;
+        }
+
+        const ext = path.extname(uri.fsPath).toLowerCase();
+        return ext === '.tcitf' || ext === '.tcio';
+    };
     const updateTreeDiscoveryContext = async (state: { hasTwinCATFiles: boolean; isLoading: boolean; discoveryComplete: boolean }) => {
         await vscode.commands.executeCommand('setContext', 'tcview.hasTwinCATFiles', state.hasTwinCATFiles);
         await vscode.commands.executeCommand('setContext', 'tcview.isLookingForTwinCAT', state.isLoading);
@@ -831,7 +840,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
 
         const lines = libs.map(lib =>
-            `${lib.vendor ?? 'Unknown vendor'} | ${lib.name} | ${lib.version} | ${lib.mode}`
+            `${lib.vendor ?? 'Unknown vendor'} | ${lib.name} | ${lib.version} | ${lib.mode}${lib.installPath ? ` | ${lib.installPath}` : ''}`
         );
 
         const doc = await vscode.workspace.openTextDocument({
@@ -839,6 +848,257 @@ export function activate(context: vscode.ExtensionContext) {
             content: ['Detected TwinCAT Libraries', '==========================', '', ...lines].join('\n')
         });
         await vscode.window.showTextDocument(doc, { preview: false });
+    });
+
+    type WorkspaceLibraryCatalogEntry = {
+        name: string;
+        vendor?: string;
+        version?: string;
+        infoUrl?: string;
+        dependencies?: string[];
+        functionBlocks?: Array<{ name: string; documentation?: string; members?: Record<string, string> }>;
+        functions?: Array<{ name: string; returnType?: string; documentation?: string }>;
+        programs?: Array<{ name: string; documentation?: string; members?: Record<string, string> }>;
+        variables?: Array<{ name: string; type?: string; documentation?: string }>;
+        dataTypes?: Array<{ name: string; kind?: 'struct' | 'enum' | 'alias'; documentation?: string; members?: Record<string, string> }>;
+    };
+
+    type WorkspaceLibraryCatalog = {
+        libraries: WorkspaceLibraryCatalogEntry[];
+    };
+
+    const libraryMetadataTemplate: WorkspaceLibraryCatalog = {
+        libraries: [
+            {
+                name: 'MyCompanyLib',
+                vendor: 'My Company',
+                version: '1.0.0',
+                infoUrl: 'https://example.invalid/docs/mycompanylib',
+                dependencies: ['Tc2_System'],
+                functionBlocks: [
+                    {
+                        name: 'FB_Device',
+                        documentation: 'Describe the function block here.',
+                        members: {
+                            bEnable: 'BOOL',
+                            bReady: 'BOOL'
+                        }
+                    }
+                ],
+                dataTypes: [
+                    {
+                        name: 'ST_DeviceConfig',
+                        kind: 'struct',
+                        members: {
+                            sName: 'STRING',
+                            nTimeoutMs: 'UDINT'
+                        }
+                    }
+                ]
+            }
+        ]
+    };
+
+    const libraryArchiveExtensions = new Set(['.library', '.compiled-library', '.compiled-library-v3', '.compiled-library-ge33']);
+    const normalizeLibraryKey = (name: string, vendor?: string) =>
+        `${name.replace(/[^A-Za-z0-9]/g, '').toUpperCase()}|${(vendor ?? '').replace(/[^A-Za-z0-9]/g, '').toUpperCase()}`;
+
+    const getWorkspaceLibraryMetadataUri = () => {
+        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (!workspaceRoot) {
+            return undefined;
+        }
+        return vscode.Uri.file(path.join(workspaceRoot, '.vscode', 'tcview.libraries.json'));
+    };
+
+    const readWorkspaceLibraryCatalog = async (targetUri: vscode.Uri): Promise<WorkspaceLibraryCatalog> => {
+        try {
+            const bytes = await vscode.workspace.fs.readFile(targetUri);
+            const parsed = JSON.parse(Buffer.from(bytes).toString('utf8')) as Partial<WorkspaceLibraryCatalog>;
+            return {
+                libraries: Array.isArray(parsed.libraries) ? parsed.libraries : []
+            };
+        } catch {
+            return { libraries: [] };
+        }
+    };
+
+    const writeWorkspaceLibraryCatalog = async (targetUri: vscode.Uri, catalog: WorkspaceLibraryCatalog) => {
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(targetUri.fsPath)));
+        const payload = `${JSON.stringify(catalog, null, 2)}\n`;
+        await vscode.workspace.fs.writeFile(targetUri, Buffer.from(payload, 'utf8'));
+    };
+
+    const ensureWorkspaceLibraryCatalog = async (seedWithTemplate: boolean) => {
+        const targetUri = getWorkspaceLibraryMetadataUri();
+        if (!targetUri) {
+            vscode.window.showWarningMessage('TcView: Open a workspace folder before creating library metadata.');
+            return undefined;
+        }
+
+        const exists = fs.existsSync(targetUri.fsPath);
+        if (!exists) {
+            await writeWorkspaceLibraryCatalog(targetUri, seedWithTemplate ? libraryMetadataTemplate : { libraries: [] });
+        }
+        return targetUri;
+    };
+
+    const isVersionLikeSegment = (segment: string) => /^\d+(\.\d+)*$/.test(segment.trim());
+
+    const findVersionDirectoryForImport = async (targetPath: string): Promise<string | undefined> => {
+        let stat: fs.Stats;
+        try {
+            stat = await fs.promises.stat(targetPath);
+        } catch {
+            return undefined;
+        }
+
+        if (stat.isFile()) {
+            const ext = path.extname(targetPath).toLowerCase();
+            if (libraryArchiveExtensions.has(ext) || path.basename(targetPath).toLowerCase() === 'dependencies') {
+                return path.dirname(targetPath);
+            }
+            return undefined;
+        }
+
+        if (!stat.isDirectory()) {
+            return undefined;
+        }
+
+        try {
+            const entries = await fs.promises.readdir(targetPath, { withFileTypes: true });
+            const hasLibraryMarkers = entries.some(entry =>
+                (entry.isFile() && (libraryArchiveExtensions.has(path.extname(entry.name).toLowerCase()) || entry.name.toLowerCase() === 'dependencies'))
+            );
+            if (hasLibraryMarkers) {
+                return targetPath;
+            }
+
+            const versionDirs = entries
+                .filter(entry => entry.isDirectory() && isVersionLikeSegment(entry.name))
+                .map(entry => entry.name)
+                .sort((a, b) => b.localeCompare(a));
+            for (const versionDir of versionDirs) {
+                const candidate = path.join(targetPath, versionDir);
+                const resolved = await findVersionDirectoryForImport(candidate);
+                if (resolved) {
+                    return resolved;
+                }
+            }
+        } catch {
+            return undefined;
+        }
+
+        return undefined;
+    };
+
+    const readDependencyFile = async (versionDir: string) => {
+        try {
+            const text = await fs.promises.readFile(path.join(versionDir, 'dependencies'), 'utf8');
+            return text
+                .split(/\r?\n/)
+                .map(line => line.trim().replace(/^#/, '').trim())
+                .filter(Boolean);
+        } catch {
+            return [] as string[];
+        }
+    };
+
+    const deriveLibraryMetadataFromPath = async (targetPath: string): Promise<WorkspaceLibraryCatalogEntry | undefined> => {
+        const versionDir = await findVersionDirectoryForImport(targetPath);
+        if (!versionDir) {
+            return undefined;
+        }
+
+        const versionSegment = path.basename(versionDir);
+        const libraryDir = path.dirname(versionDir);
+        const vendorDir = path.dirname(libraryDir);
+        const version = isVersionLikeSegment(versionSegment) ? versionSegment : undefined;
+        const name = version ? path.basename(libraryDir) : path.basename(versionDir);
+        const vendor = version ? path.basename(vendorDir) : undefined;
+        const dependencies = await readDependencyFile(versionDir);
+
+        return {
+            name,
+            vendor,
+            version,
+            dependencies,
+            functionBlocks: [],
+            functions: [],
+            programs: [],
+            variables: [],
+            dataTypes: []
+        };
+    };
+
+    const mergeWorkspaceLibraryEntry = (
+        existing: WorkspaceLibraryCatalogEntry | undefined,
+        imported: WorkspaceLibraryCatalogEntry
+    ): WorkspaceLibraryCatalogEntry => ({
+        name: imported.name,
+        vendor: existing?.vendor ?? imported.vendor,
+        version: existing?.version ?? imported.version,
+        infoUrl: existing?.infoUrl,
+        dependencies: [...new Set([...(existing?.dependencies ?? []), ...(imported.dependencies ?? [])])].sort((a, b) => a.localeCompare(b)),
+        functionBlocks: existing?.functionBlocks ?? imported.functionBlocks ?? [],
+        functions: existing?.functions ?? imported.functions ?? [],
+        programs: existing?.programs ?? imported.programs ?? [],
+        variables: existing?.variables ?? imported.variables ?? [],
+        dataTypes: existing?.dataTypes ?? imported.dataTypes ?? []
+    });
+
+    const createLibraryMetadataTemplateCommand = vscode.commands.registerCommand('tcview.createLibraryMetadataTemplate', async () => {
+        const targetUri = await ensureWorkspaceLibraryCatalog(true);
+        if (!targetUri) {
+            return;
+        }
+
+        const document = await vscode.workspace.openTextDocument(targetUri);
+        await vscode.window.showTextDocument(document, { preview: false });
+    });
+
+    const importLibraryMetadataCommand = vscode.commands.registerCommand('tcview.importLibraryMetadata', async (targetArg?: vscode.Uri) => {
+        let targetUri = targetArg;
+        if (!targetUri) {
+            const selection = await vscode.window.showOpenDialog({
+                canSelectFiles: true,
+                canSelectFolders: true,
+                canSelectMany: false,
+                openLabel: 'Import TwinCAT Library Metadata'
+            });
+            if (!selection || selection.length === 0) {
+                return;
+            }
+            targetUri = selection[0];
+        }
+
+        const importedEntry = await deriveLibraryMetadataFromPath(targetUri.fsPath);
+        if (!importedEntry) {
+            vscode.window.showWarningMessage('TcView: Select a TwinCAT managed library version folder, a .library file, or a compiled library file.');
+            return;
+        }
+
+        const metadataUri = await ensureWorkspaceLibraryCatalog(false);
+        if (!metadataUri) {
+            return;
+        }
+
+        const catalog = await readWorkspaceLibraryCatalog(metadataUri);
+        const importKey = normalizeLibraryKey(importedEntry.name, importedEntry.vendor);
+        const existingIndex = catalog.libraries.findIndex(entry => normalizeLibraryKey(entry.name, entry.vendor) === importKey);
+        const mergedEntry = mergeWorkspaceLibraryEntry(existingIndex >= 0 ? catalog.libraries[existingIndex] : undefined, importedEntry);
+
+        if (existingIndex >= 0) {
+            catalog.libraries[existingIndex] = mergedEntry;
+        } else {
+            catalog.libraries.push(mergedEntry);
+            catalog.libraries.sort((a, b) => a.name.localeCompare(b.name));
+        }
+
+        await writeWorkspaceLibraryCatalog(metadataUri, catalog);
+        const document = await vscode.workspace.openTextDocument(metadataUri);
+        await vscode.window.showTextDocument(document, { preview: false });
+        vscode.window.showInformationMessage(`TcView: Imported library metadata for ${mergedEntry.name}.`);
     });
 
     const escapeHtml = (value: string) =>
@@ -854,13 +1114,24 @@ export function activate(context: vscode.ExtensionContext) {
         api: ReturnType<ReturnType<typeof getProjectAnalyzer>['getLibraryApi']>
     ) => {
         const reference = api.reference;
+        const provenances = new Set([
+            ...api.symbols.map(symbol => symbol.provenance).filter(Boolean),
+            ...api.dataTypes.map(typeInfo => typeInfo.provenance).filter(Boolean)
+        ]);
+        const hasTmcApi = provenances.has('tmc');
+        const hasBuiltInApi = provenances.has('built_in');
+        const hasUserApi = provenances.has('user');
         const hasResolvedApi = api.symbols.length > 0 || api.dataTypes.length > 0;
-        const coverageLabel = hasResolvedApi
+        const coverageLabel = hasTmcApi
             ? 'TMC-derived API: partial/project-scoped'
-            : reference?.mode === 'metadata_only'
-                ? 'Metadata only'
-                : 'No TMC API found';
-        const coverageTone = hasResolvedApi ? 'partial' : reference?.mode === 'metadata_only' ? 'metadata' : 'missing';
+            : hasUserApi
+                ? 'User metadata API'
+                : hasBuiltInApi
+                    ? 'Built-in metadata API'
+                    : reference?.mode === 'metadata_only'
+                        ? 'Metadata only'
+                        : 'No TMC API found';
+        const coverageTone = hasTmcApi ? 'partial' : hasResolvedApi ? 'metadata' : 'missing';
         const functionBlockNames = new Set(api.symbols.filter(symbol => symbol.kind === 'functionBlock').map(symbol => symbol.name.toUpperCase()));
         const programNames = new Set(api.symbols.filter(symbol => symbol.kind === 'program').map(symbol => symbol.name.toUpperCase()));
         const typeItems = api.dataTypes.filter(typeInfo => !functionBlockNames.has(typeInfo.name.toUpperCase()) && !programNames.has(typeInfo.name.toUpperCase()));
@@ -873,7 +1144,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         const renderMembers = (members?: Map<string, string>) => {
             if (!members || members.size === 0) {
-                return '<div class="muted">No members published in TMC.</div>';
+                return '<div class="muted">No members available.</div>';
             }
             return `<table class="members"><tbody>${[...members.entries()]
                 .map(([name, type]) => `<tr><td>${escapeHtml(name)}</td><td>${escapeHtml(type)}</td></tr>`)
@@ -910,7 +1181,21 @@ export function activate(context: vscode.ExtensionContext) {
         const emptyState = api.symbols.length === 0 && api.dataTypes.length === 0
             ? `<div class="empty">No published library API was resolved for this reference yet. Build the owning PLC project to generate a matching TMC, or configure additional TMC roots. TMC-based library views are project-scoped and may only include items compiled into or required by the current PLC project.</div>`
             : '';
-        const scopeNotice = `<div class="notice">Library API is derived from the current PLC project's <code>.tmc</code>. This is project-scoped and may only include items compiled into or required by this PLC project, not the library's full catalog.</div>`;
+        const scopeNotice = hasTmcApi
+            ? `<div class="notice">Library API is derived from the current PLC project's <code>.tmc</code>. This is project-scoped and may only include items compiled into or required by this PLC project, not the library's full catalog.</div>`
+            : `<div class="notice">Library API is currently sourced from TcView metadata rather than the current PLC project's <code>.tmc</code>. It is useful for recognition and navigation, but it is not compiler-validated project truth.</div>`;
+        const dependencyMarkup = reference?.dependencies?.length
+            ? `<div class="notice"><strong>Dependencies</strong><br />${reference.dependencies.map(dep => `<code>${escapeHtml(dep)}</code>`).join(' ')}</div>`
+            : '';
+        const installPathMarkup = reference?.installPath
+            ? `<span class="pill">Managed library: ${escapeHtml(reference.installPath)}</span>`
+            : '';
+        const metadataSourceMarkup = reference?.metadataSource
+            ? `<span class="pill">Metadata: ${escapeHtml(reference.metadataSource)}</span>`
+            : '';
+        const infoUrlMarkup = reference?.infoUrl
+            ? `<span class="pill"><a href="${escapeHtml(reference.infoUrl)}">Docs</a></span>`
+            : '';
 
         return `<!DOCTYPE html>
 <html lang="en">
@@ -1018,10 +1303,14 @@ export function activate(context: vscode.ExtensionContext) {
             <span class="pill">Version: ${escapeHtml(reference?.version ?? 'unknown')}</span>
             <span class="pill">Mode: ${escapeHtml(reference?.mode ?? 'unknown')}</span>
             <span class="pill coverage ${escapeHtml(coverageTone)}">${escapeHtml(coverageLabel)}</span>
-            ${reference?.path ? `<span class="pill">${escapeHtml(path.basename(reference.path))}</span>` : ''}
+            ${reference?.path ? `<span class="pill">Project: ${escapeHtml(path.basename(reference.path))}</span>` : ''}
+            ${metadataSourceMarkup}
+            ${installPathMarkup}
+            ${infoUrlMarkup}
         </div>
     </header>
     ${scopeNotice}
+    ${dependencyMarkup}
     <div class="toolbar">
         <input id="filter" type="search" placeholder="Filter API items..." />
     </div>
@@ -1166,6 +1455,11 @@ export function activate(context: vscode.ExtensionContext) {
     // Helper function to open TwinCAT file
     async function openTwinCATFile(uri: vscode.Uri) {
         try {
+            if (isInterfaceAccessorFragment(uri)) {
+                vscode.window.showInformationMessage('Interface property GET/SET entries are listed for navigation only and cannot be opened.');
+                return;
+            }
+
             const fragment = uri.fragment;
             if (fragment) {
                 const baseUri = uri.with({ fragment: '' });
@@ -1307,6 +1601,8 @@ export function activate(context: vscode.ExtensionContext) {
         buildSolutionWithMsBuildCommand,
         openLibraryReferenceCommand,
         showLibrariesCommand,
+        createLibraryMetadataTemplateCommand,
+        importLibraryMetadataCommand,
         analyzerRefreshListener,
         { dispose: () => activeAnalyzerRefreshDisposable?.dispose() },
         saveListener,

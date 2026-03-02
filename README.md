@@ -39,6 +39,8 @@ You do not need to run terminal commands for normal editing.
 - Work in ST instead of raw XML wrappers for day-to-day logic editing.
 - Jump directly into methods, property accessors, actions, and transitions.
 - Browse PLC references in a dedicated library viewer sourced from project `.tmc` metadata.
+- Enrich library references with installed TwinCAT Managed Libraries metadata when available.
+- Fall back to built-in and workspace library metadata catalogs when a project `.tmc` does not yet expose a referenced library API.
 - Open TwinCAT solutions or project roots directly from the TcView sidebar.
 - Keep TwinCAT files as the source of truth while editing through a virtual ST layer.
 - Get built-in language assistance (diagnostics, completion, hover, formatting, navigation, code actions).
@@ -94,7 +96,9 @@ Command Palette shortcut:
 - Solution-aware project tree:
   TcView groups content into `SYSTEM`, `PLC`, and `I/O`, hides transient/internal folders, and exposes per-PLC `References` nodes.
 - Library viewer:
-  Open a reference from the TcView tree to inspect available function blocks, data types, functions, variables, and published members in an API-style webview.
+  Open a reference from the TcView tree to inspect available function blocks, data types, functions, variables, and published members in an API-style webview. When available, TcView also enriches the library view with local Managed Libraries metadata such as vendor, version, install path, and dependency names.
+- Metadata-backed library recognition:
+  When a referenced library is not yet represented in the current PLC project's `.tmc`, TcView can still recognize common libraries from a built-in catalog and optional workspace/user metadata files.
 - Seamless save-back:
   Standard save (`Ctrl+S`) in the ST view persists updates to the original XML file.
 - Language tooling:
@@ -166,6 +170,8 @@ Most users do not need to run commands manually. Primary control is opening file
 | `tcview.checkLspStatus` | Language features appear inactive | Confirms status of completion/hover/diagnostics stack |
 | `tcview.showPerfStats` | Open/index actions feel slow | Reports performance timing summary |
 | `tcview.showLibraries` | You want a flat detected-library list | Dumps resolved library refs for inspection |
+| `tcview.createLibraryMetadataTemplate` | You want to start a workspace metadata catalog | Creates `.vscode/tcview.libraries.json` and opens it |
+| `tcview.importLibraryMetadata` | You have a local managed library folder/package to seed metadata from | Imports vendor/version/dependencies into the workspace metadata catalog |
 
 ## Practical Examples
 
@@ -208,6 +214,8 @@ Build TwinCAT Solution
 Validate TcView ST Syntax
 Show TcView Index Statistics
 Show TcView Performance Stats
+Create TcView Library Metadata File
+Import TwinCAT Library Metadata
 ```
 
 ### Settings Example
@@ -217,10 +225,51 @@ Project-level `.vscode/settings.json` snippet:
 ```json
 {
   "twincat.performanceLogging": false,
+  "twincat.library.metadataFiles": [
+    ".vscode/tcview.libraries.json"
+  ],
   "twincat.diagnostics.profile": "balanced",
   "twincat.keywordCasing": "upper",
   "twincat.diagnostics.undefinedVariables": "error",
   "twincat.diagnostics.unusedVariables": "warning"
+}
+```
+
+### Workspace Library Metadata Example
+
+You can extend TcView's built-in library catalog with a workspace file named `tcview.libraries.json` or `.vscode/tcview.libraries.json`.
+
+```json
+{
+  "libraries": [
+    {
+      "name": "MyCompanyLib",
+      "vendor": "My Company",
+      "version": "1.2.0",
+      "infoUrl": "https://example.invalid/docs/mycompanylib",
+      "dependencies": ["Tc2_System"],
+      "functionBlocks": [
+        {
+          "name": "FB_Device",
+          "documentation": "Metadata-backed function block shape.",
+          "members": {
+            "bEnable": "BOOL",
+            "bReady": "BOOL"
+          }
+        }
+      ],
+      "dataTypes": [
+        {
+          "name": "ST_DeviceConfig",
+          "kind": "struct",
+          "members": {
+            "sName": "STRING",
+            "nTimeoutMs": "UDINT"
+          }
+        }
+      ]
+    }
+  ]
 }
 ```
 
@@ -230,6 +279,8 @@ Project-level `.vscode/settings.json` snippet:
 - TcView is Windows-only by design, aligned with TwinCAT XAE tooling constraints.
 - It currently exposes solution build only, not full TwinCAT XAE runtime operations.
 - Library API views are derived from the current PLC project's `.tmc` and may be partial/project-scoped rather than a full library catalog.
+- Installed TwinCAT Managed Libraries metadata is used as a local enrichment source for library vendor/version/dependency details, but not as the primary API truth source.
+- Built-in and workspace metadata catalogs can provide earlier library recognition before a PLC build produces the relevant `.tmc`, but those metadata-backed APIs are not compiler-validated project truth.
 - TcView is intentionally a supplemental tool, not a full XAE replacement.
 - Use TcView for code-centric editing, review, and lightweight project inspection; use TwinCAT XAE for full runtime/configuration workflows.
 

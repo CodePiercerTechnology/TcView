@@ -24,6 +24,8 @@ It is not intended to be:
 - Standalone PLC project roots are supported.
 - Per-PLC `References` nodes are available.
 - Library references open in a project-scoped API viewer backed by local `.tmc` metadata.
+- Library references are enriched from local Managed Libraries metadata, a built-in catalog, and optional workspace/user metadata files.
+- Workspace library metadata files can be scaffolded and seeded from local managed library folders/packages.
 - Solution build is available through `MSBuild`.
 - Problems diagnostics include missing `.tmc` output and non-solution project warnings.
 - TcView is explicitly Windows-only.
@@ -51,6 +53,27 @@ It is not intended to be:
    - jump to declaration section
    - jump to implementation
    - jump to owning PLC project
+
+### Libraries and Metadata
+
+1. Add a layered library catalog so TcView can distinguish:
+   - referenced in project
+   - resolved in current `.tmc`
+   - installed locally in Managed Libraries
+   - known by built-in metadata only
+2. Ship a curated built-in metadata catalog for common Beckhoff libraries so types/functions can be recognized even before a PLC build pulls them into the project `.tmc`.
+3. Expand the built-in metadata catalog beyond the current seed set for common Beckhoff libraries.
+4. Make local library installation a function of TcView instead of a manual metadata step:
+   - right-click a local library package or library root
+   - choose `Install TwinCAT Library`
+   - perform the install through backend/API integration
+   - refresh the managed-library index and library metadata automatically
+5. Add clearer provenance in the library viewer and completions:
+   - `TMC-resolved`
+   - `Installed locally`
+   - `Built-in metadata`
+   - `User metadata`
+6. Allow library metadata refresh/reindex on demand after installs, upgrades, or repository changes.
 
 ### Editor Workflow
 

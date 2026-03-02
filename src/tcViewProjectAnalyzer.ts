@@ -16,6 +16,7 @@ export interface TwinCATSymbol {
     library?: string;
     line?: number;
     documentation?: string;
+    provenance?: 'project' | 'tmc' | 'built_in' | 'user';
 }
 
 /**
@@ -28,6 +29,77 @@ export interface TwinCATDataType {
     source: string;
     library?: string;
     documentation?: string;
+    provenance?: 'project' | 'tmc' | 'built_in' | 'user';
+}
+
+interface ManagedLibraryMetadata {
+    name: string;
+    vendor: string;
+    version: string;
+    installPath: string;
+    dependencies: string[];
+}
+
+interface LibraryCatalogSymbolEntry {
+    name: string;
+    kind: 'functionBlock' | 'function' | 'program' | 'variable';
+    type?: string;
+    documentation?: string;
+    members?: Record<string, string>;
+}
+
+interface LibraryCatalogDataTypeEntry {
+    name: string;
+    kind: 'struct' | 'enum' | 'alias';
+    documentation?: string;
+    members?: Record<string, string>;
+}
+
+interface LibraryCatalogEntry {
+    name: string;
+    vendor?: string;
+    version?: string;
+    infoUrl?: string;
+    dependencies?: string[];
+    metadataSource: 'built_in' | 'user';
+    symbols: LibraryCatalogSymbolEntry[];
+    dataTypes: LibraryCatalogDataTypeEntry[];
+}
+
+interface LibraryCatalogFile {
+    libraries?: Array<{
+        name?: string;
+        vendor?: string;
+        version?: string;
+        infoUrl?: string;
+        dependencies?: string[];
+        functionBlocks?: Array<{
+            name?: string;
+            documentation?: string;
+            members?: Record<string, string>;
+        }>;
+        functions?: Array<{
+            name?: string;
+            returnType?: string;
+            documentation?: string;
+        }>;
+        programs?: Array<{
+            name?: string;
+            documentation?: string;
+            members?: Record<string, string>;
+        }>;
+        variables?: Array<{
+            name?: string;
+            type?: string;
+            documentation?: string;
+        }>;
+        dataTypes?: Array<{
+            name?: string;
+            kind?: 'struct' | 'enum' | 'alias';
+            documentation?: string;
+            members?: Record<string, string>;
+        }>;
+    }>;
 }
 
 /**
@@ -39,6 +111,7 @@ export class TwinCATProjectAnalyzer {
     private dataTypes: Map<string, TwinCATDataType> = new Map();
     private globalVars: Map<string, TwinCATSymbol> = new Map();
     private fileWatcher: vscode.FileSystemWatcher | undefined;
+    private libraryMetadataWatcher: vscode.FileSystemWatcher | undefined;
     private converter: TwinCATXmlConverter;
     private scanTimer: NodeJS.Timeout | undefined;
     private libraryRefreshTimer: NodeJS.Timeout | undefined;
@@ -59,6 +132,8 @@ export class TwinCATProjectAnalyzer {
     private libraryDataTypes = new Map<string, TwinCATDataType>();
     private libraryContextModes = new Map<string, TwinCATLibraryRef['mode']>();
     private tmcParseCache = new Map<string, { mtimeMs: number; symbols: TwinCATSymbol[]; dataTypes: TwinCATDataType[] }>();
+    private managedLibraryIndex: Map<string, ManagedLibraryMetadata[]> | undefined;
+    private managedLibraryIndexPromise: Promise<Map<string, ManagedLibraryMetadata[]>> | undefined;
     private readonly indexRefreshedEmitter = new vscode.EventEmitter<void>();
     private indexRevision = 0;
     private initialized = false;
@@ -74,6 +149,13 @@ export class TwinCATProjectAnalyzer {
 
     constructor() {
         this.converter = new TwinCATXmlConverter();
+    }
+
+    private getDefaultManagedLibraryRoots(): string[] {
+        return [
+            'C:\\ProgramData\\Beckhoff\\TwinCAT\\PlcEngineering\\Managed Libraries',
+            'C:\\ProgramData\\Beckhoff\\TwinCAT\\3.1\\Components\\Plc\\Managed Libraries'
+        ];
     }
 
     private isPerfLoggingEnabled(): boolean {
@@ -153,10 +235,14 @@ export class TwinCATProjectAnalyzer {
         this.fileWatcher = vscode.workspace.createFileSystemWatcher(
             '**/*.{TcPOU,TcGVL,TcDUT,TcPRG,TcCOM,TcAPP,TcVAR,TcGDS,TcIO,TcITF,plcproj,tsproj,tmc}'
         );
+        this.libraryMetadataWatcher = vscode.workspace.createFileSystemWatcher('**/tcview.libraries.json');
 
         this.fileWatcher.onDidCreate(uri => this.handleWatchedFileEvent(uri.fsPath, 'change'));
         this.fileWatcher.onDidChange(uri => this.handleWatchedFileEvent(uri.fsPath, 'change'));
         this.fileWatcher.onDidDelete(uri => this.handleWatchedFileEvent(uri.fsPath, 'delete'));
+        this.libraryMetadataWatcher.onDidCreate(uri => this.handleWatchedFileEvent(uri.fsPath, 'change'));
+        this.libraryMetadataWatcher.onDidChange(uri => this.handleWatchedFileEvent(uri.fsPath, 'change'));
+        this.libraryMetadataWatcher.onDidDelete(uri => this.handleWatchedFileEvent(uri.fsPath, 'delete'));
     }
 
     private handleWatchedFileEvent(filePath: string, kind: 'change' | 'delete'): void {
@@ -639,7 +725,9 @@ export class TwinCATProjectAnalyzer {
     }
 
     private isLibraryMetadataFile(filePath: string): boolean {
-        return ['.plcproj', '.tsproj', '.tmc'].includes(path.extname(filePath).toLowerCase());
+        const lowerName = path.basename(filePath).toLowerCase();
+        return ['.plcproj', '.tsproj', '.tmc'].includes(path.extname(filePath).toLowerCase())
+            || lowerName === 'tcview.libraries.json';
     }
 
     private async refreshLibraryMetadata(): Promise<void> {
@@ -661,9 +749,11 @@ export class TwinCATProjectAnalyzer {
 
         const plcProjFiles = await this.findProjectFiles('**/*.plcproj');
         const tmcInventory = await this.collectAvailableTmcFiles();
+        const managedLibraryIndex = await this.getManagedLibraryIndex();
+        const libraryCatalog = await this.loadLibraryCatalogEntries();
         const refsByKey = new Map<string, TwinCATLibraryRef>();
         for (const plcProj of plcProjFiles) {
-            const refs = await this.readLibraryRefsFromPlcProj(plcProj, tmcInventory.names);
+            const refs = await this.readLibraryRefsFromPlcProj(plcProj, tmcInventory.names, managedLibraryIndex, libraryCatalog);
             for (const ref of refs) {
                 const key = `${ref.name.toUpperCase()}|${(ref.vendor ?? '').toUpperCase()}|${ref.version}`;
                 if (!refsByKey.has(key)) {
@@ -699,6 +789,7 @@ export class TwinCATProjectAnalyzer {
         }
 
         await this.loadLibrarySymbolsFromTmc(tmcInventory.files);
+        this.loadLibrarySymbolsFromCatalog(libraryCatalog);
 
         const publicSymbolLibraries = new Set<string>();
         this.librarySymbols.forEach(symbol => {
@@ -784,7 +875,361 @@ export class TwinCATProjectAnalyzer {
         }));
     }
 
-    private async readLibraryRefsFromPlcProj(plcProjPath: string, tmcNames: Set<string>): Promise<TwinCATLibraryRef[]> {
+    private async getManagedLibraryIndex(): Promise<Map<string, ManagedLibraryMetadata[]>> {
+        if (this.managedLibraryIndex) {
+            return this.managedLibraryIndex;
+        }
+        if (this.managedLibraryIndexPromise) {
+            return this.managedLibraryIndexPromise;
+        }
+
+        this.managedLibraryIndexPromise = this.buildManagedLibraryIndex();
+        try {
+            this.managedLibraryIndex = await this.managedLibraryIndexPromise;
+            return this.managedLibraryIndex;
+        } finally {
+            this.managedLibraryIndexPromise = undefined;
+        }
+    }
+
+    private async buildManagedLibraryIndex(): Promise<Map<string, ManagedLibraryMetadata[]>> {
+        const configuredRoots = vscode.workspace.getConfiguration('twincat').get<string[]>('library.managedRoots', []);
+        const roots = [...new Set([
+            ...this.getDefaultManagedLibraryRoots(),
+            ...configuredRoots
+        ].filter(root => !!root && fs.existsSync(root)))];
+
+        const index = new Map<string, ManagedLibraryMetadata[]>();
+        for (const root of roots) {
+            let vendors: fs.Dirent[];
+            try {
+                vendors = await fs.promises.readdir(root, { withFileTypes: true });
+            } catch {
+                continue;
+            }
+
+            for (const vendorEntry of vendors) {
+                if (!vendorEntry.isDirectory() || vendorEntry.name.startsWith('.') || vendorEntry.name.startsWith('_')) {
+                    continue;
+                }
+                const vendorPath = path.join(root, vendorEntry.name);
+                let libraries: fs.Dirent[];
+                try {
+                    libraries = await fs.promises.readdir(vendorPath, { withFileTypes: true });
+                } catch {
+                    continue;
+                }
+
+                for (const libraryEntry of libraries) {
+                    if (!libraryEntry.isDirectory() || libraryEntry.name.startsWith('.') || libraryEntry.name.startsWith('_')) {
+                        continue;
+                    }
+                    const libraryPath = path.join(vendorPath, libraryEntry.name);
+                    let versions: fs.Dirent[];
+                    try {
+                        versions = await fs.promises.readdir(libraryPath, { withFileTypes: true });
+                    } catch {
+                        continue;
+                    }
+
+                    for (const versionEntry of versions) {
+                        if (!versionEntry.isDirectory()) {
+                            continue;
+                        }
+                        const versionPath = path.join(libraryPath, versionEntry.name);
+                        const metadata: ManagedLibraryMetadata = {
+                            name: libraryEntry.name,
+                            vendor: vendorEntry.name,
+                            version: versionEntry.name,
+                            installPath: versionPath,
+                            dependencies: await this.readManagedLibraryDependencies(versionPath)
+                        };
+                        const key = this.normalizeLookupName(metadata.name);
+                        const existing = index.get(key) ?? [];
+                        existing.push(metadata);
+                        index.set(key, existing);
+                    }
+                }
+            }
+        }
+
+        index.forEach(entries => entries.sort((a, b) => this.compareLibraryVersions(b.version, a.version)));
+        return index;
+    }
+
+    private async readManagedLibraryDependencies(versionPath: string): Promise<string[]> {
+        const dependenciesPath = path.join(versionPath, 'dependencies');
+        try {
+            const text = await fs.promises.readFile(dependenciesPath, 'utf8');
+            return text
+                .split(/\r?\n/)
+                .map(line => line.trim())
+                .filter(Boolean)
+                .map(line => line.replace(/^#/, '').trim())
+                .filter(Boolean);
+        } catch {
+            return [];
+        }
+    }
+
+    private compareLibraryVersions(a: string, b: string): number {
+        const aParts = a.split('.').map(part => Number.parseInt(part, 10));
+        const bParts = b.split('.').map(part => Number.parseInt(part, 10));
+        const maxLength = Math.max(aParts.length, bParts.length);
+        for (let i = 0; i < maxLength; i++) {
+            const aValue = Number.isFinite(aParts[i]) ? aParts[i] : 0;
+            const bValue = Number.isFinite(bParts[i]) ? bParts[i] : 0;
+            if (aValue !== bValue) {
+                return aValue - bValue;
+            }
+        }
+        return a.localeCompare(b);
+    }
+
+    private resolveManagedLibraryMetadata(
+        managedLibraryIndex: Map<string, ManagedLibraryMetadata[]>,
+        name: string,
+        vendor?: string
+    ): ManagedLibraryMetadata | undefined {
+        const candidates = managedLibraryIndex.get(this.normalizeLookupName(name)) ?? [];
+        if (candidates.length === 0) {
+            return undefined;
+        }
+        if (vendor) {
+            const vendorMatch = candidates.find(candidate => candidate.vendor.localeCompare(vendor, undefined, { sensitivity: 'accent' }) === 0);
+            if (vendorMatch) {
+                return vendorMatch;
+            }
+        }
+        return candidates[0];
+    }
+
+    private getBuiltInLibraryCatalogPath(): string {
+        return path.resolve(__dirname, '..', 'resources', 'library-metadata.json');
+    }
+
+    private getWorkspaceLibraryMetadataPaths(): string[] {
+        const workspaceFolders = vscode.workspace.workspaceFolders ?? [];
+        return workspaceFolders.flatMap(folder => [
+            path.join(folder.uri.fsPath, 'tcview.libraries.json'),
+            path.join(folder.uri.fsPath, '.vscode', 'tcview.libraries.json')
+        ]);
+    }
+
+    private getConfiguredLibraryMetadataPaths(): string[] {
+        const configuredPaths = vscode.workspace.getConfiguration('twincat').get<string[]>('library.metadataFiles', []);
+        return configuredPaths.map(candidate => {
+            if (path.isAbsolute(candidate)) {
+                return candidate;
+            }
+            const basePath = this.projectRoot
+                ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
+                ?? process.cwd();
+            return path.resolve(basePath, candidate);
+        });
+    }
+
+    private async loadLibraryCatalogEntries(): Promise<Map<string, LibraryCatalogEntry[]>> {
+        const catalog = new Map<string, LibraryCatalogEntry[]>();
+        const sources: Array<{ source: 'built_in' | 'user'; filePath: string }> = [
+            { source: 'built_in', filePath: this.getBuiltInLibraryCatalogPath() },
+            ...[...this.getWorkspaceLibraryMetadataPaths(), ...this.getConfiguredLibraryMetadataPaths()]
+                .map(filePath => ({ source: 'user' as const, filePath }))
+        ];
+
+        const seenPaths = new Set<string>();
+        for (const source of sources) {
+            const normalizedPath = path.normalize(source.filePath).toLowerCase();
+            if (seenPaths.has(normalizedPath) || !fs.existsSync(source.filePath)) {
+                continue;
+            }
+            seenPaths.add(normalizedPath);
+
+            try {
+                const raw = JSON.parse(await fs.promises.readFile(source.filePath, 'utf8')) as LibraryCatalogFile;
+                for (const entry of this.parseLibraryCatalogFile(raw, source.source)) {
+                    const key = this.normalizeLookupName(entry.name);
+                    const existing = catalog.get(key) ?? [];
+                    existing.push(entry);
+                    catalog.set(key, existing);
+                }
+            } catch (error) {
+                console.warn(`Failed to load TcView library metadata file ${source.filePath}: ${String(error)}`);
+            }
+        }
+
+        return catalog;
+    }
+
+    private parseLibraryCatalogFile(raw: LibraryCatalogFile, metadataSource: 'built_in' | 'user'): LibraryCatalogEntry[] {
+        const results: LibraryCatalogEntry[] = [];
+        for (const entry of raw.libraries ?? []) {
+            const name = entry.name?.trim();
+            if (!name) {
+                continue;
+            }
+
+            const functionBlocks = (entry.functionBlocks ?? [])
+                .filter(item => item.name?.trim())
+                .map(item => ({
+                    name: item.name!.trim(),
+                    kind: 'functionBlock' as const,
+                    type: item.name!.trim(),
+                    documentation: item.documentation,
+                    members: item.members
+                }));
+            const functions = (entry.functions ?? [])
+                .filter(item => item.name?.trim())
+                .map(item => ({
+                    name: item.name!.trim(),
+                    kind: 'function' as const,
+                    type: item.returnType?.trim() || item.name!.trim(),
+                    documentation: item.documentation
+                }));
+            const programs = (entry.programs ?? [])
+                .filter(item => item.name?.trim())
+                .map(item => ({
+                    name: item.name!.trim(),
+                    kind: 'program' as const,
+                    type: item.name!.trim(),
+                    documentation: item.documentation,
+                    members: item.members
+                }));
+            const variables = (entry.variables ?? [])
+                .filter(item => item.name?.trim())
+                .map(item => ({
+                    name: item.name!.trim(),
+                    kind: 'variable' as const,
+                    type: item.type?.trim() || 'ANY',
+                    documentation: item.documentation
+                }));
+            const dataTypes = (entry.dataTypes ?? [])
+                .filter(item => item.name?.trim())
+                .map(item => ({
+                    name: item.name!.trim(),
+                    kind: item.kind ?? 'alias',
+                    documentation: item.documentation,
+                    members: item.members
+                }));
+
+            results.push({
+                name,
+                vendor: entry.vendor?.trim(),
+                version: entry.version?.trim(),
+                infoUrl: entry.infoUrl?.trim(),
+                dependencies: (entry.dependencies ?? []).map(dep => dep.trim()).filter(Boolean),
+                metadataSource,
+                symbols: [...functionBlocks, ...functions, ...programs, ...variables],
+                dataTypes
+            });
+        }
+        return results;
+    }
+
+    private resolveCatalogLibraryMetadata(
+        catalog: Map<string, LibraryCatalogEntry[]>,
+        name: string,
+        vendor?: string
+    ): LibraryCatalogEntry | undefined {
+        const candidates = catalog.get(this.normalizeLookupName(name)) ?? [];
+        if (candidates.length === 0) {
+            return undefined;
+        }
+
+        const ordered = [...candidates].sort((a, b) => {
+            const sourcePriority = (source: LibraryCatalogEntry['metadataSource']) => source === 'user' ? 2 : 1;
+            return sourcePriority(b.metadataSource) - sourcePriority(a.metadataSource);
+        });
+
+        if (vendor) {
+            const vendorMatch = ordered.find(candidate =>
+                candidate.vendor?.localeCompare(vendor, undefined, { sensitivity: 'accent' }) === 0
+            );
+            if (vendorMatch) {
+                return vendorMatch;
+            }
+        }
+
+        return ordered[0];
+    }
+
+    private loadLibrarySymbolsFromCatalog(catalog: Map<string, LibraryCatalogEntry[]>): void {
+        for (const libraryRef of this.libraryRefs) {
+            const catalogEntry = this.resolveCatalogLibraryMetadata(catalog, libraryRef.name, libraryRef.vendor);
+            if (!catalogEntry) {
+                continue;
+            }
+
+            for (const symbolEntry of catalogEntry.symbols) {
+                const key = symbolEntry.name.toUpperCase();
+                if (this.symbols.has(key) || this.globalVars.has(key) || this.librarySymbols.has(key)) {
+                    continue;
+                }
+                this.librarySymbols.set(key, {
+                    name: symbolEntry.name,
+                    type: symbolEntry.type ?? symbolEntry.name,
+                    kind: symbolEntry.kind,
+                    source: catalogEntry.infoUrl ?? libraryRef.path,
+                    library: libraryRef.name,
+                    documentation: symbolEntry.documentation,
+                    provenance: catalogEntry.metadataSource
+                });
+            }
+
+            for (const dataTypeEntry of catalogEntry.dataTypes) {
+                const key = dataTypeEntry.name.toUpperCase();
+                if (this.dataTypes.has(key) || this.libraryDataTypes.has(key)) {
+                    continue;
+                }
+                this.libraryDataTypes.set(key, {
+                    name: dataTypeEntry.name,
+                    kind: dataTypeEntry.kind,
+                    members: new Map(Object.entries(dataTypeEntry.members ?? {})),
+                    source: catalogEntry.infoUrl ?? libraryRef.path,
+                    library: libraryRef.name,
+                    documentation: dataTypeEntry.documentation,
+                    provenance: catalogEntry.metadataSource
+                });
+                if (!this.symbols.has(key) && !this.globalVars.has(key) && !this.librarySymbols.has(key)) {
+                    this.librarySymbols.set(key, {
+                        name: dataTypeEntry.name,
+                        type: dataTypeEntry.kind.toUpperCase(),
+                        kind: 'type',
+                        source: catalogEntry.infoUrl ?? libraryRef.path,
+                        library: libraryRef.name,
+                        documentation: dataTypeEntry.documentation,
+                        provenance: catalogEntry.metadataSource
+                    });
+                }
+            }
+
+            for (const symbolEntry of catalogEntry.symbols) {
+                if (symbolEntry.kind !== 'functionBlock' && symbolEntry.kind !== 'program') {
+                    continue;
+                }
+                const key = symbolEntry.name.toUpperCase();
+                if (this.libraryDataTypes.has(key) || !symbolEntry.members || Object.keys(symbolEntry.members).length === 0) {
+                    continue;
+                }
+                this.libraryDataTypes.set(key, {
+                    name: symbolEntry.name,
+                    kind: 'struct',
+                    members: new Map(Object.entries(symbolEntry.members)),
+                    source: catalogEntry.infoUrl ?? libraryRef.path,
+                    library: libraryRef.name,
+                    documentation: symbolEntry.documentation,
+                    provenance: catalogEntry.metadataSource
+                });
+            }
+        }
+    }
+
+    private async readLibraryRefsFromPlcProj(
+        plcProjPath: string,
+        tmcNames: Set<string>,
+        managedLibraryIndex: Map<string, ManagedLibraryMetadata[]>,
+        catalog: Map<string, LibraryCatalogEntry[]>
+    ): Promise<TwinCATLibraryRef[]> {
         try {
             const text = await fs.promises.readFile(plcProjPath, 'utf8');
             const refs: TwinCATLibraryRef[] = [];
@@ -797,16 +1242,26 @@ export class TwinCATProjectAnalyzer {
                 const defaultResolution = this.decodeXmlText(inner.match(/<DefaultResolution\b[^>]*>([\s\S]*?)<\/DefaultResolution>/i)?.[1]);
                 const vendorMatch = defaultResolution?.match(/\(([^)]+)\)\s*$/);
                 const vendor = vendorMatch?.[1]?.trim();
+                const managedMetadata = this.resolveManagedLibraryMetadata(managedLibraryIndex, name, vendor);
+                const catalogMetadata = this.resolveCatalogLibraryMetadata(catalog, name, vendor ?? managedMetadata?.vendor);
                 const mode: TwinCATLibraryRef['mode'] = tmcNames.has(this.normalizeLookupName(name))
                     ? 'public_symbols'
                     : 'metadata_only';
 
                 refs.push({
                     name,
-                    version: 'unknown',
-                    vendor,
+                    version: managedMetadata?.version ?? catalogMetadata?.version ?? 'unknown',
+                    vendor: vendor ?? managedMetadata?.vendor ?? catalogMetadata?.vendor,
                     path: plcProjPath,
-                    mode
+                    mode,
+                    installPath: managedMetadata?.installPath,
+                    dependencies: managedMetadata?.dependencies?.length
+                        ? managedMetadata.dependencies
+                        : catalogMetadata?.dependencies,
+                    metadataSource: managedMetadata
+                        ? 'managed_libraries'
+                        : catalogMetadata?.metadataSource ?? 'plcproj',
+                    infoUrl: catalogMetadata?.infoUrl
                 });
             }
 
@@ -904,6 +1359,7 @@ export class TwinCATProjectAnalyzer {
                 source: tmcPath,
                 library: libraryName,
                 documentation: this.readTmcComment(dataTypeNode) ?? `Resolved from TMC: ${tmcPath}`,
+                provenance: 'tmc'
             });
 
             if (kind === 'type' || kind === 'functionBlock' || kind === 'program') {
@@ -913,7 +1369,8 @@ export class TwinCATProjectAnalyzer {
                     members,
                     source: tmcPath,
                     library: libraryName,
-                    documentation: this.readTmcComment(dataTypeNode)
+                    documentation: this.readTmcComment(dataTypeNode),
+                    provenance: 'tmc'
                 });
             }
         }
@@ -937,7 +1394,8 @@ export class TwinCATProjectAnalyzer {
                 kind: 'variable',
                 source: tmcPath,
                 library: libraryName,
-                documentation: this.readTmcComment(symbolNode) ?? `Resolved from TMC: ${tmcPath}`
+                documentation: this.readTmcComment(symbolNode) ?? `Resolved from TMC: ${tmcPath}`,
+                provenance: 'tmc'
             });
         }
 
@@ -1295,10 +1753,15 @@ export class TwinCATProjectAnalyzer {
         if (this.fileWatcher) {
             this.fileWatcher.dispose();
         }
+        if (this.libraryMetadataWatcher) {
+            this.libraryMetadataWatcher.dispose();
+        }
         this.initialized = false;
         this.initializePromise = undefined;
         this.libraryPlaceholderSymbolKeys.clear();
         this.tmcParseCache.clear();
+        this.managedLibraryIndex = undefined;
+        this.managedLibraryIndexPromise = undefined;
         this.indexRefreshedEmitter.dispose();
     }
 

@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { buildAstAnalysis } from '../iecStAst';
 import { applyFragmentSTToXml, extractFragmentSTFromXml } from '../tcViewFragmentCodec';
+import { TwinCATXmlConverter } from '../tcViewXmlConverter';
 
 function isCaseLabel(line: string): boolean {
     return /^\s*([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*|\d+)(\s*\.\.\s*([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*|\d+))?(\s*,\s*([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*|\d+)(\s*\.\.\s*([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*|\d+))?)*\s*:\s*(\/\/.*)?$/i.test(line);
@@ -93,6 +94,14 @@ async function run(): Promise<void> {
     assert.strictEqual(inlineIfAst.blockErrors.length, 0, 'Inline IF block should not create missing END_IF errors');
     assert.strictEqual(inlineIfAst.missingSemicolons.length, 0, 'Inline IF block should not require trailing semicolon');
 
+    const pragmaSample = [
+        '{warning disable C0371}',
+        'bReady := TRUE;'
+    ].join('\n');
+    const pragmaAst = buildAstAnalysis(pragmaSample);
+    assert.strictEqual(pragmaAst.missingSemicolons.length, 0, 'Pragma lines must not produce semicolon diagnostics');
+    assert.ok(!pragmaAst.usages.some(u => u.upper === 'WARNING' || u.upper === 'DISABLE' || u.upper === 'C0371'));
+
     const fixturePath = path.resolve(process.cwd(), 'src', 'tests', 'fixtures', 'FB_IntegrationSample.TcPOU');
     const fixtureXml = fs.readFileSync(fixturePath, 'utf8');
 
@@ -102,13 +111,17 @@ async function run(): Promise<void> {
     const [methodSt, propertySt] = await Promise.all([methodFragment, propertyFragment]);
     assert.ok(methodSt.includes('VAR_INPUT'));
     assert.ok(methodSt.includes('// comment in declaration'));
-    assert.ok(propertySt.includes('GET'));
-    assert.ok(propertySt.includes('SET'));
+    assert.ok(propertySt.includes('PROPERTY SpeedCommand : REAL'));
+    assert.ok(!propertySt.includes('GET'));
+    assert.ok(!propertySt.includes('SET'));
 
     const updatedGetFragment = [
         'PROPERTY SpeedCommand : REAL',
         '',
         'GET',
+        'VAR_INPUT',
+        '    bUseCached : BOOL;',
+        'END_VAR',
         '',
         'SpeedCommand := rSpeedCommand + 1.0;',
         '',
@@ -116,6 +129,7 @@ async function run(): Promise<void> {
     ].join('\n');
 
     const xmlAfterGet = await applyFragmentSTToXml(fixtureXml, 'PropertyGet:SpeedCommand', updatedGetFragment);
+    assert.ok(xmlAfterGet.includes('bUseCached : BOOL;'));
     assert.ok(xmlAfterGet.includes('SpeedCommand := rSpeedCommand + 1.0;'));
     assert.ok(xmlAfterGet.includes('rSpeedCommand := SpeedCommand;'));
 
@@ -129,7 +143,32 @@ async function run(): Promise<void> {
         'FB_Init := bInitRetains;'
     ].join('\n');
     const xmlAfterMethod = await applyFragmentSTToXml(fixtureXml, 'Method:FB_Init', updatedMethodFragment);
+    assert.ok(xmlAfterMethod.includes('bInitRetains : BOOL;'));
     assert.ok(xmlAfterMethod.includes('FB_Init := bInitRetains;'));
+
+    const interfaceFixturePath = path.resolve(process.cwd(), 'src', 'tests', 'fixtures', 'I_IntegrationSample.TcITF');
+    const interfaceXml = fs.readFileSync(interfaceFixturePath, 'utf8');
+    const interfaceConverter = new TwinCATXmlConverter();
+
+    const [interfaceMethodSt, interfacePropertySt, interfaceGetSt, interfaceFileSt] = await Promise.all([
+        extractFragmentSTFromXml(interfaceXml, 'Method:Reset'),
+        extractFragmentSTFromXml(interfaceXml, 'Property:Speed'),
+        extractFragmentSTFromXml(interfaceXml, 'PropertyGet:Speed'),
+        interfaceConverter.convertXmlToST(interfaceXml)
+    ]);
+
+    assert.ok(interfaceMethodSt.includes('METHOD Reset : BOOL'));
+    assert.ok(interfaceMethodSt.includes('VAR_INPUT'));
+    assert.ok(interfacePropertySt.includes('PROPERTY Speed : REAL'));
+    assert.ok(!interfacePropertySt.includes('GET'));
+    assert.ok(!interfacePropertySt.includes('SET'));
+    assert.ok(interfaceGetSt.includes('cannot be opened'));
+    assert.strictEqual(interfaceFileSt.trim(), 'INTERFACE I_IntegrationSample');
+
+    await assert.rejects(
+        applyFragmentSTToXml(interfaceXml, 'PropertyGet:Speed', 'GET'),
+        /tree-only and cannot be edited/i
+    );
 }
 
 Promise.resolve(run()).then(() => {

@@ -460,6 +460,18 @@ function lexLine(line: string, inBlockCommentStart: boolean): { code: string; to
             i++;
             continue;
         }
+        if (!inSingle && !inDouble && ch === '{') {
+            code += ' ';
+            while (i + 1 < line.length && line[i + 1] !== '}') {
+                code += ' ';
+                i++;
+            }
+            if (i + 1 < line.length && line[i + 1] === '}') {
+                code += ' ';
+                i++;
+            }
+            continue;
+        }
 
         if (!inDouble && ch === '\'') {
             if (inSingle && next === '\'') {
@@ -510,6 +522,7 @@ function tokenizeCode(code: string, out: Token[]): void {
 function stripLineCommentPreserveStrings(line: string): string {
     let inSingle = false;
     let inDouble = false;
+    let out = '';
 
     for (let i = 0; i < line.length; i++) {
         const ch = line[i];
@@ -517,26 +530,42 @@ function stripLineCommentPreserveStrings(line: string): string {
 
         if (!inDouble && ch === '\'') {
             if (inSingle && next === '\'') {
+                out += ch + next;
                 i++;
                 continue;
             }
             inSingle = !inSingle;
+            out += ch;
             continue;
         }
 
         if (!inSingle && ch === '"') {
             if (inDouble && next === '"') {
+                out += ch + next;
                 i++;
                 continue;
             }
             inDouble = !inDouble;
+            out += ch;
             continue;
         }
 
         if (!inSingle && !inDouble && ch === '/' && next === '/') {
-            return line.substring(0, i);
+            return out;
         }
+
+        if (!inSingle && !inDouble && ch === '{') {
+            while (i + 1 < line.length && line[i + 1] !== '}') {
+                i++;
+            }
+            if (i + 1 < line.length && line[i + 1] === '}') {
+                i++;
+            }
+            continue;
+        }
+
+        out += ch;
     }
 
-    return line;
+    return out;
 }

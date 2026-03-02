@@ -1,0 +1,30 @@
+<TcITF>
+  <Name>I_IntegrationSample</Name>
+  <InputVars>
+    <Variable>
+      <Name>nAxis</Name>
+      <Type>UINT</Type>
+    </Variable>
+  </InputVars>
+  <Method>
+    <Name>Reset</Name>
+    <Declaration>METHOD Reset : BOOL
+VAR_INPUT
+    bHard : BOOL;
+END_VAR</Declaration>
+  </Method>
+  <Property>
+    <Name>Speed</Name>
+    <Declaration>PROPERTY Speed : REAL</Declaration>
+    <Get>
+      <Declaration>VAR_INPUT
+    bScaled : BOOL;
+END_VAR</Declaration>
+    </Get>
+    <Set>
+      <Declaration>VAR_INPUT
+    fValue : REAL;
+END_VAR</Declaration>
+    </Set>
+  </Property>
+</TcITF>

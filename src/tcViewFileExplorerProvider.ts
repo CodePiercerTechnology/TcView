@@ -30,6 +30,7 @@ export enum TwinCATItemType {
 const OPENABLE_TYPES = new Set<TwinCATItemType>([
     TwinCATItemType.File,
     TwinCATItemType.Method,
+    TwinCATItemType.Property,
     TwinCATItemType.PropertyGet,
     TwinCATItemType.PropertySet,
     TwinCATItemType.Action,
@@ -53,7 +54,9 @@ const EXPANDABLE_POU_EXTENSIONS = new Set([
     '.tcpou',
     '.tcprg',
     '.tcapp',
-    '.tccom'
+    '.tccom',
+    '.tcio',
+    '.tcitf'
 ]);
 
 const toArray = <T>(value: T | T[] | undefined): T[] =>
@@ -80,7 +83,8 @@ export class TwinCATFileTreeItem extends vscode.TreeItem {
         public readonly itemType: TwinCATItemType,
         public readonly parentPath?: string,
         public readonly xmlContent?: any,
-        customLabel?: string
+        customLabel?: string,
+        isOpenable = OPENABLE_TYPES.has(itemType)
     ) {
         super(customLabel ?? TwinCATFileTreeItem.getLabel(resourceUri, itemType));
 
@@ -88,7 +92,7 @@ export class TwinCATFileTreeItem extends vscode.TreeItem {
         this.contextValue = itemType;
         this.setIcon();
 
-        if (OPENABLE_TYPES.has(itemType)) {
+        if (isOpenable) {
             this.command = {
                 command: 'tcview.openFile',
                 title: 'Open in TcView',
@@ -358,7 +362,7 @@ export class TwinCATFileExplorerProvider
 
             case TwinCATItemType.File:
                 return this.isExpandablePOUFile(element.resourceUri.fsPath)
-                    ? this.getPOURootChildren(element.resourceUri)
+                    ? this.getStructuredRootChildren(element.resourceUri)
                     : [];
 
             case TwinCATItemType.POUFolder:
@@ -727,6 +731,11 @@ export class TwinCATFileExplorerProvider
         return EXPANDABLE_POU_EXTENSIONS.has(path.extname(filePath).toLowerCase());
     }
 
+    private isInterfaceLikeFile(filePath: string) {
+        const ext = path.extname(filePath).toLowerCase();
+        return ext === '.tcitf' || ext === '.tcio';
+    }
+
     // -------------------------------------------------
     // XML
     // -------------------------------------------------
@@ -746,16 +755,27 @@ export class TwinCATFileExplorerProvider
         return xml;
     }
 
-    private extractPOU(xml: any) {
-        return xml.TcPOU?.[0] ?? xml.TcPlcObject?.POU?.[0];
+    private extractStructuredRoot(xml: any) {
+        return (
+            xml.TcPOU?.[0] ??
+            xml.TcPlcObject?.POU?.[0] ??
+            xml.TcITF?.[0] ??
+            xml.TcItf?.[0] ??
+            xml.TcIO?.[0] ??
+            xml.TcPlcObject?.ITF?.[0] ??
+            xml.TcPlcObject?.Itf?.[0] ??
+            xml.TcPlcObject?.TcITF?.[0] ??
+            xml.TcPlcObject?.TcItf?.[0] ??
+            xml.TcPlcObject?.TcIO?.[0]
+        );
     }
 
-    private async getPOURootChildren(uri: vscode.Uri) {
+    private async getStructuredRootChildren(uri: vscode.Uri) {
         const xml = await this.getParsedPOU(uri);
-        const pou = xml ? this.extractPOU(xml) : undefined;
-        if (!pou) return [];
+        const root = xml ? this.extractStructuredRoot(xml) : undefined;
+        if (!root) return [];
 
-        return this.buildPOUStructure(uri, pou);
+        return this.buildPOUStructure(uri, root);
     }
 
     // -------------------------------------------------
@@ -875,6 +895,7 @@ export class TwinCATFileExplorerProvider
 
         const uri = element.resourceUri;
         const propertyName = element.label?.toString() || 'UnknownProperty';
+        const isInterfaceProperty = this.isInterfaceLikeFile(uri.fsPath);
         const items: TwinCATFileTreeItem[] = [];
 
         if (prop.Get?.[0]) {
@@ -885,7 +906,8 @@ export class TwinCATFileExplorerProvider
                     TwinCATItemType.PropertyGet,
                     element.parentPath,
                     prop.Get[0],
-                    'Get'
+                    'Get',
+                    !isInterfaceProperty
                 )
             );
         }
@@ -898,7 +920,8 @@ export class TwinCATFileExplorerProvider
                     TwinCATItemType.PropertySet,
                     element.parentPath,
                     prop.Set[0],
-                    'Set'
+                    'Set',
+                    !isInterfaceProperty
                 )
             );
         }

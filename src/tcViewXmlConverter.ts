@@ -216,10 +216,58 @@ export class TwinCATXmlConverter {
     }
 
     private getTextContent(obj: any): string {
+        if (Array.isArray(obj)) return obj.map(item => this.getTextContent(item)).filter(Boolean).join('\n');
         if (typeof obj === 'string') return obj;
         if (obj && obj._) return obj._;
         if (obj && obj.$ && obj.$['xsi:nil'] === 'true') return '';
         return '';
+    }
+
+    private getImplementationText(obj: any): string {
+        if (!obj) return '';
+        if (typeof obj === 'string') return obj;
+        return this.getTextContent(obj.ST).trim();
+    }
+
+    private buildPropertyAccessorSection(kind: 'GET' | 'SET', accessor: any): string {
+        if (!accessor) {
+            return '';
+        }
+
+        const declaration = this.getTextContent(accessor.Declaration).trim();
+        const implementation = this.getImplementationText(accessor.Implementation);
+        if (!declaration && !implementation) {
+            return '';
+        }
+
+        const header = declaration
+            ? (new RegExp(`^${kind}\\b`, 'i').test(declaration) ? declaration : `${kind}\n${declaration}`)
+            : kind;
+
+        return [header.trim(), implementation].filter(Boolean).join('\n\n');
+    }
+
+    private buildInterfaceDeclaration(itfData: any): string {
+        const declaration = this.getTextContent(itfData?.Declaration).trim();
+        if (declaration) {
+            const firstLine = declaration
+                .replace(/\r/g, '\n')
+                .split('\n')
+                .map(line => line.trim())
+                .find(Boolean);
+            if (firstLine) {
+                return firstLine;
+            }
+        }
+
+        const name = itfData?.Name
+            ? this.getTextContent(itfData.Name) || 'I_Unknown'
+            : itfData?.$?.Name || 'I_Unknown';
+        const extendsType =
+            this.getTextContent(itfData?.Extends).trim() ||
+            this.getTextContent(itfData?.BaseType).trim() ||
+            this.getTextContent(itfData?.Interface).trim();
+        return extendsType ? `INTERFACE ${name} EXTENDS ${extendsType}` : `INTERFACE ${name}`;
     }
 
     private generatePOUStructure(pouData: any, type: string): string {
@@ -344,36 +392,7 @@ export class TwinCATXmlConverter {
     }
 
     private generateInterfaceObjectStructure(itfData: any): string {
-        const name = itfData?.Name
-            ? this.getTextContent(itfData.Name) || 'I_Unknown'
-            : itfData?.$?.Name || 'I_Unknown';
-
-        let stCode = `INTERFACE ${name}\n\n`;
-
-        const methods = this.ensureArray(itfData?.Method);
-        const properties = this.ensureArray(itfData?.Property);
-
-        for (const method of methods) {
-            const declaration = this.getTextContent(method?.Declaration).trim();
-            if (declaration) {
-                stCode += `${declaration}\n\n`;
-            }
-        }
-
-        for (const property of properties) {
-            const declaration = this.getTextContent(property?.Declaration).trim();
-            if (!declaration) {
-                continue;
-            }
-
-            stCode += `${declaration}\n`;
-            if (property?.Get) stCode += `GET\n`;
-            if (property?.Set) stCode += `SET\n`;
-            stCode += `END_PROPERTY\n\n`;
-        }
-
-        stCode += 'END_INTERFACE\n';
-        return stCode;
+        return `${this.buildInterfaceDeclaration(itfData)}\n`;
     }
 
     private generateInterface(interfaceData: any): string {

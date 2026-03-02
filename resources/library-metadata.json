@@ -1,0 +1,74 @@
+{
+  "libraries": [
+    {
+      "name": "Tc2_Standard",
+      "vendor": "Beckhoff Automation GmbH",
+      "infoUrl": "https://infosys.beckhoff.com/english.php?content=../content/1033/tc3_plc_intro/41891384434359666059.html&id=",
+      "functionBlocks": [
+        {
+          "name": "R_TRIG",
+          "documentation": "Rising-edge detector.",
+          "members": {
+            "CLK": "BOOL",
+            "Q": "BOOL"
+          }
+        },
+        {
+          "name": "F_TRIG",
+          "documentation": "Falling-edge detector.",
+          "members": {
+            "CLK": "BOOL",
+            "Q": "BOOL"
+          }
+        },
+        {
+          "name": "TON",
+          "documentation": "On-delay timer.",
+          "members": {
+            "IN": "BOOL",
+            "PT": "TIME",
+            "Q": "BOOL",
+            "ET": "TIME"
+          }
+        },
+        {
+          "name": "TOF",
+          "documentation": "Off-delay timer.",
+          "members": {
+            "IN": "BOOL",
+            "PT": "TIME",
+            "Q": "BOOL",
+            "ET": "TIME"
+          }
+        },
+        {
+          "name": "TP",
+          "documentation": "Pulse timer.",
+          "members": {
+            "IN": "BOOL",
+            "PT": "TIME",
+            "Q": "BOOL",
+            "ET": "TIME"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Tc2_System",
+      "vendor": "Beckhoff Automation GmbH",
+      "infoUrl": "https://infosys.beckhoff.com/english.php?content=../content/1033/tc3_plc_intro/41891384434359666059.html&id=",
+      "dataTypes": [
+        {
+          "name": "T_MaxString",
+          "kind": "alias",
+          "documentation": "Common TwinCAT system string alias."
+        }
+      ]
+    },
+    {
+      "name": "Tc3_Module",
+      "vendor": "Beckhoff Automation GmbH",
+      "infoUrl": "https://infosys.beckhoff.com/english.php?content=../content/1033/tc3_plc_intro/41891384434359666059.html&id="
+    }
+  ]
+}

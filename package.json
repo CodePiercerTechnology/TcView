@@ -113,6 +113,16 @@
         "command": "tcview.showLibraries",
         "title": "Show TcView Libraries",
         "icon": "$(library)"
+      },
+      {
+        "command": "tcview.createLibraryMetadataTemplate",
+        "title": "Create TcView Library Metadata File",
+        "icon": "$(new-file)"
+      },
+      {
+        "command": "tcview.importLibraryMetadata",
+        "title": "Import TwinCAT Library Metadata",
+        "icon": "$(cloud-download)"
       }
     ],
     "configuration": {
@@ -153,6 +163,22 @@
             "type": "string"
           },
           "description": "Root folders to search for TwinCAT .tmc files used as compiled symbol/type context (ai > tmc > source > metadata)."
+        },
+        "twincat.library.managedRoots": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "description": "Additional TwinCAT Managed Libraries roots to scan for installed library metadata such as vendor, version, install path, and dependencies."
+        },
+        "twincat.library.metadataFiles": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "description": "Additional JSON files that extend TcView's built-in library metadata catalog. Relative paths resolve from the workspace/project root."
         },
         "twincat.diagnostics.profile": {
           "type": "string",
@@ -272,6 +298,11 @@
           "command": "tcview.buildSolutionWithMsBuild",
           "when": "tcview.hasSolution && (explorerResourceIsFolder || resourceExtname == .sln)",
           "group": "navigation@2"
+        },
+        {
+          "command": "tcview.importLibraryMetadata",
+          "when": "explorerResourceIsFolder || resourceExtname == .library || resourceExtname == .compiled-library || resourceExtname == .compiled-library-v3 || resourceExtname == .compiled-library-ge33",
+          "group": "navigation@3"
         }
       ],
       "editor/title": [
