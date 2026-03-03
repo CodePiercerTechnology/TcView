@@ -1,3 +1,6 @@
+import { iecBuiltinFunctions, iecBuiltinNamespaces, iecBuiltinTypes } from './iecStBuiltins';
+import { iecStKeywords } from './iecStKeywords';
+
 export interface AstVariableDecl {
     name: string;
     upper: string;
@@ -72,15 +75,12 @@ interface ParsedLine {
 }
 
 const KEYWORDS = new Set([
-    'PROGRAM', 'END_PROGRAM', 'FUNCTION', 'END_FUNCTION', 'FUNCTION_BLOCK', 'END_FUNCTION_BLOCK',
-    'INTERFACE', 'END_INTERFACE', 'METHOD', 'END_METHOD', 'PROPERTY', 'END_PROPERTY',
-    'ACTION', 'END_ACTION', 'TRANSITION', 'END_TRANSITION', 'GET', 'SET',
-    'VAR', 'END_VAR', 'VAR_INPUT', 'VAR_OUTPUT', 'VAR_IN_OUT', 'VAR_GLOBAL', 'VAR_TEMP', 'VAR_INST', 'VAR_STAT',
-    'IF', 'THEN', 'ELSIF', 'ELSE', 'END_IF', 'CASE', 'OF', 'END_CASE',
-    'FOR', 'TO', 'BY', 'DO', 'END_FOR', 'WHILE', 'END_WHILE', 'REPEAT', 'UNTIL', 'END_REPEAT',
-    'TYPE', 'END_TYPE', 'STRUCT', 'END_STRUCT', 'ENUM', 'END_ENUM',
-    'TRUE', 'FALSE', 'AND', 'OR', 'XOR', 'NOT', 'MOD', 'DIV'
-]);
+    ...iecStKeywords,
+    ...iecBuiltinTypes,
+    ...iecBuiltinFunctions,
+    ...iecBuiltinNamespaces,
+    'ADRINST', 'IS_VALID_REF', 'LOWER_BOUND', 'UPPER_BOUND'
+].map(item => item.toUpperCase()));
 
 const BLOCK_OPENERS = new Map<string, string>([
     ['IF', 'END_IF'],
@@ -364,7 +364,7 @@ function collectUsagesAndAssignments(pl: ParsedLine, usages: AstIdentifierOccurr
         const next = i + 1 < toks.length ? toks[i + 1] : undefined;
         const isMember = !!prev && prev.text === '.';
         const isCall = !!next && next.text === '(';
-        const isNamedArg = !!next && next.text === ':=' && parenDepth > 0;
+        const isNamedArg = !!next && (next.text === ':=' || next.text === '=>') && parenDepth > 0;
         if (isMember || isNamedArg) continue;
 
         usages.push({
@@ -504,7 +504,7 @@ function lexLine(line: string, inBlockCommentStart: boolean): { code: string; to
 
 function tokenizeCode(code: string, out: Token[]): void {
     // Keep IEC time literals (e.g. T#100ms, TIME#1h30m) as a single token.
-    const re = /\s+|:=|<=|>=|<>|[(){}\[\],;:.+\-*/=<>]|(?:T|TIME)#(?:[+-]?\d+(?:\.\d+)?(?:D|H|M|S|MS|US|NS))+|16#[0-9A-Fa-f_]+|2#[01_]+|8#[0-7_]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[A-Za-z_]\w*/gi;
+    const re = /\s+|:=|=>|<=|>=|<>|[(){}\[\],;:.+\-*/=<>]|(?:T|TIME)#(?:[+-]?\d+(?:\.\d+)?(?:D|H|M|S|MS|US|NS))+|16#[0-9A-Fa-f_]+|2#[01_]+|8#[0-7_]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[A-Za-z_]\w*/gi;
     let m: RegExpExecArray | null;
     while ((m = re.exec(code)) !== null) {
         const text = m[0];
@@ -514,7 +514,7 @@ function tokenizeCode(code: string, out: Token[]): void {
         let kind: Token['kind'] = 'symbol';
         if (/^[A-Za-z_]\w*$/.test(text)) kind = 'identifier';
         else if (/^(?:T|TIME)#/i.test(text) || /^\d|^(16#|2#|8#)/.test(text)) kind = 'number';
-        else if (/^(:=|<=|>=|<>|[=<>+\-*/])$/.test(text)) kind = 'operator';
+        else if (/^(:=|=>|<=|>=|<>|[=<>+\-*/])$/.test(text)) kind = 'operator';
         out.push({ text, upper: text.toUpperCase(), start, end, kind });
     }
 }

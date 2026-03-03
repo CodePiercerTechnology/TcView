@@ -2,6 +2,8 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import { buildAstAnalysis } from '../iecStAst';
+import { isKnownIecBuiltinIdentifier, isKnownIecBuiltinType } from '../iecStBuiltins';
+import { iecStKeywordSet } from '../iecStKeywords';
 import { applyFragmentSTToXml, extractFragmentSTFromXml } from '../tcViewFragmentCodec';
 import { TwinCATXmlConverter } from '../tcViewXmlConverter';
 
@@ -89,6 +91,11 @@ async function run(): Promise<void> {
     assert.ok(!usedNames.has('IMINCLAMP'));
     assert.ok(!usedNames.has('IMAXCLAMP'));
 
+    const outputArgCallSample = 'hresult := ConvertAnyToString(value, result => strValue);';
+    const outputArgAst = buildAstAnalysis(outputArgCallSample);
+    const outputArgNames = new Set(outputArgAst.usages.map(u => u.upper));
+    assert.ok(!outputArgNames.has('RESULT'));
+
     const inlineIfSample = 'IF NOT Reset THEN RETURN; END_IF';
     const inlineIfAst = buildAstAnalysis(inlineIfSample);
     assert.strictEqual(inlineIfAst.blockErrors.length, 0, 'Inline IF block should not create missing END_IF errors');
@@ -101,6 +108,30 @@ async function run(): Promise<void> {
     const pragmaAst = buildAstAnalysis(pragmaSample);
     assert.strictEqual(pragmaAst.missingSemicolons.length, 0, 'Pragma lines must not produce semicolon diagnostics');
     assert.ok(!pragmaAst.usages.some(u => u.upper === 'WARNING' || u.upper === 'DISABLE' || u.upper === 'C0371'));
+
+    assert.ok(isKnownIecBuiltinType('ANY'));
+    assert.ok(isKnownIecBuiltinIdentifier('_SYSTEM'));
+    assert.ok(isKnownIecBuiltinIdentifier('__SYSTEM'));
+    assert.ok(isKnownIecBuiltinIdentifier('ADR'));
+    assert.ok(isKnownIecBuiltinIdentifier('INT_TO_STRING'));
+    assert.ok(isKnownIecBuiltinIdentifier('WORD_TO_STRING'));
+    assert.ok(isKnownIecBuiltinIdentifier('TO_UDINT'));
+    assert.ok(isKnownIecBuiltinIdentifier('POINTER'));
+    [
+        'ANDN', 'CAL', 'CALC', 'CALCN', 'JMP', 'JMPC', 'JMPCN', 'LD', 'LDN', 'LTIME',
+        'ORN', 'PARAMS', 'R', 'READ_ONLY', 'READ_WRITE', 'RET', 'RETC', 'RETCN', 'S',
+        'ST', 'STN', 'XORN'
+    ].forEach(keyword => assert.ok(iecStKeywordSet.has(keyword), `Expected keyword ${keyword}`));
+    [
+        'BIT', 'LDATE', 'LDATE_AND_TIME', 'LDT', 'LTIME', 'LTIME_OF_DAY', 'LTOD',
+        'ANY_DATE', 'PVOID', 'XINT', 'UXINT', 'XWORD', '__XINT', '__UXINT', '__XWORD'
+    ].forEach(typeName => assert.ok(isKnownIecBuiltinType(typeName), `Expected type ${typeName}`));
+
+    const refAssignmentSample = 'A REF= THIS^;';
+    const refAssignmentAst = buildAstAnalysis(refAssignmentSample);
+    const refAssignmentNames = new Set(refAssignmentAst.usages.map(u => u.upper));
+    assert.ok(!refAssignmentNames.has('REF'));
+    assert.ok(!refAssignmentNames.has('__SYSTEM'));
 
     const fixturePath = path.resolve(process.cwd(), 'src', 'tests', 'fixtures', 'FB_IntegrationSample.TcPOU');
     const fixtureXml = fs.readFileSync(fixturePath, 'utf8');
@@ -169,6 +200,55 @@ async function run(): Promise<void> {
         applyFragmentSTToXml(interfaceXml, 'PropertyGet:Speed', 'GET'),
         /tree-only and cannot be edited/i
     );
+
+    const enumDutFixturePath = path.resolve(process.cwd(), 'src', 'tests', 'fixtures', 'E_DeviceMode.TcDUT');
+    const structDutFixturePath = path.resolve(process.cwd(), 'src', 'tests', 'fixtures', 'ST_CiA402_Drive_PDO.TcDUT');
+    const enumDutXml = fs.readFileSync(enumDutFixturePath, 'utf8');
+    const structDutXml = fs.readFileSync(structDutFixturePath, 'utf8');
+
+    const [enumDutSt, structDutSt] = await Promise.all([
+        interfaceConverter.convertXmlToST(enumDutXml),
+        interfaceConverter.convertXmlToST(structDutXml)
+    ]);
+
+    assert.ok(enumDutSt.includes("TYPE E_DeviceMode :"));
+    assert.ok(enumDutSt.includes("{attribute 'qualified_only'}"));
+    assert.ok(enumDutSt.includes('('));
+    assert.ok(!enumDutSt.includes('STRUCT\nTYPE E_DeviceMode :'));
+    assert.strictEqual((enumDutSt.match(/\bTYPE\s+E_DeviceMode\b/g) || []).length, 1);
+
+    assert.ok(structDutSt.includes('TYPE ST_CiA402_Drive_PDO :'));
+    assert.ok(structDutSt.includes('STRUCT'));
+    assert.ok(structDutSt.includes('ControlWord    : WORD;'));
+    assert.ok(!structDutSt.includes('STRUCT\nSTRUCT'));
+    assert.strictEqual((structDutSt.match(/^STRUCT$/gm) || []).length, 1, 'Expected one STRUCT block header.');
+
+    const updatedEnumDut = [
+        'TYPE E_DeviceMode :',
+        "{attribute 'qualified_only'}",
+        '(',
+        '    Auto := 0,',
+        '    Manual := 1,',
+        '    Service := 2',
+        ');',
+        'END_TYPE'
+    ].join('\n');
+    const xmlAfterEnumDutSave = await interfaceConverter.convertSTToXml(updatedEnumDut, enumDutXml);
+    assert.ok(xmlAfterEnumDutSave.includes('Service := 2'));
+    assert.ok(!xmlAfterEnumDutSave.includes('STRUCT'));
+
+    const updatedStructDut = [
+        'TYPE ST_CiA402_Drive_PDO :',
+        'STRUCT',
+        '    ControlWord    : WORD;',
+        '    VelocityTarget : DINT;',
+        '    StatusWord     : WORD;',
+        'END_STRUCT',
+        'END_TYPE'
+    ].join('\n');
+    const xmlAfterStructDutSave = await interfaceConverter.convertSTToXml(updatedStructDut, structDutXml);
+    assert.ok(xmlAfterStructDutSave.includes('VelocityTarget : DINT;'));
+    assert.ok(!xmlAfterStructDutSave.includes('STRUCT\nSTRUCT'));
 }
 
 Promise.resolve(run()).then(() => {

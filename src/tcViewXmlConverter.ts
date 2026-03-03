@@ -76,6 +76,16 @@ export class TwinCATXmlConverter {
             return data;
         }
 
+        if (rootKey === 'TcPlcObject' && root.DUT) {
+            this.applyDutStToNode(root.DUT, stContent);
+            return data;
+        }
+
+        if (root && rootKey === 'TcDUT') {
+            this.applyDutStToNode(root, stContent);
+            return data;
+        }
+
         // Fallback: if object has an implementation node, treat incoming ST as implementation only.
         if (root?.Implementation) {
             this.setImplementationText(root, stContent);
@@ -91,6 +101,23 @@ export class TwinCATXmlConverter {
             this.setTextField(node, 'Declaration', split.declaration);
         }
         this.setImplementationText(node, split.implementation);
+    }
+
+    private applyDutStToNode(node: any, stContent: string): void {
+        const normalized = stContent.replace(/\r\n?/g, '\n').trim();
+        if (!normalized) {
+            return;
+        }
+
+        this.setTextField(node, 'Declaration', normalized);
+
+        const parsed = this.parseDutDeclaration(normalized);
+        if (parsed.name) {
+            this.setTextField(node, 'Name', parsed.name);
+        }
+        if (parsed.kind) {
+            this.setTextField(node, 'Type', parsed.kind);
+        }
     }
 
     private splitPouSt(stContent: string, existingDeclaration: string): { declaration: string; implementation: string } {
@@ -312,46 +339,14 @@ export class TwinCATXmlConverter {
     }
 
     private generateDUTStructure(dutData: any): string {
-        let stCode = '';
-        
-        let name = 'UnknownType';
-        if (dutData.Name) {
-            name = this.getTextContent(dutData.Name) || 'UnknownType';
-        } else if (dutData.$ && dutData.$.Name) {
-            name = dutData.$.Name;
-        }
-        
-        let dutType = 'STRUCT';
-        if (dutData.Type) {
-            dutType = this.getTextContent(dutData.Type) || 'STRUCT';
-        } else if (dutData.$ && dutData.$.Type) {
-            dutType = dutData.$.Type;
-        }
-        
-        stCode += `TYPE ${name} :\n`;
-        stCode += `${dutType}\n`;
-        
-        // Generate fields from Declaration
         if (dutData.Declaration) {
-            const decl = this.getTextContent(dutData.Declaration);
-            // Clean up the declaration
-            const cleaned = decl.replace(/^TYPE\s+\w+\s*:\s*/, '').replace(/END_TYPE\s*$/, '').trim();
-            stCode += cleaned + '\n';
-        } else if (dutData.Fields && dutData.Fields.Field) {
-            const fields = this.ensureArray(dutData.Fields.Field);
-            for (const field of fields) {
-                const fieldName = field.Name ? this.getTextContent(field.Name) : (field.$?.Name || 'unnamed');
-                const fieldType = field.Type ? this.getTextContent(field.Type) : (field.$?.Type || 'INT');
-                const fieldComment = field.Comment ? this.getTextContent(field.Comment) : '';
-                const commentStr = fieldComment ? ` // ${fieldComment}` : '';
-                stCode += `    ${fieldName} : ${fieldType};${commentStr}\n`;
+            const declaration = this.getTextContent(dutData.Declaration).trim();
+            if (declaration) {
+                return declaration.endsWith('\n') ? declaration : `${declaration}\n`;
             }
         }
-        
-        stCode += `END_${dutType};\n`;
-        stCode += `END_TYPE\n`;
-        
-        return stCode;
+
+        return this.buildDutDeclarationFromFields(dutData);
     }
 
     private generateGVLStructure(gvlData: any): string {
@@ -499,6 +494,61 @@ export class TwinCATXmlConverter {
         }
         
         return vars;
+    }
+
+    private parseDutDeclaration(stContent: string): { name?: string; kind?: string } {
+        const normalized = stContent.replace(/\r/g, '').trim();
+        const headerMatch = normalized.match(/^TYPE\s+([A-Za-z_]\w*)\s*:\s*/i);
+        const name = headerMatch?.[1];
+        const afterHeader = headerMatch ? normalized.slice(headerMatch[0].length).trim() : normalized;
+
+        if (/^STRUCT\b/i.test(afterHeader)) {
+            return { name, kind: 'STRUCT' };
+        }
+        if (/^\(/.test(afterHeader)) {
+            return { name, kind: 'ENUM' };
+        }
+
+        const aliasMatch = afterHeader.match(/^([A-Za-z_]\w*)/);
+        return { name, kind: aliasMatch?.[1]?.toUpperCase() };
+    }
+
+    private buildDutDeclarationFromFields(dutData: any): string {
+        let name = 'UnknownType';
+        if (dutData.Name) {
+            name = this.getTextContent(dutData.Name) || 'UnknownType';
+        } else if (dutData.$ && dutData.$.Name) {
+            name = dutData.$.Name;
+        }
+
+        let dutType = 'STRUCT';
+        if (dutData.Type) {
+            dutType = this.getTextContent(dutData.Type) || 'STRUCT';
+        } else if (dutData.$ && dutData.$.Type) {
+            dutType = dutData.$.Type;
+        }
+
+        const normalizedType = dutType.trim().toUpperCase();
+        const fields = this.ensureArray(dutData.Fields?.Field);
+        const lines: string[] = [`TYPE ${name} :`];
+
+        if (normalizedType === 'STRUCT') {
+            lines.push('STRUCT');
+            for (const field of fields) {
+                const fieldName = field.Name ? this.getTextContent(field.Name) : (field.$?.Name || 'unnamed');
+                const fieldType = field.Type ? this.getTextContent(field.Type) : (field.$?.Type || 'INT');
+                const fieldComment = field.Comment ? this.getTextContent(field.Comment) : '';
+                const commentStr = fieldComment ? ` // ${fieldComment}` : '';
+                lines.push(`    ${fieldName} : ${fieldType};${commentStr}`);
+            }
+            lines.push('END_STRUCT');
+            lines.push('END_TYPE');
+            return lines.join('\n') + '\n';
+        }
+
+        lines.push(normalizedType);
+        lines.push('END_TYPE');
+        return lines.join('\n') + '\n';
     }
 
     private generateImplementation(implementationData: any): string {

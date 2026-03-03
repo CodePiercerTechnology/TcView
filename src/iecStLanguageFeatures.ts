@@ -2,6 +2,16 @@ import * as vscode from 'vscode';
 import * as xml2js from 'xml2js';
 import { getProjectAnalyzer, initializeProjectAnalyzer, onProjectAnalyzerCreated } from './tcViewProjectAnalyzer';
 import { buildAstAnalysis } from './iecStAst';
+import {
+    iecBuiltinFunctions,
+    iecBuiltinNamespaces,
+    iecBuiltinTypes,
+    isConversionFunctionName,
+    isKnownIecBuiltinFunction,
+    isKnownIecBuiltinNamespace,
+    isKnownIecBuiltinType
+} from './iecStBuiltins';
+import { iecStKeywords, iecStKeywordSet } from './iecStKeywords';
 
 type IECPrimitiveType =
     | 'BOOL'
@@ -23,57 +33,14 @@ interface IECStandardDefinition {
     example?: string;
 }
 
-
-// IEC ST Keywords and built-in functions for IntelliSense
-const iecStKeywords = [
-    // Program structure
-    'PROGRAM', 'END_PROGRAM', 'FUNCTION', 'END_FUNCTION', 'FUNCTION_BLOCK', 'END_FUNCTION_BLOCK',
-    'INTERFACE', 'END_INTERFACE', 'METHOD', 'END_METHOD', 'PROPERTY', 'END_PROPERTY',
-    'ACTION', 'END_ACTION', 'TRANSITION', 'END_TRANSITION', 'GET', 'SET',
-    'VAR', 'END_VAR', 'VAR_INPUT', 'VAR_OUTPUT', 'VAR_IN_OUT', 'VAR_GLOBAL', 'VAR_TEMP',
-    'CONSTANT', 'RETAIN', 'PERSISTENT',
-    
-    // Data types
-    'BOOL', 'BYTE', 'WORD', 'DWORD', 'LWORD',
-    'SINT', 'INT', 'DINT', 'LINT', 'USINT', 'UINT', 'UDINT', 'ULINT',
-    'REAL', 'LREAL', 'TIME', 'DATE', 'TIME_OF_DAY', 'TOD', 'DATE_AND_TIME', 'DT',
-    'STRING', 'WSTRING', 'ARRAY', 'OF', 'TYPE', 'END_TYPE', 'STRUCT', 'END_STRUCT', 'ENUM', 'END_ENUM',
-    
-    // Control flow
-    'IF', 'THEN', 'ELSIF', 'ELSE', 'END_IF',
-    'CASE', 'OF', 'ELSE', 'END_CASE',
-    'FOR', 'TO', 'BY', 'DO', 'END_FOR',
-    'WHILE', 'DO', 'END_WHILE',
-    'REPEAT', 'UNTIL', 'END_REPEAT',
-    'EXIT', 'CONTINUE', 'RETURN',
-    
-    // Operators
-    'AND', 'OR', 'XOR', 'NOT', 'MOD', 'DIV',
-    
-    // Standard functions
-    'ABS', 'SQRT', 'LN', 'LOG', 'EXP', 'SIN', 'COS', 'TAN', 'ASIN', 'ACOS', 'ATAN',
-    'EXPT', 'LIMIT', 'MIN', 'MAX', 'SEL', 'MUX', 'SHL', 'SHR', 'ROL', 'ROR',
-    'ADD', 'MUL', 'SUB', 'DIV', 'MOD', 'MOVE',
-    
-    // Type conversion
-    'BOOL_TO_BYTE', 'BOOL_TO_WORD', 'BOOL_TO_DWORD', 'BOOL_TO_LWORD',
-    'BYTE_TO_BOOL', 'BYTE_TO_WORD', 'BYTE_TO_DWORD', 'BYTE_TO_LWORD',
-    'INT_TO_REAL', 'REAL_TO_INT', 'TRUNC', 'ROUND', 'CEIL', 'FLOOR',
-    
-    // String functions
-    'LEN', 'LEFT', 'RIGHT', 'MID', 'CONCAT', 'INSERT', 'DELETE', 'REPLACE', 'FIND',
-    
-    // Time functions
-    'ADD_TIME', 'SUB_TIME', 'MUL_TIME', 'DIV_TIME', 'CONCAT_DATE_TOD',
-    
-    // Edge detection
-    'R_TRIG', 'F_TRIG', 'RS', 'SR',
-    
-    // Other
-    'TRUE', 'FALSE', 'NULL', 'THIS', 'SUPER'
-];
-const iecStKeywordSet = new Set(iecStKeywords.map(k => k.toUpperCase()));
-
+export function isKnownIecBuiltinIdentifier(value: string): boolean {
+    const upper = value.toUpperCase();
+    return iecStKeywordSet.has(upper) ||
+        stdSymbolSet.has(upper) ||
+        isKnownIecBuiltinType(upper) ||
+        isKnownIecBuiltinFunction(upper) ||
+        isKnownIecBuiltinNamespace(upper);
+}
 // IEC ST Snippets
 const iecStSnippets: { [key: string]: vscode.SnippetString } = {
     'IF Statement': new vscode.SnippetString([
@@ -569,6 +536,30 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
                     def.kind === 'functionBlock' ? vscode.CompletionItemKind.Class : vscode.CompletionItemKind.Function,
                     `IEC ${def.kind}`,
                     `${def.summary}`
+                )
+            );
+        });
+        iecBuiltinFunctions.forEach(name => {
+            addCompletionUnique(
+                staticCompletionItems,
+                seen,
+                createCompletionItem(
+                    name,
+                    vscode.CompletionItemKind.Function,
+                    'IEC builtin',
+                    `IEC builtin function: **${name}**`
+                )
+            );
+        });
+        iecBuiltinNamespaces.forEach(name => {
+            addCompletionUnique(
+                staticCompletionItems,
+                seen,
+                createCompletionItem(
+                    name,
+                    vscode.CompletionItemKind.Module,
+                    'TwinCAT builtin namespace',
+                    `TwinCAT builtin namespace: **${name}**`
                 )
             );
         });
@@ -1237,7 +1228,7 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
 
         const getDeclarationTypeStatus = (typeName: string): 'known' | 'metadata_only' | 'unknown' => {
             if (!typeName) return 'known';
-            if (standardIecDefinitions[typeName.toUpperCase()]) return 'known';
+            if (isKnownIecBuiltinType(typeName) || standardIecDefinitions[typeName.toUpperCase()]) return 'known';
             const analyzerStatus = astProjectAnalyzer.getTypeResolutionStatus(typeName);
             if (analyzerStatus !== 'unknown') return analyzerStatus;
             const key = typeName.toUpperCase();
@@ -1314,7 +1305,7 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
 
         const astUsedIdentifiers = new Set<string>();
         ast.usages.forEach(u => {
-            if (iecStKeywords.includes(u.upper)) return;
+            if (isKnownIecBuiltinIdentifier(u.upper)) return;
             if (allKnownVars.has(u.upper)) {
                 astUsedIdentifiers.add(u.upper);
                 return;
