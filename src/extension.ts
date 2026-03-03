@@ -2,20 +2,25 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { spawn, spawnSync } from 'child_process';
 import * as fs from 'fs';
-import { TwinCATFileExplorerProvider, TwinCATFileTreeItem } from './tcViewFileExplorerProvider';
+import { TwinCATFileExplorerProvider, TwinCATFileTreeItem, TwinCATItemType } from './tcViewFileExplorerProvider';
 import { TwinCATFileSystemProvider } from './tcViewFileSystemProvider';
+import { TwinCATXmlConverter } from './tcViewXmlConverter';
+import { TwinCATBackendClient } from './backend/tcViewBackendClient';
 import { registerLanguageFeatures } from './iecStLanguageFeatures';
-import { disposeProjectAnalyzer, getProjectAnalyzer, initializeProjectAnalyzer, onProjectAnalyzerCreated } from './tcViewProjectAnalyzer';
+import { disposeProjectAnalyzer, getProjectAnalyzer, initializeProjectAnalyzer, onProjectAnalyzerCreated, refreshProjectAnalyzerLibraryMetadata } from './tcViewProjectAnalyzer';
 import { disposeTelemetry, logError, showPerfSummary, withPerfMetric } from './tcViewTelemetry';
 
 let analyzerInitPromise: Promise<void> | undefined;
 
 export function activate(context: vscode.ExtensionContext) {
     console.log('TcView extension is now active!');
+    const metadataConverter = new TwinCATXmlConverter();
+    const backendClient = new TwinCATBackendClient(context.extensionPath);
     const supportedTwinCATExts = new Set(['.tcpou', '.tcgvl', '.tcdut', '.tcprg', '.tcapp', '.tccom', '.tcvar', '.tcgds', '.tcio', '.tcitf']);
     const libraryPanels = new Map<string, vscode.WebviewPanel>();
     const libraryViewCache = new Map<string, { revision: number; html: string }>();
     const maxLibraryViewCacheEntries = 16;
+    const libraryOutput = vscode.window.createOutputChannel('TcView Libraries');
     const redirectInProgress = new Set<string>();
     const skipNextAutoRedirect = new Set<string>();
     const lastFragmentBySource = new Map<string, string>();
@@ -501,6 +506,61 @@ export function activate(context: vscode.ExtensionContext) {
         return chooseBestSolution(workspaceFolder);
     };
 
+    const resolveTsprojForSolution = async (solutionPath: string) => {
+        const markers = await findTwinCATProjectMarkers(path.dirname(solutionPath));
+        return markers.tsprojPath;
+    };
+
+    const resolvePlcProjectTarget = async (target?: vscode.Uri | TwinCATFileTreeItem): Promise<string | undefined> => {
+        if (!target) {
+            return undefined;
+        }
+
+        if (target instanceof TwinCATFileTreeItem) {
+            if (target.itemType === TwinCATItemType.ReferenceItem && target.parentPath?.toLowerCase().endsWith('.plcproj')) {
+                return target.parentPath;
+            }
+            return resolvePlcProjectTarget(target.resourceUri);
+        }
+
+        if (target.scheme !== 'file') {
+            return undefined;
+        }
+
+        const ext = path.extname(target.fsPath).toLowerCase();
+        if (ext === '.plcproj') {
+            return target.fsPath;
+        }
+
+        if (await isDirectory(target)) {
+            return firstMatchInDirectory(target, '.plcproj');
+        }
+
+        return undefined;
+    };
+
+    const parseLibraryReferenceIdentity = (referenceName: string, displayName?: string) => {
+        const trimmedDisplay = displayName?.trim();
+        if (trimmedDisplay) {
+            const match = trimmedDisplay.match(/^(?<name>[^,]+),\s*(?<version>[^()]+?)\s*\((?<vendor>[^)]+)\)\s*$/);
+            if (match?.groups) {
+                return {
+                    name: match.groups.name.trim(),
+                    version: match.groups.version.trim(),
+                    vendor: match.groups.vendor.trim(),
+                    displayName: trimmedDisplay
+                };
+            }
+        }
+
+        return {
+            name: referenceName.trim(),
+            version: undefined,
+            vendor: undefined,
+            displayName: trimmedDisplay
+        };
+    };
+
     const parseMsBuildDiagnostics = (lines: string[]) => {
         const result = new Map<string, vscode.Diagnostic[]>();
         const addDiagnostic = (filePath: string, diagnostic: vscode.Diagnostic) => {
@@ -840,7 +900,15 @@ export function activate(context: vscode.ExtensionContext) {
         }
 
         const lines = libs.map(lib =>
-            `${lib.vendor ?? 'Unknown vendor'} | ${lib.name} | ${lib.version} | ${lib.mode}${lib.installPath ? ` | ${lib.installPath}` : ''}`
+            [
+                lib.vendor ?? 'Unknown vendor',
+                lib.name,
+                lib.version,
+                lib.mode,
+                lib.category,
+                lib.suppliedWith,
+                lib.installPath
+            ].filter(Boolean).join(' | ')
         );
 
         const doc = await vscode.workspace.openTextDocument({
@@ -903,12 +971,11 @@ export function activate(context: vscode.ExtensionContext) {
     const normalizeLibraryKey = (name: string, vendor?: string) =>
         `${name.replace(/[^A-Za-z0-9]/g, '').toUpperCase()}|${(vendor ?? '').replace(/[^A-Za-z0-9]/g, '').toUpperCase()}`;
 
-    const getWorkspaceLibraryMetadataUri = () => {
-        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-        if (!workspaceRoot) {
-            return undefined;
-        }
-        return vscode.Uri.file(path.join(workspaceRoot, '.vscode', 'tcview.libraries.json'));
+    const getGlobalLibraryMetadataUri = () => {
+        const appDataRoot = process.env.APPDATA
+            || (process.env.USERPROFILE ? path.join(process.env.USERPROFILE, 'AppData', 'Roaming') : undefined)
+            || context.globalStorageUri.fsPath;
+        return vscode.Uri.file(path.join(appDataRoot, 'TcView', 'tcview.libraries.json'));
     };
 
     const readWorkspaceLibraryCatalog = async (targetUri: vscode.Uri): Promise<WorkspaceLibraryCatalog> => {
@@ -929,12 +996,8 @@ export function activate(context: vscode.ExtensionContext) {
         await vscode.workspace.fs.writeFile(targetUri, Buffer.from(payload, 'utf8'));
     };
 
-    const ensureWorkspaceLibraryCatalog = async (seedWithTemplate: boolean) => {
-        const targetUri = getWorkspaceLibraryMetadataUri();
-        if (!targetUri) {
-            vscode.window.showWarningMessage('TcView: Open a workspace folder before creating library metadata.');
-            return undefined;
-        }
+    const ensureGlobalLibraryCatalog = async (seedWithTemplate: boolean, suppressWarning = false) => {
+        const targetUri = getGlobalLibraryMetadataUri();
 
         const exists = fs.existsSync(targetUri.fsPath);
         if (!exists) {
@@ -1031,24 +1094,412 @@ export function activate(context: vscode.ExtensionContext) {
         };
     };
 
+    const normalizeDeclarationType = (rawType: string | undefined) =>
+        (rawType ?? '')
+            .trim()
+            .replace(/:=.*$/, '')
+            .replace(/\bAT\b.*$/i, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+
+    const parseMembersFromDeclarationBlock = (block: string | undefined) => {
+        const members: Record<string, string> = {};
+        if (!block) {
+            return members;
+        }
+
+        for (const rawLine of block.split(/\r?\n/)) {
+            const line = rawLine.trim();
+            if (!line || line.startsWith('//') || line.startsWith('(*')) {
+                continue;
+            }
+
+            const match = line.match(/^([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\s*:\s*([^;]+);/);
+            if (!match) {
+                continue;
+            }
+
+            const names = match[1].split(',').map(name => name.trim()).filter(Boolean);
+            const resolvedType = normalizeDeclarationType(match[2]);
+            for (const name of names) {
+                members[name] = resolvedType || 'ANY';
+            }
+        }
+
+        return members;
+    };
+
+    const mapToSortedObject = (input: Record<string, string>) =>
+        Object.fromEntries(Object.entries(input).sort((a, b) => a[0].localeCompare(b[0])));
+
+    const parseTwinCATSourceMetadata = async (filePath: string): Promise<Partial<WorkspaceLibraryCatalogEntry>> => {
+        const ext = path.extname(filePath).toLowerCase();
+        const xml = await fs.promises.readFile(filePath, 'utf8');
+        const st = await metadataConverter.convertXmlToST(xml);
+
+        const result: Partial<WorkspaceLibraryCatalogEntry> = {
+            functionBlocks: [],
+            functions: [],
+            programs: [],
+            variables: [],
+            dataTypes: []
+        };
+
+        if (ext === '.tcpou' || ext === '.tcprg' || ext === '.tcapp' || ext === '.tccom') {
+            const declarationMatch = st.match(/\b(FUNCTION_BLOCK|FUNCTION|PROGRAM)\s+([A-Za-z_]\w*)(?:\s*:\s*([A-Za-z_][\w\.]*))?/i);
+            if (!declarationMatch) {
+                return result;
+            }
+
+            const kind = declarationMatch[1].toUpperCase();
+            const name = declarationMatch[2];
+            const returnType = normalizeDeclarationType(declarationMatch[3]);
+            const varBlocks = [...st.matchAll(/\bVAR(?:_[A-Z_]+)?\b([\s\S]*?)\bEND_VAR\b/gi)];
+            const members = Object.assign({}, ...varBlocks.map(match => parseMembersFromDeclarationBlock(match[1])));
+            if (kind === 'FUNCTION_BLOCK') {
+                result.functionBlocks = [{ name, members: mapToSortedObject(members) }];
+            } else if (kind === 'PROGRAM') {
+                result.programs = [{ name, members: mapToSortedObject(members) }];
+            } else {
+                result.functions = [{ name, returnType: returnType || 'VOID' }];
+            }
+            return result;
+        }
+
+        if (ext === '.tcdut') {
+            const typeMatch = st.match(/\bTYPE\s+([A-Za-z_]\w*)\s*:\s*([\s\S]*?)\bEND_TYPE\b/i);
+            if (!typeMatch) {
+                return result;
+            }
+
+            const name = typeMatch[1];
+            const body = typeMatch[2];
+            const structMatch = body.match(/\bSTRUCT\b([\s\S]*?)\bEND_STRUCT\b/i);
+            if (structMatch) {
+                result.dataTypes = [{
+                    name,
+                    kind: 'struct',
+                    members: mapToSortedObject(parseMembersFromDeclarationBlock(structMatch[1]))
+                }];
+                return result;
+            }
+
+            const enumMatch = body.match(/\(([\s\S]*?)\)/);
+            if (enumMatch) {
+                const members = Object.fromEntries(enumMatch[1]
+                    .split(',')
+                    .map(item => item.trim())
+                    .filter(Boolean)
+                    .map(item => {
+                        const [memberName, assignedValue] = item.split(':=').map(part => part.trim());
+                        return [memberName, assignedValue || 'enum'];
+                    }));
+                result.dataTypes = [{
+                    name,
+                    kind: 'enum',
+                    members: mapToSortedObject(members)
+                }];
+                return result;
+            }
+
+            const aliasTarget = normalizeDeclarationType(body.replace(/END_TYPE/gi, '').trim());
+            result.dataTypes = [{
+                name,
+                kind: 'alias',
+                members: aliasTarget ? { baseType: aliasTarget } : {}
+            }];
+            return result;
+        }
+
+        if (ext === '.tcgvl' || ext === '.tcvar') {
+            const members = Object.assign({}, ...[...st.matchAll(/\bVAR(?:_[A-Z_]+)?\b([\s\S]*?)\bEND_VAR\b/gi)]
+                .map(match => parseMembersFromDeclarationBlock(match[1]))) as Record<string, string>;
+            result.variables = Object.entries(members).map(([name, type]) => ({ name, type }));
+            return result;
+        }
+
+        return result;
+    };
+
+    const collectTwinCATSourceFiles = async (rootPath: string): Promise<string[]> => {
+        const results: string[] = [];
+        const supportedExts = new Set(['.tcpou', '.tcprg', '.tcapp', '.tccom', '.tcdut', '.tcgvl', '.tcvar']);
+
+        const visit = async (directoryPath: string) => {
+            let entries: fs.Dirent[];
+            try {
+                entries = await fs.promises.readdir(directoryPath, { withFileTypes: true });
+            } catch {
+                return;
+            }
+
+            for (const entry of entries) {
+                if (entry.name.startsWith('.') || entry.name.startsWith('_') || entry.name === 'node_modules') {
+                    continue;
+                }
+
+                const fullPath = path.join(directoryPath, entry.name);
+                if (entry.isDirectory()) {
+                    await visit(fullPath);
+                    continue;
+                }
+
+                if (entry.isFile() && supportedExts.has(path.extname(entry.name).toLowerCase())) {
+                    results.push(fullPath);
+                }
+            }
+        };
+
+        await visit(rootPath);
+        return results.sort((a, b) => a.localeCompare(b));
+    };
+
+    const resolveLibraryProjectFile = async (targetPath: string): Promise<string | undefined> => {
+        try {
+            const stat = await fs.promises.stat(targetPath);
+            if (stat.isFile() && path.extname(targetPath).toLowerCase() === '.plcproj') {
+                return targetPath;
+            }
+
+            if (!stat.isDirectory()) {
+                return undefined;
+            }
+
+            const entries = await fs.promises.readdir(targetPath, { withFileTypes: true });
+            const plcproj = entries
+                .filter(entry => entry.isFile() && entry.name.toLowerCase().endsWith('.plcproj'))
+                .map(entry => path.join(targetPath, entry.name))
+                .sort((a, b) => a.localeCompare(b))[0];
+            return plcproj;
+        } catch {
+            return undefined;
+        }
+    };
+
+    const deriveLibraryProjectMetadata = async (targetPath: string): Promise<WorkspaceLibraryCatalogEntry | undefined> => {
+        const plcprojPath = await resolveLibraryProjectFile(targetPath);
+        if (!plcprojPath) {
+            return undefined;
+        }
+
+        const plcprojText = await fs.promises.readFile(plcprojPath, 'utf8');
+        const projectDir = path.dirname(plcprojPath);
+        const projectName = plcprojText.match(/<Name>([^<]+)<\/Name>/i)?.[1]?.trim() || path.basename(plcprojPath, '.plcproj');
+        const version = plcprojText.match(/<ProgramVersion>([^<]+)<\/ProgramVersion>/i)?.[1]?.trim();
+        const dependencies = [...plcprojText.matchAll(/<PlaceholderReference\b[^>]*Include="([^"]+)"/gi)]
+            .map(match => match[1].trim())
+            .filter(Boolean)
+            .sort((a, b) => a.localeCompare(b));
+
+        const sourceFiles = await collectTwinCATSourceFiles(projectDir);
+        const functionBlocks = new Map<string, { name: string; documentation?: string; members?: Record<string, string> }>();
+        const functions = new Map<string, { name: string; returnType?: string; documentation?: string }>();
+        const programs = new Map<string, { name: string; documentation?: string; members?: Record<string, string> }>();
+        const variables = new Map<string, { name: string; type?: string; documentation?: string }>();
+        const dataTypes = new Map<string, { name: string; kind?: 'struct' | 'enum' | 'alias'; documentation?: string; members?: Record<string, string> }>();
+
+        for (const filePath of sourceFiles) {
+            const parsed = await parseTwinCATSourceMetadata(filePath);
+            for (const item of parsed.functionBlocks ?? []) {
+                functionBlocks.set(item.name, item);
+            }
+            for (const item of parsed.functions ?? []) {
+                functions.set(item.name, item);
+            }
+            for (const item of parsed.programs ?? []) {
+                programs.set(item.name, item);
+            }
+            for (const item of parsed.variables ?? []) {
+                variables.set(item.name, item);
+            }
+            for (const item of parsed.dataTypes ?? []) {
+                dataTypes.set(item.name, item);
+            }
+        }
+
+        return {
+            name: projectName,
+            vendor: path.basename(path.dirname(projectDir)),
+            version,
+            dependencies,
+            functionBlocks: [...functionBlocks.values()].sort((a, b) => a.name.localeCompare(b.name)),
+            functions: [...functions.values()].sort((a, b) => a.name.localeCompare(b.name)),
+            programs: [...programs.values()].sort((a, b) => a.name.localeCompare(b.name)),
+            variables: [...variables.values()].sort((a, b) => a.name.localeCompare(b.name)),
+            dataTypes: [...dataTypes.values()].sort((a, b) => a.name.localeCompare(b.name))
+        };
+    };
+
+    const loadCatalogLibraryEntries = async (catalogPath: string) => {
+        try {
+            const text = await fs.promises.readFile(catalogPath, 'utf8');
+            const parsed = JSON.parse(text) as WorkspaceLibraryCatalog;
+            return Array.isArray(parsed.libraries) ? parsed.libraries : [];
+        } catch {
+            return [] as WorkspaceLibraryCatalogEntry[];
+        }
+    };
+
+    const getConfiguredLibraryMetadataPaths = () => {
+        const configuredPaths = vscode.workspace.getConfiguration('twincat').get<string[]>('library.metadataFiles', []);
+        return configuredPaths.map(candidate => {
+            if (path.isAbsolute(candidate)) {
+                return candidate;
+            }
+            const basePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
+            return path.resolve(basePath, candidate);
+        });
+    };
+
+    const collectKnownLibraryCandidates = async () => {
+        const known = new Map<string, { name: string; version?: string; vendor?: string; source: string }>();
+        const addCandidate = (name: string | undefined, version: string | undefined, vendor: string | undefined, source: string) => {
+            const trimmedName = name?.trim();
+            if (!trimmedName) {
+                return;
+            }
+            const key = `${trimmedName.toUpperCase()}|${(vendor ?? '').toUpperCase()}|${version ?? ''}`;
+            if (!known.has(key)) {
+                known.set(key, { name: trimmedName, version, vendor, source });
+            }
+        };
+
+        const builtInPath = path.join(context.extensionPath, 'resources', 'library-metadata.json');
+        const catalogPaths = [
+            builtInPath,
+            getGlobalLibraryMetadataUri().fsPath,
+            ...getConfiguredLibraryMetadataPaths()
+        ];
+
+        for (const catalogPath of catalogPaths) {
+            for (const entry of await loadCatalogLibraryEntries(catalogPath)) {
+                addCandidate(entry.name, entry.version, entry.vendor, path.basename(catalogPath));
+            }
+        }
+
+        const managedRoots = [
+            ...new Set([
+                ...vscode.workspace.getConfiguration('twincat').get<string[]>('library.managedRoots', []),
+                'C:\\ProgramData\\Beckhoff\\TwinCAT\\PlcEngineering\\Managed Libraries',
+                'C:\\ProgramData\\Beckhoff\\TwinCAT\\3.1\\Components\\Plc\\Managed Libraries'
+            ].filter(root => !!root && fs.existsSync(root)))
+        ];
+        for (const managedRoot of managedRoots) {
+            let vendors: fs.Dirent[];
+            try {
+                vendors = await fs.promises.readdir(managedRoot, { withFileTypes: true });
+            } catch {
+                continue;
+            }
+
+            for (const vendorEntry of vendors) {
+                if (!vendorEntry.isDirectory() || vendorEntry.name.startsWith('.') || vendorEntry.name.startsWith('_')) {
+                    continue;
+                }
+                const vendorPath = path.join(managedRoot, vendorEntry.name);
+                let libraries: fs.Dirent[];
+                try {
+                    libraries = await fs.promises.readdir(vendorPath, { withFileTypes: true });
+                } catch {
+                    continue;
+                }
+                for (const libraryEntry of libraries) {
+                    if (!libraryEntry.isDirectory() || libraryEntry.name.startsWith('.') || libraryEntry.name.startsWith('_')) {
+                        continue;
+                    }
+                    const libraryPath = path.join(vendorPath, libraryEntry.name);
+                    let versions: fs.Dirent[];
+                    try {
+                        versions = await fs.promises.readdir(libraryPath, { withFileTypes: true });
+                    } catch {
+                        versions = [];
+                    }
+
+                    if (versions.length === 0) {
+                        addCandidate(libraryEntry.name, undefined, vendorEntry.name, 'Managed Libraries');
+                        continue;
+                    }
+
+                    for (const versionEntry of versions) {
+                        if (!versionEntry.isDirectory()) {
+                            continue;
+                        }
+                        addCandidate(libraryEntry.name, versionEntry.name, vendorEntry.name, 'Managed Libraries');
+                    }
+                }
+            }
+        }
+
+        return [...known.values()]
+            .sort((a, b) => a.name.localeCompare(b.name) || (a.version ?? '').localeCompare(b.version ?? ''))
+            .map(candidate => ({
+                label: candidate.name,
+                description: [candidate.version, candidate.vendor].filter(Boolean).join(' | '),
+                detail: candidate.source,
+                candidate
+            }));
+    };
+
     const mergeWorkspaceLibraryEntry = (
         existing: WorkspaceLibraryCatalogEntry | undefined,
         imported: WorkspaceLibraryCatalogEntry
     ): WorkspaceLibraryCatalogEntry => ({
         name: imported.name,
-        vendor: existing?.vendor ?? imported.vendor,
-        version: existing?.version ?? imported.version,
-        infoUrl: existing?.infoUrl,
+        vendor: imported.vendor ?? existing?.vendor,
+        version: imported.version ?? existing?.version,
+        infoUrl: imported.infoUrl ?? existing?.infoUrl,
         dependencies: [...new Set([...(existing?.dependencies ?? []), ...(imported.dependencies ?? [])])].sort((a, b) => a.localeCompare(b)),
-        functionBlocks: existing?.functionBlocks ?? imported.functionBlocks ?? [],
-        functions: existing?.functions ?? imported.functions ?? [],
-        programs: existing?.programs ?? imported.programs ?? [],
-        variables: existing?.variables ?? imported.variables ?? [],
-        dataTypes: existing?.dataTypes ?? imported.dataTypes ?? []
+        functionBlocks: (imported.functionBlocks && imported.functionBlocks.length > 0) ? imported.functionBlocks : (existing?.functionBlocks ?? []),
+        functions: (imported.functions && imported.functions.length > 0) ? imported.functions : (existing?.functions ?? []),
+        programs: (imported.programs && imported.programs.length > 0) ? imported.programs : (existing?.programs ?? []),
+        variables: (imported.variables && imported.variables.length > 0) ? imported.variables : (existing?.variables ?? []),
+        dataTypes: (imported.dataTypes && imported.dataTypes.length > 0) ? imported.dataTypes : (existing?.dataTypes ?? [])
     });
 
+    const upsertWorkspaceLibraryMetadataEntry = async (
+        importedEntry: WorkspaceLibraryCatalogEntry,
+        options?: { revealFile?: boolean }
+    ): Promise<WorkspaceLibraryCatalogEntry | undefined> => {
+        const metadataUri = await ensureGlobalLibraryCatalog(false, true);
+        if (!metadataUri) {
+            return importedEntry;
+        }
+
+        const catalog = await readWorkspaceLibraryCatalog(metadataUri);
+        const importKey = normalizeLibraryKey(importedEntry.name, importedEntry.vendor);
+        const existingIndex = catalog.libraries.findIndex(entry => normalizeLibraryKey(entry.name, entry.vendor) === importKey);
+        const mergedEntry = mergeWorkspaceLibraryEntry(existingIndex >= 0 ? catalog.libraries[existingIndex] : undefined, importedEntry);
+
+        if (existingIndex >= 0) {
+            catalog.libraries[existingIndex] = mergedEntry;
+        } else {
+            catalog.libraries.push(mergedEntry);
+            catalog.libraries.sort((a, b) => a.name.localeCompare(b.name));
+        }
+
+        await writeWorkspaceLibraryCatalog(metadataUri, catalog);
+
+        if (options?.revealFile) {
+            const document = await vscode.workspace.openTextDocument(metadataUri);
+            await vscode.window.showTextDocument(document, { preview: false });
+        }
+
+        return mergedEntry;
+    };
+
+    const upsertWorkspaceLibraryMetadata = async (
+        targetPath: string,
+        options?: { revealFile?: boolean }
+    ): Promise<WorkspaceLibraryCatalogEntry | undefined> => {
+        const importedEntry = await deriveLibraryMetadataFromPath(targetPath);
+        if (!importedEntry) {
+            return undefined;
+        }
+        return upsertWorkspaceLibraryMetadataEntry(importedEntry, options);
+    };
+
     const createLibraryMetadataTemplateCommand = vscode.commands.registerCommand('tcview.createLibraryMetadataTemplate', async () => {
-        const targetUri = await ensureWorkspaceLibraryCatalog(true);
+        const targetUri = await ensureGlobalLibraryCatalog(true);
         if (!targetUri) {
             return;
         }
@@ -1078,27 +1529,241 @@ export function activate(context: vscode.ExtensionContext) {
             return;
         }
 
-        const metadataUri = await ensureWorkspaceLibraryCatalog(false);
-        if (!metadataUri) {
+        const mergedEntry = await upsertWorkspaceLibraryMetadata(targetUri.fsPath, { revealFile: true });
+        if (!mergedEntry) {
+            vscode.window.showWarningMessage('TcView: Failed to update the global library metadata catalog.');
             return;
         }
 
-        const catalog = await readWorkspaceLibraryCatalog(metadataUri);
-        const importKey = normalizeLibraryKey(importedEntry.name, importedEntry.vendor);
-        const existingIndex = catalog.libraries.findIndex(entry => normalizeLibraryKey(entry.name, entry.vendor) === importKey);
-        const mergedEntry = mergeWorkspaceLibraryEntry(existingIndex >= 0 ? catalog.libraries[existingIndex] : undefined, importedEntry);
+        vscode.window.showInformationMessage(`TcView: Imported library metadata for ${mergedEntry.name}.`);
+    });
 
-        if (existingIndex >= 0) {
-            catalog.libraries[existingIndex] = mergedEntry;
-        } else {
-            catalog.libraries.push(mergedEntry);
-            catalog.libraries.sort((a, b) => a.name.localeCompare(b.name));
+    const importLibraryProjectMetadataCommand = vscode.commands.registerCommand('tcview.importLibraryProjectMetadata', async (targetArg?: vscode.Uri) => {
+        let targetUri = targetArg;
+        if (!targetUri) {
+            const selection = await vscode.window.showOpenDialog({
+                canSelectFiles: true,
+                canSelectFolders: true,
+                canSelectMany: false,
+                openLabel: 'Import TwinCAT Library Project Metadata',
+                filters: {
+                    'TwinCAT PLC Projects': ['plcproj']
+                }
+            });
+            if (!selection || selection.length === 0) {
+                return;
+            }
+            targetUri = selection[0];
         }
 
-        await writeWorkspaceLibraryCatalog(metadataUri, catalog);
-        const document = await vscode.workspace.openTextDocument(metadataUri);
-        await vscode.window.showTextDocument(document, { preview: false });
-        vscode.window.showInformationMessage(`TcView: Imported library metadata for ${mergedEntry.name}.`);
+        const importedEntry = await deriveLibraryProjectMetadata(targetUri.fsPath);
+        if (!importedEntry) {
+            vscode.window.showWarningMessage('TcView: Select a TwinCAT library project folder or .plcproj file.');
+            return;
+        }
+
+        try {
+            libraryOutput.appendLine(`[TcView Libraries] Importing library project metadata for ${importedEntry.name}`);
+            const mergedEntry = await upsertWorkspaceLibraryMetadataEntry(importedEntry, { revealFile: true });
+            await refreshProjectAnalyzerLibraryMetadata();
+            fileExplorerProvider.refresh();
+
+            const importedLabel = mergedEntry?.name ?? importedEntry.name;
+            vscode.window.showInformationMessage(`TcView: Imported library project metadata for ${importedLabel}.`);
+        } catch (error) {
+            libraryOutput.appendLine(`[TcView Libraries] Library project metadata import failed: ${String(error)}`);
+            libraryOutput.show(true);
+            vscode.window.showErrorMessage(`TcView: Library project metadata import failed. ${String(error)}`);
+        }
+    });
+
+    const installLibraryProjectCommand = vscode.commands.registerCommand('tcview.installLibraryProject', async (targetArg?: vscode.Uri | TwinCATFileTreeItem) => {
+        const plcprojPath = await resolvePlcProjectTarget(targetArg);
+        if (!plcprojPath) {
+            vscode.window.showWarningMessage('TcView: Select a TwinCAT library project (.plcproj) or folder containing one.');
+            return;
+        }
+
+        const solutionPath = await resolveSolutionTarget(vscode.Uri.file(plcprojPath));
+        if (!solutionPath) {
+            showSolutionNotOpenWarning();
+            return;
+        }
+        const tsprojPath = await resolveTsprojForSolution(solutionPath);
+        if (!tsprojPath) {
+            vscode.window.showWarningMessage('TcView: No TwinCAT .tsproj was found for the active solution.');
+            return;
+        }
+
+        try {
+            const result = await backendClient.installLibraryProject({
+                tsprojPath,
+                plcprojPath,
+                outputDirectory: path.join(context.globalStorageUri.fsPath, 'libraries')
+            });
+            for (const line of result.diagnostics) {
+                libraryOutput.appendLine(`[TcView Libraries] ${line}`);
+            }
+            libraryOutput.show(true);
+
+            if (!result.success) {
+                vscode.window.showErrorMessage('TcView: TwinCAT library project install failed. See TcView Libraries output.');
+                return;
+            }
+
+            await refreshProjectAnalyzerLibraryMetadata();
+            fileExplorerProvider.refresh();
+            vscode.window.showInformationMessage(`TcView: Installed library project ${path.basename(plcprojPath)} in TwinCAT.`);
+        } catch (error) {
+            libraryOutput.appendLine(`[TcView Libraries] Install library project failed: ${String(error)}`);
+            libraryOutput.show(true);
+            vscode.window.showErrorMessage(`TcView: TwinCAT library project install failed. ${String(error)}`);
+        }
+    });
+
+    const addLibraryReferenceCommand = vscode.commands.registerCommand('tcview.addLibraryReference', async (targetArg?: vscode.Uri | TwinCATFileTreeItem) => {
+        const plcprojPath = await resolvePlcProjectTarget(targetArg);
+        if (!plcprojPath) {
+            vscode.window.showWarningMessage('TcView: Select a PLC project (.plcproj) or PLC project folder.');
+            return;
+        }
+
+        const solutionPath = await resolveSolutionTarget(vscode.Uri.file(plcprojPath));
+        if (!solutionPath) {
+            showSolutionNotOpenWarning();
+            return;
+        }
+        const tsprojPath = await resolveTsprojForSolution(solutionPath);
+        if (!tsprojPath) {
+            vscode.window.showWarningMessage('TcView: No TwinCAT .tsproj was found for the active solution.');
+            return;
+        }
+
+        const picks = await collectKnownLibraryCandidates();
+        const manualPick = {
+            label: 'Enter library name manually...',
+            description: 'Use name/version/vendor input',
+            detail: 'Manual entry',
+            candidate: undefined as { name: string; version?: string; vendor?: string; source: string } | undefined
+        };
+        const selected = await vscode.window.showQuickPick([manualPick, ...picks], {
+            placeHolder: 'Select the TwinCAT library to add to the project'
+        });
+        if (!selected) {
+            return;
+        }
+
+        let libraryName = selected.candidate?.name;
+        let version = selected.candidate?.version;
+        let vendor = selected.candidate?.vendor;
+
+        if (!libraryName) {
+            libraryName = await vscode.window.showInputBox({
+                prompt: 'TwinCAT library name',
+                ignoreFocusOut: true
+            });
+            if (!libraryName?.trim()) {
+                return;
+            }
+            version = await vscode.window.showInputBox({
+                prompt: 'TwinCAT library version (optional)',
+                ignoreFocusOut: true
+            });
+            vendor = await vscode.window.showInputBox({
+                prompt: 'TwinCAT library vendor/company (optional)',
+                ignoreFocusOut: true
+            });
+        }
+
+        try {
+            const result = await backendClient.addLibraryReference({
+                tsprojPath,
+                plcprojPath,
+                libraryName: libraryName.trim(),
+                version: version?.trim(),
+                vendor: vendor?.trim()
+            });
+            for (const line of result.diagnostics) {
+                libraryOutput.appendLine(`[TcView Libraries] ${line}`);
+            }
+            libraryOutput.show(true);
+
+            if (!result.success) {
+                vscode.window.showErrorMessage('TcView: Add library reference failed. See TcView Libraries output.');
+                return;
+            }
+
+            await refreshProjectAnalyzerLibraryMetadata();
+            fileExplorerProvider.refresh();
+            vscode.window.showInformationMessage(`TcView: Added library reference ${libraryName.trim()} to ${path.basename(plcprojPath)}.`);
+        } catch (error) {
+            libraryOutput.appendLine(`[TcView Libraries] Add library reference failed: ${String(error)}`);
+            libraryOutput.show(true);
+            vscode.window.showErrorMessage(`TcView: Add library reference failed. ${String(error)}`);
+        }
+    });
+
+    const removeLibraryReferenceCommand = vscode.commands.registerCommand('tcview.removeLibraryReference', async (targetArg?: TwinCATFileTreeItem) => {
+        if (!targetArg || !(targetArg instanceof TwinCATFileTreeItem) || targetArg.itemType !== TwinCATItemType.ReferenceItem) {
+            vscode.window.showWarningMessage('TcView: Select a library reference under a PLC project References node.');
+            return;
+        }
+
+        const plcprojPath = targetArg.parentPath;
+        if (!plcprojPath || !plcprojPath.toLowerCase().endsWith('.plcproj')) {
+            vscode.window.showWarningMessage('TcView: The owning PLC project for this reference could not be determined.');
+            return;
+        }
+
+        const solutionPath = await resolveSolutionTarget(vscode.Uri.file(plcprojPath));
+        if (!solutionPath) {
+            showSolutionNotOpenWarning();
+            return;
+        }
+        const tsprojPath = await resolveTsprojForSolution(solutionPath);
+        if (!tsprojPath) {
+            vscode.window.showWarningMessage('TcView: No TwinCAT .tsproj was found for the active solution.');
+            return;
+        }
+
+        const displayName = typeof targetArg.tooltip === 'string' ? targetArg.tooltip : undefined;
+        const identity = parseLibraryReferenceIdentity(targetArg.label?.toString() || '', displayName);
+        const confirm = await vscode.window.showWarningMessage(
+            `Remove library reference ${identity.displayName ?? identity.name} from ${path.basename(plcprojPath)}?`,
+            { modal: true },
+            'Remove'
+        );
+        if (confirm !== 'Remove') {
+            return;
+        }
+
+        try {
+            const result = await backendClient.removeLibraryReference({
+                tsprojPath,
+                plcprojPath,
+                referenceName: identity.name,
+                version: identity.version,
+                vendor: identity.vendor,
+                displayName: identity.displayName
+            });
+            for (const line of result.diagnostics) {
+                libraryOutput.appendLine(`[TcView Libraries] ${line}`);
+            }
+            libraryOutput.show(true);
+
+            if (!result.success) {
+                vscode.window.showErrorMessage('TcView: Remove library reference failed. See TcView Libraries output.');
+                return;
+            }
+
+            await refreshProjectAnalyzerLibraryMetadata();
+            fileExplorerProvider.refresh();
+            vscode.window.showInformationMessage(`TcView: Removed library reference ${identity.name} from ${path.basename(plcprojPath)}.`);
+        } catch (error) {
+            libraryOutput.appendLine(`[TcView Libraries] Remove library reference failed: ${String(error)}`);
+            libraryOutput.show(true);
+            vscode.window.showErrorMessage(`TcView: Remove library reference failed. ${String(error)}`);
+        }
     });
 
     const escapeHtml = (value: string) =>
@@ -1114,6 +1779,24 @@ export function activate(context: vscode.ExtensionContext) {
         api: ReturnType<ReturnType<typeof getProjectAnalyzer>['getLibraryApi']>
     ) => {
         const reference = api.reference;
+        const formatMetadataSourceLabel = (metadataSource?: string) => {
+            switch (metadataSource) {
+                case 'system_global':
+                    return 'System global';
+                case 'built_in':
+                    return 'Built-in catalog';
+                case 'managed_libraries':
+                    return 'Managed Libraries';
+                case 'plcproj':
+                    return 'PLC project';
+                case 'tmc':
+                    return 'TMC';
+                case 'user':
+                    return 'User metadata';
+                default:
+                    return metadataSource ?? 'Unknown';
+            }
+        };
         const provenances = new Set([
             ...api.symbols.map(symbol => symbol.provenance).filter(Boolean),
             ...api.dataTypes.map(typeInfo => typeInfo.provenance).filter(Boolean)
@@ -1121,9 +1804,12 @@ export function activate(context: vscode.ExtensionContext) {
         const hasTmcApi = provenances.has('tmc');
         const hasBuiltInApi = provenances.has('built_in');
         const hasUserApi = provenances.has('user');
+        const isSystemGlobal = reference?.metadataSource === 'system_global';
         const hasResolvedApi = api.symbols.length > 0 || api.dataTypes.length > 0;
         const coverageLabel = hasTmcApi
             ? 'TMC-derived API: partial/project-scoped'
+            : isSystemGlobal
+                ? 'System global metadata API'
             : hasUserApi
                 ? 'User metadata API'
                 : hasBuiltInApi
@@ -1179,10 +1865,12 @@ export function activate(context: vscode.ExtensionContext) {
         };
 
         const emptyState = api.symbols.length === 0 && api.dataTypes.length === 0
-            ? `<div class="empty">No published library API was resolved for this reference yet. Build the owning PLC project to generate a matching TMC, or configure additional TMC roots. TMC-based library views are project-scoped and may only include items compiled into or required by the current PLC project.</div>`
+            ? `<div class="empty">No published library API was resolved for this reference yet. Build the owning PLC project to generate a matching TMC, or extend TcView metadata for this library. TMC-based library views are project-scoped and may only include items compiled into or required by the current PLC project.</div>`
             : '';
         const scopeNotice = hasTmcApi
             ? `<div class="notice">Library API is derived from the current PLC project's <code>.tmc</code>. This is project-scoped and may only include items compiled into or required by this PLC project, not the library's full catalog.</div>`
+            : isSystemGlobal
+                ? `<div class="notice">This library is exposed as a TwinCAT system-global type source. TcView treats it as implicitly available based on the current PLC project's TwinCAT build and global-type metadata, not because it was explicitly referenced in the <code>.plcproj</code>.</div>`
             : `<div class="notice">Library API is currently sourced from TcView metadata rather than the current PLC project's <code>.tmc</code>. It is useful for recognition and navigation, but it is not compiler-validated project truth.</div>`;
         const dependencyMarkup = reference?.dependencies?.length
             ? `<div class="notice"><strong>Dependencies</strong><br />${reference.dependencies.map(dep => `<code>${escapeHtml(dep)}</code>`).join(' ')}</div>`
@@ -1191,10 +1879,19 @@ export function activate(context: vscode.ExtensionContext) {
             ? `<span class="pill">Managed library: ${escapeHtml(reference.installPath)}</span>`
             : '';
         const metadataSourceMarkup = reference?.metadataSource
-            ? `<span class="pill">Metadata: ${escapeHtml(reference.metadataSource)}</span>`
+            ? `<span class="pill">Metadata: ${escapeHtml(formatMetadataSourceLabel(reference.metadataSource))}</span>`
             : '';
         const infoUrlMarkup = reference?.infoUrl
             ? `<span class="pill"><a href="${escapeHtml(reference.infoUrl)}">Docs</a></span>`
+            : '';
+        const categoryMarkup = reference?.category
+            ? `<span class="pill">Category: ${escapeHtml(reference.category)}</span>`
+            : '';
+        const suppliedWithMarkup = reference?.suppliedWith
+            ? `<span class="pill">Supplied with: ${escapeHtml(reference.suppliedWith)}</span>`
+            : '';
+        const summaryMarkup = reference?.summary
+            ? `<div class="notice"><strong>Summary</strong><br />${escapeHtml(reference.summary)}</div>`
             : '';
 
         return `<!DOCTYPE html>
@@ -1305,11 +2002,14 @@ export function activate(context: vscode.ExtensionContext) {
             <span class="pill coverage ${escapeHtml(coverageTone)}">${escapeHtml(coverageLabel)}</span>
             ${reference?.path ? `<span class="pill">Project: ${escapeHtml(path.basename(reference.path))}</span>` : ''}
             ${metadataSourceMarkup}
+            ${categoryMarkup}
+            ${suppliedWithMarkup}
             ${installPathMarkup}
             ${infoUrlMarkup}
         </div>
     </header>
     ${scopeNotice}
+    ${summaryMarkup}
     ${dependencyMarkup}
     <div class="toolbar">
         <input id="filter" type="search" placeholder="Filter API items..." />
@@ -1427,9 +2127,13 @@ export function activate(context: vscode.ExtensionContext) {
             panel.webview.html = html;
         }
     };
+    const refreshLibraryUi = () => {
+        refreshOpenLibraryPanels();
+        fileExplorerProvider.refresh();
+    };
     const analyzerRefreshListener = onProjectAnalyzerCreated(analyzer => {
         activeAnalyzerRefreshDisposable?.dispose();
-        activeAnalyzerRefreshDisposable = analyzer.onDidRefreshIndex(refreshOpenLibraryPanels);
+        activeAnalyzerRefreshDisposable = analyzer.onDidRefreshIndex(refreshLibraryUi);
     });
 
     const solutionWatcher = vscode.workspace.createFileSystemWatcher('**/*.sln');
@@ -1603,6 +2307,10 @@ export function activate(context: vscode.ExtensionContext) {
         showLibrariesCommand,
         createLibraryMetadataTemplateCommand,
         importLibraryMetadataCommand,
+        importLibraryProjectMetadataCommand,
+        installLibraryProjectCommand,
+        addLibraryReferenceCommand,
+        removeLibraryReferenceCommand,
         analyzerRefreshListener,
         { dispose: () => activeAnalyzerRefreshDisposable?.dispose() },
         saveListener,
@@ -1612,6 +2320,7 @@ export function activate(context: vscode.ExtensionContext) {
         workspaceFolderChangeListener,
         { dispose: () => clearTimeout(startupTasksTimer) },
         buildOutput,
+        libraryOutput,
         buildDiagnostics,
         projectDiagnostics
     );

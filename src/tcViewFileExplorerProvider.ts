@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as xml2js from 'xml2js';
+import { getProjectAnalyzer, initializeProjectAnalyzer } from './tcViewProjectAnalyzer';
 
 export enum TwinCATItemType {
     StatusInfo = 'statusInfo',
@@ -713,11 +714,48 @@ export class TwinCATFileExplorerProvider
                     item.description = namespaceValue && namespaceValue !== label ? namespaceValue.toString() : undefined;
                     item.tooltip = tooltip;
                     return item;
-                })
-                .sort((a, b) => (a.label?.toString() || '').localeCompare(b.label?.toString() || ''));
+                });
 
-            this.plcReferencesCache.set(plcprojPath, items);
-            return items;
+            try {
+                await initializeProjectAnalyzer();
+                const analyzer = getProjectAnalyzer();
+                const implicitRefs = analyzer.getLibraryReferences()
+                    .filter(ref => ref.metadataSource === 'system_global')
+                    .map(ref => {
+                        const item = new TwinCATFileTreeItem(
+                            vscode.Uri.file(path.join(path.dirname(plcprojPath), `${ref.name}.library`)),
+                            vscode.TreeItemCollapsibleState.None,
+                            TwinCATItemType.ReferenceItem,
+                            plcprojPath,
+                            ref,
+                            ref.name
+                        );
+                        item.description = 'system global';
+                        item.tooltip = ref.summary
+                            ? `${ref.name}\n${ref.summary}`
+                            : `${ref.name} (system global)`;
+                        return item;
+                    });
+
+                const deduped = new Map<string, TwinCATFileTreeItem>();
+                for (const item of [...items, ...implicitRefs]) {
+                    const key = (item.label?.toString() || '').toUpperCase();
+                    if (!deduped.has(key)) {
+                        deduped.set(key, item);
+                    }
+                }
+                const sorted = [...deduped.values()]
+                    .sort((a, b) => (a.label?.toString() || '').localeCompare(b.label?.toString() || ''));
+                this.plcReferencesCache.set(plcprojPath, sorted);
+                return sorted;
+            } catch {
+                // Fall back to placeholder references only if analyzer init fails.
+            }
+
+            const sorted = items
+                .sort((a, b) => (a.label?.toString() || '').localeCompare(b.label?.toString() || ''));
+            this.plcReferencesCache.set(plcprojPath, sorted);
+            return sorted;
         } catch {
             return [];
         }

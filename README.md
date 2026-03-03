@@ -17,11 +17,9 @@ TcView is a VS Code extension that lets you work with TwinCAT XML artifacts as I
 
 ## Runtime Requirements
 
-- Current TcView editing and library-view features run in the VS Code extension host and do not require a user to install additional `.NET` components.
-- If a future backend is reintroduced for deeper TwinCAT XAE workflows, there are two valid packaging models:
-  - ship it self-contained so the user does not need a separate `.NET` runtime install
-  - ship it framework-dependent and require the matching `.NET` runtime on the machine
-- The backend project source in this repo targets `net8.0-windows`, so any future backend-enabled release should document that packaging choice explicitly.
+- Current TcView editing, browsing, library recognition, and library metadata import features run in the VS Code extension host and do not require a persistent backend process.
+- If a future backend is added for TwinCAT library-project installation or other XAE-adjacent workflows, its packaging model should be documented explicitly.
+- The backend project source in this repo targets `net8.0-windows`, so any backend-enabled release should state whether it is self-contained or framework-dependent.
 
 ## New To VS Code
 
@@ -98,7 +96,10 @@ Command Palette shortcut:
 - Library viewer:
   Open a reference from the TcView tree to inspect available function blocks, data types, functions, variables, and published members in an API-style webview. When available, TcView also enriches the library view with local Managed Libraries metadata such as vendor, version, install path, and dependency names.
 - Metadata-backed library recognition:
-  When a referenced library is not yet represented in the current PLC project's `.tmc`, TcView can still recognize common libraries from a built-in catalog and optional workspace/user metadata files.
+  When a referenced library is not yet represented in the current PLC project's `.tmc`, TcView can still recognize common libraries from a built-in catalog, a per-user global metadata file, and optional additional metadata files.
+  The built-in catalog now includes a broader Beckhoff seed with category and product metadata, and custom library APIs can be stored once per machine for reuse across TwinCAT projects.
+- Library project metadata import:
+  Import a TwinCAT library project's internal types, FBs, functions, programs, and variables into TcView's global metadata catalog so linting, completion, and reference checking can recognize the library before a consuming PLC project's `.tmc` exposes it.
 - Seamless save-back:
   Standard save (`Ctrl+S`) in the ST view persists updates to the original XML file.
 - Language tooling:
@@ -170,8 +171,12 @@ Most users do not need to run commands manually. Primary control is opening file
 | `tcview.checkLspStatus` | Language features appear inactive | Confirms status of completion/hover/diagnostics stack |
 | `tcview.showPerfStats` | Open/index actions feel slow | Reports performance timing summary |
 | `tcview.showLibraries` | You want a flat detected-library list | Dumps resolved library refs for inspection |
-| `tcview.createLibraryMetadataTemplate` | You want to start a workspace metadata catalog | Creates `.vscode/tcview.libraries.json` and opens it |
-| `tcview.importLibraryMetadata` | You have a local managed library folder/package to seed metadata from | Imports vendor/version/dependencies into the workspace metadata catalog |
+| `tcview.createLibraryMetadataTemplate` | You want to start the global TcView metadata catalog | Creates `%APPDATA%\\TcView\\tcview.libraries.json` and opens it |
+| `tcview.importLibraryMetadata` | You have a local managed library folder/package to seed metadata from | Imports vendor/version/dependencies into the global TcView metadata catalog |
+| `tcview.importLibraryProjectMetadata` | You have a TwinCAT library project source tree | Extracts internal library metadata from the selected `.plcproj` or library project folder and updates the global TcView metadata catalog |
+| `tcview.installLibraryProject` | You want TwinCAT itself to install a library project | Uses the TwinCAT Automation Interface to save/install the selected library project |
+| `tcview.addLibraryReference` | You want to reference an installed or known library from a PLC project | Uses the TwinCAT Automation Interface to add a library reference to the selected PLC project |
+| `tcview.removeLibraryReference` | You want to remove a library already listed under `References` | Uses the TwinCAT Automation Interface to remove that library reference from the PLC project |
 
 ## Practical Examples
 
@@ -214,8 +219,12 @@ Build TwinCAT Solution
 Validate TcView ST Syntax
 Show TcView Index Statistics
 Show TcView Performance Stats
-Create TcView Library Metadata File
+Create TcView Global Library Metadata File
 Import TwinCAT Library Metadata
+Import TwinCAT Library Project Metadata
+Install TwinCAT Library Project
+Add TwinCAT Library To Project
+Remove TwinCAT Library From Project
 ```
 
 ### Settings Example
@@ -235,9 +244,12 @@ Project-level `.vscode/settings.json` snippet:
 }
 ```
 
-### Workspace Library Metadata Example
+### Global Library Metadata Example
 
-You can extend TcView's built-in library catalog with a workspace file named `tcview.libraries.json` or `.vscode/tcview.libraries.json`.
+TcView stores user-added library metadata in a per-user global file at `%APPDATA%\TcView\tcview.libraries.json`.
+You can also point `twincat.library.metadataFiles` at additional project-specific JSON files when you need overrides.
+
+For TwinCAT build `4026` and later, you can model virtual global type libraries generated beneath `Tc3_GlobalTypes` by setting `"virtualParent": "Tc3_GlobalTypes"` on a library entry. TcView treats those entries as implicit system-global libraries when resolving types.
 
 ```json
 {
@@ -268,6 +280,19 @@ You can extend TcView's built-in library catalog with a workspace file named `tc
           }
         }
       ]
+    },
+    {
+      "name": "MyNamespace_GlobalTypes",
+      "virtualParent": "Tc3_GlobalTypes",
+      "dataTypes": [
+        {
+          "name": "ST_SystemWideConfig",
+          "kind": "struct",
+          "members": {
+            "bEnabled": "BOOL"
+          }
+        }
+      ]
     }
   ]
 }
@@ -280,7 +305,9 @@ You can extend TcView's built-in library catalog with a workspace file named `tc
 - It currently exposes solution build only, not full TwinCAT XAE runtime operations.
 - Library API views are derived from the current PLC project's `.tmc` and may be partial/project-scoped rather than a full library catalog.
 - Installed TwinCAT Managed Libraries metadata is used as a local enrichment source for library vendor/version/dependency details, but not as the primary API truth source.
-- Built-in and workspace metadata catalogs can provide earlier library recognition before a PLC build produces the relevant `.tmc`, but those metadata-backed APIs are not compiler-validated project truth.
+- Built-in, global, and optional project-specific metadata catalogs can provide earlier library recognition before a PLC build produces the relevant `.tmc`, but those metadata-backed APIs are not compiler-validated project truth.
+- `Tc3_GlobalTypes` is treated specially. TcView now models the always-available system global type library and the post-build-4026 virtual child libraries such as `Tc3_GlobalTypes_Global` and metadata entries declared with `virtualParent: "Tc3_GlobalTypes"`.
+- The API-backed install/add/remove library commands require a valid TwinCAT solution context and a working TwinCAT Automation Interface registration on the machine.
 - TcView is intentionally a supplemental tool, not a full XAE replacement.
 - Use TcView for code-centric editing, review, and lightweight project inspection; use TwinCAT XAE for full runtime/configuration workflows.
 

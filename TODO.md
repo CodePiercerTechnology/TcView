@@ -25,7 +25,14 @@ It is not intended to be:
 - Per-PLC `References` nodes are available.
 - Library references open in a project-scoped API viewer backed by local `.tmc` metadata.
 - Library references are enriched from local Managed Libraries metadata, a built-in catalog, and optional workspace/user metadata files.
+- The built-in Beckhoff catalog now includes a broader seed with category and product metadata, including core Beckhoff libraries such as `Tc2_Standard`, `Tc2_System`, `Tc2_Utilities`, `Tc3_GlobalTypes`, and `Tc3_Module`.
 - Workspace library metadata files can be scaffolded and seeded from local managed library folders/packages.
+- TwinCAT library project source can be imported into the per-user global metadata catalog so internal FBs, types, functions, programs, and globals are available before a consuming project `.tmc` exposes them.
+- `Tc3_GlobalTypes` is handled as a special system-global type family, including the post-build-4026 virtual child library pattern via `Tc3_GlobalTypes_Global` and catalog entries that declare `virtualParent: "Tc3_GlobalTypes"`.
+- Initial TwinCAT Automation Interface commands exist for:
+  - install a library project
+  - add a library reference to a PLC project
+  - remove a library reference from a PLC project
 - Solution build is available through `MSBuild`.
 - Problems diagnostics include missing `.tmc` output and non-solution project warnings.
 - TcView is explicitly Windows-only.
@@ -63,17 +70,19 @@ It is not intended to be:
    - known by built-in metadata only
 2. Ship a curated built-in metadata catalog for common Beckhoff libraries so types/functions can be recognized even before a PLC build pulls them into the project `.tmc`.
 3. Expand the built-in metadata catalog beyond the current seed set for common Beckhoff libraries.
-4. Make local library installation a function of TcView instead of a manual metadata step:
-   - right-click a local library package or library root
-   - choose `Install TwinCAT Library`
-   - perform the install through backend/API integration
-   - refresh the managed-library index and library metadata automatically
+4. Harden the TwinCAT Automation Interface library workflow:
+   - validate tree-item lookup across more TwinCAT/XAE versions
+   - support placeholder-oriented add/reference flows where appropriate
+   - distinguish install success from reference success more clearly in the UI
+   - refresh global metadata from the installed library project
+   - keep project-source metadata and installed-library metadata distinct
 5. Add clearer provenance in the library viewer and completions:
    - `TMC-resolved`
    - `Installed locally`
    - `Built-in metadata`
    - `User metadata`
 6. Allow library metadata refresh/reindex on demand after installs, upgrades, or repository changes.
+7. Expand the Beckhoff built-in catalog beyond the current core set and add stricter version-aware metadata where it materially improves symbol recognition.
 
 ### Editor Workflow
 

@@ -12,7 +12,7 @@ Status key:
 - `PASS` Extension distribution is explicitly Windows-only.
 - `PASS` Current feature set is aligned with TwinCAT XAE and MSBuild operating constraints on Windows.
 - `PASS` Product scope is supplemental to TwinCAT XAE, not a full XAE replacement.
-- `TODO` If backend-driven XAE workflows return, document whether the backend is shipped self-contained or requires a user-installed `.NET` runtime.
+- `PARTIAL` The optional backend is now used for TwinCAT Automation Interface library operations. A release decision is still needed on whether it is shipped self-contained or requires a user-installed `.NET` runtime.
 
 ### 1) Reliability and Data Safety
 - `PASS` Fragment save support for `METHOD`, `PROPERTY`, `GET`, `SET`, `ACTION`, `TRANSITION`.

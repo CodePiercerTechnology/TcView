@@ -8,6 +8,9 @@ export interface TwinCATLibraryRef {
     mode: TwinCATLibraryMode;
     installPath?: string;
     dependencies?: string[];
-    metadataSource?: 'plcproj' | 'managed_libraries' | 'tmc' | 'built_in' | 'user';
+    metadataSource?: 'plcproj' | 'managed_libraries' | 'tmc' | 'built_in' | 'user' | 'system_global';
     infoUrl?: string;
+    category?: string;
+    suppliedWith?: string;
+    summary?: string;
 }

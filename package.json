@@ -116,13 +116,33 @@
       },
       {
         "command": "tcview.createLibraryMetadataTemplate",
-        "title": "Create TcView Library Metadata File",
+        "title": "Create TcView Global Library Metadata File",
         "icon": "$(new-file)"
       },
       {
         "command": "tcview.importLibraryMetadata",
         "title": "Import TwinCAT Library Metadata",
         "icon": "$(cloud-download)"
+      },
+      {
+        "command": "tcview.importLibraryProjectMetadata",
+        "title": "Import TwinCAT Library Project Metadata",
+        "icon": "$(repo-pull)"
+      },
+      {
+        "command": "tcview.installLibraryProject",
+        "title": "Install TwinCAT Library Project",
+        "icon": "$(package)"
+      },
+      {
+        "command": "tcview.addLibraryReference",
+        "title": "Add TwinCAT Library To Project",
+        "icon": "$(add)"
+      },
+      {
+        "command": "tcview.removeLibraryReference",
+        "title": "Remove TwinCAT Library From Project",
+        "icon": "$(remove-close)"
       }
     ],
     "configuration": {
@@ -163,6 +183,11 @@
             "type": "string"
           },
           "description": "Root folders to search for TwinCAT .tmc files used as compiled symbol/type context (ai > tmc > source > metadata)."
+        },
+        "twincat.backend.executablePath": {
+          "type": "string",
+          "default": "",
+          "description": "Optional absolute path to the TcView backend executable (.exe or .dll) used for TwinCAT Automation Interface operations such as library install/add/remove."
         },
         "twincat.library.managedRoots": {
           "type": "array",
@@ -279,6 +304,11 @@
           "command": "tcview.buildSolutionWithMsBuild",
           "when": "view == twincat.files && tcview.hasSolution",
           "group": "navigation@2"
+        },
+        {
+          "command": "tcview.addLibraryReference",
+          "when": "view == twincat.files && tcview.hasSolution",
+          "group": "navigation@3"
         }
       ],
       "view/item/context": [
@@ -286,6 +316,21 @@
           "command": "tcview.buildSolutionWithMsBuild",
           "when": "view == twincat.files && tcview.hasSolution",
           "group": "navigation@2"
+        },
+        {
+          "command": "tcview.installLibraryProject",
+          "when": "view == twincat.files && tcview.hasSolution && viewItem == plcProjectFolder",
+          "group": "navigation@3"
+        },
+        {
+          "command": "tcview.addLibraryReference",
+          "when": "view == twincat.files && tcview.hasSolution && viewItem == plcProjectFolder",
+          "group": "navigation@4"
+        },
+        {
+          "command": "tcview.removeLibraryReference",
+          "when": "view == twincat.files && tcview.hasSolution && viewItem == referenceItem",
+          "group": "navigation@5"
         }
       ],
       "explorer/context": [
@@ -303,6 +348,21 @@
           "command": "tcview.importLibraryMetadata",
           "when": "explorerResourceIsFolder || resourceExtname == .library || resourceExtname == .compiled-library || resourceExtname == .compiled-library-v3 || resourceExtname == .compiled-library-ge33",
           "group": "navigation@3"
+        },
+        {
+          "command": "tcview.importLibraryProjectMetadata",
+          "when": "explorerResourceIsFolder || resourceExtname == .plcproj",
+          "group": "navigation@4"
+        },
+        {
+          "command": "tcview.installLibraryProject",
+          "when": "tcview.hasSolution && (explorerResourceIsFolder || resourceExtname == .plcproj)",
+          "group": "navigation@5"
+        },
+        {
+          "command": "tcview.addLibraryReference",
+          "when": "tcview.hasSolution && (explorerResourceIsFolder || resourceExtname == .plcproj)",
+          "group": "navigation@6"
         }
       ],
       "editor/title": [

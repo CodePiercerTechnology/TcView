@@ -61,6 +61,10 @@ interface LibraryCatalogEntry {
     version?: string;
     infoUrl?: string;
     dependencies?: string[];
+    category?: string;
+    suppliedWith?: string;
+    summary?: string;
+    virtualParent?: string;
     metadataSource: 'built_in' | 'user';
     symbols: LibraryCatalogSymbolEntry[];
     dataTypes: LibraryCatalogDataTypeEntry[];
@@ -73,6 +77,10 @@ interface LibraryCatalogFile {
         version?: string;
         infoUrl?: string;
         dependencies?: string[];
+        category?: string;
+        suppliedWith?: string;
+        summary?: string;
+        virtualParent?: string;
         functionBlocks?: Array<{
             name?: string;
             documentation?: string;
@@ -112,6 +120,7 @@ export class TwinCATProjectAnalyzer {
     private globalVars: Map<string, TwinCATSymbol> = new Map();
     private fileWatcher: vscode.FileSystemWatcher | undefined;
     private libraryMetadataWatcher: vscode.FileSystemWatcher | undefined;
+    private globalLibraryMetadataWatcher: vscode.FileSystemWatcher | undefined;
     private converter: TwinCATXmlConverter;
     private scanTimer: NodeJS.Timeout | undefined;
     private libraryRefreshTimer: NodeJS.Timeout | undefined;
@@ -131,6 +140,8 @@ export class TwinCATProjectAnalyzer {
     private librarySymbols = new Map<string, TwinCATSymbol>();
     private libraryDataTypes = new Map<string, TwinCATDataType>();
     private libraryContextModes = new Map<string, TwinCATLibraryRef['mode']>();
+    private implicitSystemLibraries = new Set<string>();
+    private projectBuildNumber = 0;
     private tmcParseCache = new Map<string, { mtimeMs: number; symbols: TwinCATSymbol[]; dataTypes: TwinCATDataType[] }>();
     private managedLibraryIndex: Map<string, ManagedLibraryMetadata[]> | undefined;
     private managedLibraryIndexPromise: Promise<Map<string, ManagedLibraryMetadata[]>> | undefined;
@@ -236,6 +247,10 @@ export class TwinCATProjectAnalyzer {
             '**/*.{TcPOU,TcGVL,TcDUT,TcPRG,TcCOM,TcAPP,TcVAR,TcGDS,TcIO,TcITF,plcproj,tsproj,tmc}'
         );
         this.libraryMetadataWatcher = vscode.workspace.createFileSystemWatcher('**/tcview.libraries.json');
+        const globalMetadataPath = this.getGlobalLibraryMetadataPath();
+        this.globalLibraryMetadataWatcher = vscode.workspace.createFileSystemWatcher(
+            new vscode.RelativePattern(path.dirname(globalMetadataPath), path.basename(globalMetadataPath))
+        );
 
         this.fileWatcher.onDidCreate(uri => this.handleWatchedFileEvent(uri.fsPath, 'change'));
         this.fileWatcher.onDidChange(uri => this.handleWatchedFileEvent(uri.fsPath, 'change'));
@@ -243,6 +258,9 @@ export class TwinCATProjectAnalyzer {
         this.libraryMetadataWatcher.onDidCreate(uri => this.handleWatchedFileEvent(uri.fsPath, 'change'));
         this.libraryMetadataWatcher.onDidChange(uri => this.handleWatchedFileEvent(uri.fsPath, 'change'));
         this.libraryMetadataWatcher.onDidDelete(uri => this.handleWatchedFileEvent(uri.fsPath, 'delete'));
+        this.globalLibraryMetadataWatcher.onDidCreate(uri => this.handleWatchedFileEvent(uri.fsPath, 'change'));
+        this.globalLibraryMetadataWatcher.onDidChange(uri => this.handleWatchedFileEvent(uri.fsPath, 'change'));
+        this.globalLibraryMetadataWatcher.onDidDelete(uri => this.handleWatchedFileEvent(uri.fsPath, 'delete'));
     }
 
     private handleWatchedFileEvent(filePath: string, kind: 'change' | 'delete'): void {
@@ -742,6 +760,8 @@ export class TwinCATProjectAnalyzer {
         this.librarySymbols.clear();
         this.libraryDataTypes.clear();
         this.libraryContextModes.clear();
+        this.implicitSystemLibraries.clear();
+        this.projectBuildNumber = 0;
 
         if (!this.projectRoot) {
             return;
@@ -753,6 +773,7 @@ export class TwinCATProjectAnalyzer {
         const libraryCatalog = await this.loadLibraryCatalogEntries();
         const refsByKey = new Map<string, TwinCATLibraryRef>();
         for (const plcProj of plcProjFiles) {
+            this.projectBuildNumber = Math.max(this.projectBuildNumber, await this.readProgramBuildFromPlcProj(plcProj));
             const refs = await this.readLibraryRefsFromPlcProj(plcProj, tmcInventory.names, managedLibraryIndex, libraryCatalog);
             for (const ref of refs) {
                 const key = `${ref.name.toUpperCase()}|${(ref.vendor ?? '').toUpperCase()}|${ref.version}`;
@@ -761,6 +782,8 @@ export class TwinCATProjectAnalyzer {
                 }
             }
         }
+
+        this.applyImplicitSystemLibraries(refsByKey, libraryCatalog);
 
         this.libraryRefs = [...refsByKey.values()].sort((a, b) => {
             const byVendor = (a.vendor ?? '').localeCompare(b.vendor ?? '');
@@ -783,7 +806,9 @@ export class TwinCATProjectAnalyzer {
                 kind: 'type',
                 source: lib.path,
                 library: lib.name,
-                documentation: `${lib.vendor ?? 'Unknown vendor'} (${lib.mode})`
+                documentation: [lib.vendor ?? 'Unknown vendor', lib.category, lib.suppliedWith, lib.summary]
+                    .filter(Boolean)
+                    .join(' | ')
             });
             this.libraryPlaceholderSymbolKeys.add(key);
         }
@@ -827,6 +852,21 @@ export class TwinCATProjectAnalyzer {
                 .sort((a, b) => a.localeCompare(b));
         } catch {
             return [];
+        }
+    }
+
+    private async readProgramBuildFromPlcProj(plcProjPath: string): Promise<number> {
+        try {
+            const text = await fs.promises.readFile(plcProjPath, 'utf8');
+            const versionText = text.match(/<ProgramVersion>\s*([^<]+)\s*<\/ProgramVersion>/i)?.[1]?.trim();
+            if (!versionText) {
+                return 0;
+            }
+            const parts = versionText.split('.');
+            const buildPart = Number.parseInt(parts[2] ?? '', 10);
+            return Number.isFinite(buildPart) ? buildPart : 0;
+        } catch {
+            return 0;
         }
     }
 
@@ -1008,6 +1048,13 @@ export class TwinCATProjectAnalyzer {
         return path.resolve(__dirname, '..', 'resources', 'library-metadata.json');
     }
 
+    private getGlobalLibraryMetadataPath(): string {
+        const appDataRoot = process.env.APPDATA
+            || (process.env.USERPROFILE ? path.join(process.env.USERPROFILE, 'AppData', 'Roaming') : undefined)
+            || process.cwd();
+        return path.join(appDataRoot, 'TcView', 'tcview.libraries.json');
+    }
+
     private getWorkspaceLibraryMetadataPaths(): string[] {
         const workspaceFolders = vscode.workspace.workspaceFolders ?? [];
         return workspaceFolders.flatMap(folder => [
@@ -1033,6 +1080,7 @@ export class TwinCATProjectAnalyzer {
         const catalog = new Map<string, LibraryCatalogEntry[]>();
         const sources: Array<{ source: 'built_in' | 'user'; filePath: string }> = [
             { source: 'built_in', filePath: this.getBuiltInLibraryCatalogPath() },
+            { source: 'user', filePath: this.getGlobalLibraryMetadataPath() },
             ...[...this.getWorkspaceLibraryMetadataPaths(), ...this.getConfiguredLibraryMetadataPaths()]
                 .map(filePath => ({ source: 'user' as const, filePath }))
         ];
@@ -1118,6 +1166,10 @@ export class TwinCATProjectAnalyzer {
                 version: entry.version?.trim(),
                 infoUrl: entry.infoUrl?.trim(),
                 dependencies: (entry.dependencies ?? []).map(dep => dep.trim()).filter(Boolean),
+                category: entry.category?.trim(),
+                suppliedWith: entry.suppliedWith?.trim(),
+                summary: entry.summary?.trim(),
+                virtualParent: entry.virtualParent?.trim(),
                 metadataSource,
                 symbols: [...functionBlocks, ...functions, ...programs, ...variables],
                 dataTypes
@@ -1153,8 +1205,71 @@ export class TwinCATProjectAnalyzer {
         return ordered[0];
     }
 
+    private applyImplicitSystemLibraries(
+        refsByKey: Map<string, TwinCATLibraryRef>,
+        catalog: Map<string, LibraryCatalogEntry[]>
+    ): void {
+        const allCatalogEntries = [...catalog.values()].flat();
+        const tc3GlobalTypesEntry = this.resolveCatalogLibraryMetadata(catalog, 'Tc3_GlobalTypes');
+        const systemGlobalEntries = allCatalogEntries.filter(entry =>
+            entry.name.localeCompare('Tc3_GlobalTypes', undefined, { sensitivity: 'accent' }) === 0 ||
+            entry.virtualParent?.localeCompare('Tc3_GlobalTypes', undefined, { sensitivity: 'accent' }) === 0
+        );
+
+        if (tc3GlobalTypesEntry) {
+            const systemRef = this.createImplicitSystemLibraryRef('Tc3_GlobalTypes', tc3GlobalTypesEntry);
+            refsByKey.set(`${systemRef.name.toUpperCase()}|${(systemRef.vendor ?? '').toUpperCase()}|${systemRef.version}`, systemRef);
+            this.implicitSystemLibraries.add(this.normalizeLookupName(systemRef.name));
+        }
+
+        if (systemGlobalEntries.length === 0) {
+            return;
+        }
+
+        const supportsVirtualLibraries = this.projectBuildNumber >= 4026;
+        for (const entry of systemGlobalEntries) {
+            if (entry.name.localeCompare('Tc3_GlobalTypes', undefined, { sensitivity: 'accent' }) === 0) {
+                continue;
+            }
+
+            this.implicitSystemLibraries.add(this.normalizeLookupName(entry.name));
+            if (!supportsVirtualLibraries) {
+                continue;
+            }
+
+            const systemRef = this.createImplicitSystemLibraryRef(entry.name, entry);
+            refsByKey.set(`${systemRef.name.toUpperCase()}|${(systemRef.vendor ?? '').toUpperCase()}|${systemRef.version}`, systemRef);
+        }
+    }
+
+    private createImplicitSystemLibraryRef(name: string, catalogEntry: LibraryCatalogEntry): TwinCATLibraryRef {
+        return {
+            name,
+            version: catalogEntry.version ?? (this.projectBuildNumber > 0 ? `3.1.${this.projectBuildNumber}` : 'system'),
+            vendor: catalogEntry.vendor ?? 'Beckhoff Automation GmbH',
+            path: this.projectRoot ?? '',
+            mode: 'public_symbols',
+            metadataSource: 'system_global',
+            infoUrl: catalogEntry.infoUrl,
+            category: catalogEntry.category ?? 'System',
+            suppliedWith: catalogEntry.suppliedWith ?? 'TwinCAT 3',
+            summary: catalogEntry.summary ?? 'TwinCAT system-provided global type library.'
+        };
+    }
+
     private loadLibrarySymbolsFromCatalog(catalog: Map<string, LibraryCatalogEntry[]>): void {
-        for (const libraryRef of this.libraryRefs) {
+        const applicableLibraryRefs = [
+            ...this.libraryRefs,
+            ...[...this.implicitSystemLibraries]
+                .filter(libraryKey => !this.libraryRefs.some(ref => this.normalizeLookupName(ref.name) === libraryKey))
+                .map(libraryKey => {
+                    const matchingEntry = [...catalog.values()].flat().find(entry => this.normalizeLookupName(entry.name) === libraryKey);
+                    return matchingEntry ? this.createImplicitSystemLibraryRef(matchingEntry.name, matchingEntry) : undefined;
+                })
+                .filter((ref): ref is TwinCATLibraryRef => !!ref)
+        ];
+
+        for (const libraryRef of applicableLibraryRefs) {
             const catalogEntry = this.resolveCatalogLibraryMetadata(catalog, libraryRef.name, libraryRef.vendor);
             if (!catalogEntry) {
                 continue;
@@ -1261,7 +1376,10 @@ export class TwinCATProjectAnalyzer {
                     metadataSource: managedMetadata
                         ? 'managed_libraries'
                         : catalogMetadata?.metadataSource ?? 'plcproj',
-                    infoUrl: catalogMetadata?.infoUrl
+                    infoUrl: catalogMetadata?.infoUrl,
+                    category: catalogMetadata?.category,
+                    suppliedWith: catalogMetadata?.suppliedWith,
+                    summary: catalogMetadata?.summary
                 });
             }
 
@@ -1676,6 +1794,17 @@ export class TwinCATProjectAnalyzer {
         return new Map(this.libraryContextModes);
     }
 
+    public async refreshExternalLibraryMetadata(): Promise<void> {
+        this.managedLibraryIndex = undefined;
+        this.managedLibraryIndexPromise = undefined;
+
+        if (!this.initialized || !this.projectRoot) {
+            return;
+        }
+
+        await this.refreshLibraryMetadataOnly();
+    }
+
     public getTypeResolutionStatus(typeName: string): 'known' | 'metadata_only' | 'unknown' {
         const upperType = typeName.toUpperCase();
         if (this.isValidType(upperType) || this.dataTypes.has(upperType)) {
@@ -1688,6 +1817,14 @@ export class TwinCATProjectAnalyzer {
 
         if (this.librarySymbols.has(upperType) || this.libraryDataTypes.has(upperType)) {
             return 'known';
+        }
+
+        const fallbackType = this.resolveTypeFallbackName(typeName);
+        if (fallbackType && fallbackType.toUpperCase() !== upperType) {
+            const fallbackUpper = fallbackType.toUpperCase();
+            if (this.isValidType(fallbackUpper) || this.dataTypes.has(fallbackUpper) || this.libraryDataTypes.has(fallbackUpper) || this.librarySymbols.has(fallbackUpper)) {
+                return 'known';
+            }
         }
 
         return 'unknown';
@@ -1730,8 +1867,26 @@ export class TwinCATProjectAnalyzer {
         if (librarySymbol && (librarySymbol.kind === 'functionBlock' || librarySymbol.kind === 'type' || librarySymbol.kind === 'program')) {
             return true;
         }
+
+        const fallbackType = this.resolveTypeFallbackName(typeName);
+        if (fallbackType && fallbackType.toUpperCase() !== upperType) {
+            return this.isValidType(fallbackType);
+        }
         
         return false;
+    }
+
+    private resolveTypeFallbackName(typeName: string): string | undefined {
+        if (!typeName) {
+            return undefined;
+        }
+
+        const trimmed = typeName.trim();
+        if (!trimmed.includes('.')) {
+            return undefined;
+        }
+
+        return trimmed.split('.').pop()?.trim();
     }
 
     /**
@@ -1755,6 +1910,9 @@ export class TwinCATProjectAnalyzer {
         }
         if (this.libraryMetadataWatcher) {
             this.libraryMetadataWatcher.dispose();
+        }
+        if (this.globalLibraryMetadataWatcher) {
+            this.globalLibraryMetadataWatcher.dispose();
         }
         this.initialized = false;
         this.initializePromise = undefined;
@@ -1789,6 +1947,14 @@ export function onProjectAnalyzerCreated(listener: (analyzer: TwinCATProjectAnal
 export function initializeProjectAnalyzer(): Promise<void> {
     const analyzer = getProjectAnalyzer();
     return analyzer.initialize();
+}
+
+export async function refreshProjectAnalyzerLibraryMetadata(): Promise<void> {
+    if (!analyzer) {
+        return;
+    }
+
+    await analyzer.refreshExternalLibraryMetadata();
 }
 
 export function disposeProjectAnalyzer(): void {

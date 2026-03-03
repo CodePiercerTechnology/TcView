@@ -26,7 +26,7 @@ type IECPrimitiveType =
     | 'UNKNOWN';
 
 interface IECStandardDefinition {
-    kind: 'functionBlock' | 'function' | 'type';
+    kind: 'functionBlock' | 'function' | 'type' | 'constant';
     summary: string;
     members?: Array<{ name: string; type: string; description: string }>;
     parameters?: Array<{ name: string; type: string; direction: 'IN' | 'OUT' | 'IN_OUT'; description: string }>;
@@ -295,6 +295,46 @@ const standardIecDefinitions: Record<string, IECStandardDefinition> = {
             { name: 'RESET', type: 'BOOL', description: 'Reset input.' },
             { name: 'Q1', type: 'BOOL', description: 'Output state.' }
         ]
+    },
+    ANY: {
+        kind: 'type',
+        summary: 'TwinCAT generic value carrier used for runtime type inspection and conversion.',
+        members: [
+            { name: 'TypeClass', type: '__SYSTEM.TYPE_CLASS', description: 'Runtime type classification for the contained value.' },
+            { name: 'pValue', type: 'PVOID', description: 'Pointer to the contained runtime value.' }
+        ]
+    },
+    HRESULT: {
+        kind: 'type',
+        summary: 'TwinCAT/TcCOM result code type used by system and module APIs.'
+    },
+    S_OK: {
+        kind: 'constant',
+        summary: 'HRESULT success code.'
+    },
+    S_FALSE: {
+        kind: 'constant',
+        summary: 'HRESULT success code indicating false or partial success.'
+    },
+    E_FAIL: {
+        kind: 'constant',
+        summary: 'HRESULT failure code for an unspecified error.'
+    },
+    E_NOTIMPL: {
+        kind: 'constant',
+        summary: 'HRESULT failure code indicating the operation is not implemented.'
+    },
+    E_POINTER: {
+        kind: 'constant',
+        summary: 'HRESULT failure code indicating an invalid pointer.'
+    },
+    E_INVALIDARG: {
+        kind: 'constant',
+        summary: 'HRESULT failure code indicating an invalid argument.'
+    },
+    E_OUTOFMEMORY: {
+        kind: 'constant',
+        summary: 'HRESULT failure code indicating insufficient memory.'
     }
 };
 
@@ -528,12 +568,19 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
             addCompletionUnique(staticCompletionItems, seen, item);
         });
         Object.entries(standardIecDefinitions).forEach(([name, def]) => {
+            const kind = def.kind === 'functionBlock'
+                ? vscode.CompletionItemKind.Class
+                : def.kind === 'type'
+                    ? vscode.CompletionItemKind.Struct
+                    : def.kind === 'constant'
+                        ? vscode.CompletionItemKind.Constant
+                        : vscode.CompletionItemKind.Function;
             addCompletionUnique(
                 staticCompletionItems,
                 seen,
                 createCompletionItem(
                     name,
-                    def.kind === 'functionBlock' ? vscode.CompletionItemKind.Class : vscode.CompletionItemKind.Function,
+                    kind,
                     `IEC ${def.kind}`,
                     `${def.summary}`
                 )
@@ -1088,49 +1135,101 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
                     const stringRegex = new RegExp(stringTokenRegex.source, 'g');
                     const numberRegex = new RegExp(numberTokenRegex.source, 'g');
                     const idRegex = new RegExp(identifierTokenRegex.source, 'g');
+                    const pushCodeTokens = (lineIndex: number, segment: string, segmentOffset: number) => {
+                        if (!segment) {
+                            return;
+                        }
+
+                        stringRegex.lastIndex = 0;
+                        let sm;
+                        while ((sm = stringRegex.exec(segment)) !== null) {
+                            builder.push(lineIndex, segmentOffset + sm.index, sm[0].length, 6, 0);
+                        }
+
+                        numberRegex.lastIndex = 0;
+                        let nm;
+                        while ((nm = numberRegex.exec(segment)) !== null) {
+                            builder.push(lineIndex, segmentOffset + nm.index, nm[0].length, 5, 0);
+                        }
+
+                        idRegex.lastIndex = 0;
+                        let im;
+                        while ((im = idRegex.exec(segment)) !== null) {
+                            const token = im[0];
+                            const upper = token.toUpperCase();
+                            if (iecStKeywordSet.has(upper)) {
+                                builder.push(lineIndex, segmentOffset + im.index, token.length, 0, 0);
+                                continue;
+                            }
+                            if (/^(BOOL|BYTE|WORD|DWORD|LWORD|SINT|INT|DINT|LINT|USINT|UINT|UDINT|ULINT|REAL|LREAL|TIME|DATE|TIME_OF_DAY|TOD|DATE_AND_TIME|DT|STRING|WSTRING|ARRAY|STRUCT|ENUM|TYPE)$/i.test(token)) {
+                                builder.push(lineIndex, segmentOffset + im.index, token.length, 1, 0);
+                                continue;
+                            }
+                            if (stdSymbolSet.has(upper)) {
+                                builder.push(lineIndex, segmentOffset + im.index, token.length, 2, 0);
+                                continue;
+                            }
+                            builder.push(lineIndex, segmentOffset + im.index, token.length, 3, 0);
+                        }
+                    };
+                    let activeBlockCommentEnd: '*)' | '*/' | undefined;
 
                     for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
                         const raw = lines[lineIndex].replace(/\r/g, '');
                         if (!raw) continue;
 
-                        const commentIdx = raw.indexOf('//');
-                        if (commentIdx >= 0) {
-                            builder.push(lineIndex, commentIdx, raw.length - commentIdx, 7, 0);
-                        }
-
-                        // Strings
-                        stringRegex.lastIndex = 0;
-                        let sm;
-                        while ((sm = stringRegex.exec(raw)) !== null) {
-                            builder.push(lineIndex, sm.index, sm[0].length, 6, 0);
-                        }
-
-                        // Numbers
-                        numberRegex.lastIndex = 0;
-                        let nm;
-                        while ((nm = numberRegex.exec(raw)) !== null) {
-                            builder.push(lineIndex, nm.index, nm[0].length, 5, 0);
-                        }
-
-                        // Identifiers -> keyword/type/function/variable
-                        idRegex.lastIndex = 0;
-                        let im;
-                        while ((im = idRegex.exec(raw)) !== null) {
-                            const token = im[0];
-                            const upper = token.toUpperCase();
-                            if (iecStKeywordSet.has(upper)) {
-                                builder.push(lineIndex, im.index, token.length, 0, 0);
+                        let cursor = 0;
+                        while (cursor < raw.length) {
+                            if (activeBlockCommentEnd) {
+                                const blockEndIdx = raw.indexOf(activeBlockCommentEnd, cursor);
+                                if (blockEndIdx >= 0) {
+                                    builder.push(lineIndex, cursor, (blockEndIdx + activeBlockCommentEnd.length) - cursor, 7, 0);
+                                    cursor = blockEndIdx + activeBlockCommentEnd.length;
+                                    activeBlockCommentEnd = undefined;
+                                    continue;
+                                }
+                                builder.push(lineIndex, cursor, raw.length - cursor, 7, 0);
+                                cursor = raw.length;
                                 continue;
                             }
-                            if (/^(BOOL|BYTE|WORD|DWORD|LWORD|SINT|INT|DINT|LINT|USINT|UINT|UDINT|ULINT|REAL|LREAL|TIME|DATE|TIME_OF_DAY|TOD|DATE_AND_TIME|DT|STRING|WSTRING|ARRAY|STRUCT|ENUM|TYPE)$/i.test(token)) {
-                                builder.push(lineIndex, im.index, token.length, 1, 0);
+
+                            const lineCommentIdx = raw.indexOf('//', cursor);
+                            const parenCommentIdx = raw.indexOf('(*', cursor);
+                            const slashCommentIdx = raw.indexOf('/*', cursor);
+                            const nextBlockStartCandidates = [parenCommentIdx, slashCommentIdx].filter(idx => idx >= 0);
+                            const nextBlockStart = nextBlockStartCandidates.length > 0
+                                ? Math.min(...nextBlockStartCandidates)
+                                : -1;
+                            const nextCommentStartCandidates = [lineCommentIdx, nextBlockStart].filter(idx => idx >= 0);
+                            const nextCommentStart = nextCommentStartCandidates.length > 0
+                                ? Math.min(...nextCommentStartCandidates)
+                                : -1;
+
+                            if (nextCommentStart < 0) {
+                                pushCodeTokens(lineIndex, raw.substring(cursor), cursor);
+                                break;
+                            }
+
+                            if (nextCommentStart > cursor) {
+                                pushCodeTokens(lineIndex, raw.substring(cursor, nextCommentStart), cursor);
+                            }
+
+                            if (lineCommentIdx === nextCommentStart) {
+                                builder.push(lineIndex, nextCommentStart, raw.length - nextCommentStart, 7, 0);
+                                break;
+                            }
+
+                            const commentEndToken = parenCommentIdx === nextCommentStart ? '*)' : '*/';
+                            const blockEndIdx = raw.indexOf(commentEndToken, nextCommentStart + 2);
+                            if (blockEndIdx >= 0) {
+                                builder.push(lineIndex, nextCommentStart, (blockEndIdx + commentEndToken.length) - nextCommentStart, 7, 0);
+                                cursor = blockEndIdx + commentEndToken.length;
                                 continue;
                             }
-                            if (stdSymbolSet.has(upper)) {
-                                builder.push(lineIndex, im.index, token.length, 2, 0);
-                                continue;
-                            }
-                            builder.push(lineIndex, im.index, token.length, 3, 0);
+
+                            builder.push(lineIndex, nextCommentStart, raw.length - nextCommentStart, 7, 0);
+                            activeBlockCommentEnd = commentEndToken;
+                            break;
                         }
                     }
                     return builder.build();

@@ -11,6 +11,11 @@ var jsonOptions = new JsonSerializerOptions
 while (true)
 {
     var line = Console.ReadLine();
+    if (line is null)
+    {
+        break;
+    }
+
     if (string.IsNullOrWhiteSpace(line))
     {
         continue;
@@ -39,6 +44,9 @@ while (true)
         "initialize" => HandleInitialize(request),
         "scanProject" => HandleScanProject(request),
         "runPipeline" => HandleRunPipeline(request),
+        "installLibraryProject" => HandleInstallLibraryProject(request),
+        "addLibraryReference" => HandleAddLibraryReference(request),
+        "removeLibraryReference" => HandleRemoveLibraryReference(request),
         _ => new ScanResult(
             Array.Empty<LibraryRef>(),
             Array.Empty<BackendSymbol>(),
@@ -283,6 +291,142 @@ static object HandleRunPipeline(JsonObject request)
     return new { success, diagnostics };
 }
 
+static object HandleInstallLibraryProject(JsonObject request)
+{
+    var tsprojPath = request["params"]?["tsprojPath"]?.GetValue<string>();
+    var plcprojPath = request["params"]?["plcprojPath"]?.GetValue<string>();
+    var outputDirectory = request["params"]?["outputDirectory"]?.GetValue<string>();
+    var diagnostics = new List<string>();
+
+    if (string.IsNullOrWhiteSpace(tsprojPath) || !File.Exists(tsprojPath))
+    {
+        return new AutomationOperationResult(false, null, new[] { "installLibraryProject: tsproj path missing or not found." });
+    }
+    if (string.IsNullOrWhiteSpace(plcprojPath) || !File.Exists(plcprojPath))
+    {
+        return new AutomationOperationResult(false, null, new[] { "installLibraryProject: plcproj path missing or not found." });
+    }
+
+    var plcProjectName = ResolvePlcProjectName(plcprojPath) ?? Path.GetFileNameWithoutExtension(plcprojPath);
+    var outputPath = Path.Combine(
+        string.IsNullOrWhiteSpace(outputDirectory) ? Path.GetTempPath() : outputDirectory,
+        $"{plcProjectName}.library");
+
+    return RunTwinCATAutomation(tsprojPath, diagnostics, sysManager =>
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
+        var plcProject = FindPlcProjectTreeItem(sysManager, plcProjectName, diagnostics);
+        if (plcProject is null)
+        {
+            diagnostics.Add($"installLibraryProject: PLC project '{plcProjectName}' was not found in the TwinCAT tree.");
+            return new AutomationOperationResult(false, null, diagnostics);
+        }
+
+        if (!TryInvokeWithDiagnostics(plcProject, diagnostics, "SaveAsLibrary", outputPath, true))
+        {
+            diagnostics.Add("installLibraryProject: SaveAsLibrary failed.");
+            return new AutomationOperationResult(false, null, diagnostics);
+        }
+
+        diagnostics.Add($"installLibraryProject: library saved and installed from project '{plcProjectName}'.");
+        return new AutomationOperationResult(true, outputPath, diagnostics);
+    });
+}
+
+static object HandleAddLibraryReference(JsonObject request)
+{
+    var tsprojPath = request["params"]?["tsprojPath"]?.GetValue<string>();
+    var plcprojPath = request["params"]?["plcprojPath"]?.GetValue<string>();
+    var libraryName = request["params"]?["libraryName"]?.GetValue<string>();
+    var version = request["params"]?["version"]?.GetValue<string>()?.Trim();
+    var vendor = request["params"]?["vendor"]?.GetValue<string>()?.Trim();
+    var diagnostics = new List<string>();
+
+    if (string.IsNullOrWhiteSpace(tsprojPath) || !File.Exists(tsprojPath))
+    {
+        return new AutomationOperationResult(false, null, new[] { "addLibraryReference: tsproj path missing or not found." });
+    }
+    if (string.IsNullOrWhiteSpace(plcprojPath) || !File.Exists(plcprojPath))
+    {
+        return new AutomationOperationResult(false, null, new[] { "addLibraryReference: plcproj path missing or not found." });
+    }
+    if (string.IsNullOrWhiteSpace(libraryName))
+    {
+        return new AutomationOperationResult(false, null, new[] { "addLibraryReference: library name missing." });
+    }
+
+    var plcProjectName = ResolvePlcProjectName(plcprojPath) ?? Path.GetFileNameWithoutExtension(plcprojPath);
+    return RunTwinCATAutomation(tsprojPath, diagnostics, sysManager =>
+    {
+        var referencesItem = FindPlcReferencesTreeItem(sysManager, plcProjectName, diagnostics);
+        if (referencesItem is null)
+        {
+            diagnostics.Add($"addLibraryReference: References node for '{plcProjectName}' was not found.");
+            return new AutomationOperationResult(false, null, diagnostics);
+        }
+
+        var added =
+            TryInvokeWithDiagnostics(referencesItem, diagnostics, "AddLibrary", libraryName!, version ?? string.Empty, vendor ?? string.Empty) ||
+            TryInvokeWithDiagnostics(referencesItem, diagnostics, "AddLibrary", libraryName!);
+        if (!added)
+        {
+            diagnostics.Add($"addLibraryReference: AddLibrary failed for '{libraryName}'.");
+            return new AutomationOperationResult(false, null, diagnostics);
+        }
+
+        diagnostics.Add($"addLibraryReference: added '{libraryName}' to '{plcProjectName}'.");
+        return new AutomationOperationResult(true, null, diagnostics);
+    });
+}
+
+static object HandleRemoveLibraryReference(JsonObject request)
+{
+    var tsprojPath = request["params"]?["tsprojPath"]?.GetValue<string>();
+    var plcprojPath = request["params"]?["plcprojPath"]?.GetValue<string>();
+    var referenceName = request["params"]?["referenceName"]?.GetValue<string>();
+    var version = request["params"]?["version"]?.GetValue<string>()?.Trim();
+    var vendor = request["params"]?["vendor"]?.GetValue<string>()?.Trim();
+    var displayName = request["params"]?["displayName"]?.GetValue<string>()?.Trim();
+    var diagnostics = new List<string>();
+
+    if (string.IsNullOrWhiteSpace(tsprojPath) || !File.Exists(tsprojPath))
+    {
+        return new AutomationOperationResult(false, null, new[] { "removeLibraryReference: tsproj path missing or not found." });
+    }
+    if (string.IsNullOrWhiteSpace(plcprojPath) || !File.Exists(plcprojPath))
+    {
+        return new AutomationOperationResult(false, null, new[] { "removeLibraryReference: plcproj path missing or not found." });
+    }
+    if (string.IsNullOrWhiteSpace(referenceName))
+    {
+        return new AutomationOperationResult(false, null, new[] { "removeLibraryReference: reference name missing." });
+    }
+
+    var plcProjectName = ResolvePlcProjectName(plcprojPath) ?? Path.GetFileNameWithoutExtension(plcprojPath);
+    return RunTwinCATAutomation(tsprojPath, diagnostics, sysManager =>
+    {
+        var referencesItem = FindPlcReferencesTreeItem(sysManager, plcProjectName, diagnostics);
+        if (referencesItem is null)
+        {
+            diagnostics.Add($"removeLibraryReference: References node for '{plcProjectName}' was not found.");
+            return new AutomationOperationResult(false, null, diagnostics);
+        }
+
+        var removed =
+            (!string.IsNullOrWhiteSpace(displayName) && TryInvokeWithDiagnostics(referencesItem, diagnostics, "RemoveReference", displayName!)) ||
+            TryInvokeWithDiagnostics(referencesItem, diagnostics, "RemoveReference", referenceName!, version ?? string.Empty, vendor ?? string.Empty) ||
+            TryInvokeWithDiagnostics(referencesItem, diagnostics, "RemoveReference", referenceName!);
+        if (!removed)
+        {
+            diagnostics.Add($"removeLibraryReference: RemoveReference failed for '{referenceName}'.");
+            return new AutomationOperationResult(false, null, diagnostics);
+        }
+
+        diagnostics.Add($"removeLibraryReference: removed '{referenceName}' from '{plcProjectName}'.");
+        return new AutomationOperationResult(true, null, diagnostics);
+    });
+}
+
 static string? ResolvePipelineTsproj(string projectPath, string? anchorPath)
 {
     var candidates = Directory.EnumerateFiles(projectPath, "*.tsproj", SearchOption.AllDirectories).ToArray();
@@ -416,6 +560,103 @@ static string? ResolveAutomationProgId()
     return null;
 }
 
+static AutomationOperationResult RunTwinCATAutomation(
+    string tsprojPath,
+    List<string> diagnostics,
+    Func<object, AutomationOperationResult> action)
+{
+    var resolvedProgId = ResolveAutomationProgId();
+    var progIdType = resolvedProgId is not null ? Type.GetTypeFromProgID(resolvedProgId) : null;
+    if (progIdType is null)
+    {
+        diagnostics.Add("TwinCAT Automation Interface not available.");
+        return new AutomationOperationResult(false, null, diagnostics);
+    }
+
+    var finished = new ManualResetEventSlim(false);
+    Exception? threadError = null;
+    AutomationOperationResult? result = null;
+
+    var thread = new Thread(() =>
+    {
+        object? sysManager = null;
+        try
+        {
+            sysManager = Activator.CreateInstance(progIdType);
+            if (sysManager is null)
+            {
+                diagnostics.Add("TwinCAT Automation Interface: failed to create SysManager instance.");
+                result = new AutomationOperationResult(false, null, diagnostics);
+                return;
+            }
+
+            if (!TryInvoke(sysManager, "OpenConfiguration", tsprojPath) &&
+                !TryInvoke(sysManager, "OpenProject", tsprojPath) &&
+                !TryInvoke(sysManager, "Open", tsprojPath))
+            {
+                diagnostics.Add("TwinCAT Automation Interface: unable to open the TwinCAT project.");
+                result = new AutomationOperationResult(false, null, diagnostics);
+                return;
+            }
+
+            result = action(sysManager);
+        }
+        catch (Exception ex)
+        {
+            threadError = ex;
+        }
+        finally
+        {
+            if (sysManager is not null)
+            {
+                TryInvoke(sysManager, "SaveConfiguration");
+                TryInvoke(sysManager, "CloseConfiguration");
+                TryInvoke(sysManager, "Close");
+            }
+            finished.Set();
+        }
+    });
+
+    thread.SetApartmentState(ApartmentState.STA);
+    thread.IsBackground = true;
+    thread.Start();
+
+    if (!finished.Wait(TimeSpan.FromSeconds(45)))
+    {
+        diagnostics.Add("TwinCAT Automation Interface operation timed out after 45 seconds.");
+        return new AutomationOperationResult(false, null, diagnostics);
+    }
+
+    if (threadError is not null)
+    {
+        diagnostics.Add($"TwinCAT Automation Interface operation failed: {threadError.Message}");
+        return new AutomationOperationResult(false, null, diagnostics);
+    }
+
+    return result ?? new AutomationOperationResult(false, null, diagnostics);
+}
+
+static bool TryInvokeWithDiagnostics(object instance, List<string> diagnostics, string methodName, params object[] args)
+{
+    try
+    {
+        instance.GetType().InvokeMember(
+            methodName,
+            System.Reflection.BindingFlags.InvokeMethod | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance,
+            null,
+            instance,
+            args
+        );
+        diagnostics.Add($"{methodName} invoked successfully.");
+        return true;
+    }
+    catch (Exception ex)
+    {
+        diagnostics.Add($"{methodName} failed: {ex.Message}");
+        return false;
+    }
+}
+
 static bool TryInvoke(object instance, string methodName, params object[] args)
 {
     try
@@ -432,6 +673,184 @@ static bool TryInvoke(object instance, string methodName, params object[] args)
     catch
     {
         return false;
+    }
+}
+
+static object? TryInvokeForResult(object instance, string methodName, params object[] args)
+{
+    try
+    {
+        return instance.GetType().InvokeMember(
+            methodName,
+            System.Reflection.BindingFlags.InvokeMethod | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance,
+            null,
+            instance,
+            args
+        );
+    }
+    catch
+    {
+        return null;
+    }
+}
+
+static object? TryGetProperty(object instance, string propertyName)
+{
+    try
+    {
+        return instance.GetType().InvokeMember(
+            propertyName,
+            System.Reflection.BindingFlags.GetProperty | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance,
+            null,
+            instance,
+            Array.Empty<object>()
+        );
+    }
+    catch
+    {
+        return null;
+    }
+}
+
+static string? ResolvePlcProjectName(string plcprojPath)
+{
+    try
+    {
+        var doc = XDocument.Load(plcprojPath);
+        var nameValue = doc.Descendants().FirstOrDefault(node => node.Name.LocalName.Equals("Name", StringComparison.OrdinalIgnoreCase))?.Value?.Trim();
+        if (!string.IsNullOrWhiteSpace(nameValue))
+        {
+            return nameValue;
+        }
+    }
+    catch
+    {
+        // Fall back to filename.
+    }
+
+    return Path.GetFileNameWithoutExtension(plcprojPath);
+}
+
+static object? TryLookupTreeItem(object systemManager, string path)
+{
+    return TryInvokeForResult(systemManager, "LookupTreeItem", path);
+}
+
+static object? FindPlcProjectTreeItem(object systemManager, string plcProjectName, List<string> diagnostics)
+{
+    var directCandidates = new[]
+    {
+        $"TIPC^{plcProjectName}^{plcProjectName} Project",
+        $"TIPC^{plcProjectName} Project",
+        $"TIPC^{plcProjectName}"
+    };
+    foreach (var candidate in directCandidates)
+    {
+        var item = TryLookupTreeItem(systemManager, candidate);
+        if (item is not null)
+        {
+            diagnostics.Add($"Resolved PLC project tree item via path {candidate}.");
+            return item;
+        }
+    }
+
+    var plcRoot = TryLookupTreeItem(systemManager, "TIPC");
+    if (plcRoot is null)
+    {
+        diagnostics.Add("TwinCAT PLC tree root (TIPC) was not found.");
+        return null;
+    }
+
+    var desiredNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        plcProjectName,
+        $"{plcProjectName} Project"
+    };
+    return FindTreeItemRecursive(plcRoot, item =>
+    {
+        var name = TryGetProperty(item, "Name")?.ToString();
+        return !string.IsNullOrWhiteSpace(name) && desiredNames.Contains(name);
+    });
+}
+
+static object? FindPlcReferencesTreeItem(object systemManager, string plcProjectName, List<string> diagnostics)
+{
+    var directCandidates = new[]
+    {
+        $"TIPC^{plcProjectName}^{plcProjectName} Project^References",
+        $"TIPC^{plcProjectName} Project^References",
+        $"TIPC^{plcProjectName}^References"
+    };
+    foreach (var candidate in directCandidates)
+    {
+        var item = TryLookupTreeItem(systemManager, candidate);
+        if (item is not null)
+        {
+            diagnostics.Add($"Resolved PLC references tree item via path {candidate}.");
+            return item;
+        }
+    }
+
+    var plcProject = FindPlcProjectTreeItem(systemManager, plcProjectName, diagnostics);
+    if (plcProject is null)
+    {
+        return null;
+    }
+
+    return FindTreeItemRecursive(plcProject, item =>
+        string.Equals(TryGetProperty(item, "Name")?.ToString(), "References", StringComparison.OrdinalIgnoreCase));
+}
+
+static object? FindTreeItemRecursive(object treeItem, Func<object, bool> predicate)
+{
+    if (predicate(treeItem))
+    {
+        return treeItem;
+    }
+
+    foreach (var child in EnumerateTreeChildren(treeItem))
+    {
+        var match = FindTreeItemRecursive(child, predicate);
+        if (match is not null)
+        {
+            return match;
+        }
+    }
+
+    return null;
+}
+
+static IEnumerable<object> EnumerateTreeChildren(object treeItem)
+{
+    var childCountValue = TryGetProperty(treeItem, "ChildCount");
+    if (childCountValue is null)
+    {
+        yield break;
+    }
+
+    var childCount = Convert.ToInt32(childCountValue);
+    for (var index = 1; index <= childCount; index++)
+    {
+        var child = TryInvokeForResult(treeItem, "Child", index) ?? TryInvokeForResult(treeItem, "Item", index);
+        if (child is not null)
+        {
+            yield return child;
+        }
+    }
+
+    if (childCount == 0)
+    {
+        yield break;
+    }
+
+    // Some versions expose zero-based child accessors.
+    for (var index = 0; index < childCount; index++)
+    {
+        var child = TryInvokeForResult(treeItem, "Child", index) ?? TryInvokeForResult(treeItem, "Item", index);
+        if (child is not null)
+        {
+            yield return child;
+        }
     }
 }
 
@@ -1343,5 +1762,11 @@ internal sealed record ScanResult(
     IReadOnlyList<LibraryRef> Libraries,
     IReadOnlyList<BackendSymbol> Symbols,
     IReadOnlyList<BackendSymbol> LibrarySymbols,
+    IReadOnlyList<string> Diagnostics
+);
+
+internal sealed record AutomationOperationResult(
+    bool Success,
+    string? InstalledLibraryPath,
     IReadOnlyList<string> Diagnostics
 );
