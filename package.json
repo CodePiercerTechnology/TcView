@@ -383,7 +383,7 @@
         "extensions": [
           ".st"
         ],
-        "configuration": "./language-configuration.json"
+        "configuration": "./syntaxes/iec-st.language-configuration.json"
       }
     ],
     "grammars": [
@@ -420,5 +420,16 @@
     "IEC 61131-3",
     "Structured Text",
     "PLC"
+  ],
+  "files": [
+    "out/**",
+    "media/**",
+    "resources/**",
+    "syntaxes/**",
+    "docs/**",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "package.json"
   ]
 }
