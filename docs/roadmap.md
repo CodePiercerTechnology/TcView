@@ -63,14 +63,15 @@ TcView should not drift into:
 - analyzer incremental file updates now only publish index refresh events when file contributions actually changed
 - tree watcher refresh now distinguishes content-only changes from structural changes to reduce full cache invalidation churn
 - regression suite now includes a synthetic large-workspace conversion/fragment workload with a golden digest and configurable runtime threshold
+- tree provider directory entry scans now use mtime-based caching for high-frequency folder/plc-project discovery paths
 
 ## Next Priorities
 
 ### Performance
 
-1. Extend metadata caching and invalidation across any remaining high-frequency project reads
-2. Add telemetry-backed performance baselines for open, reindex, and large-solution refresh paths
-3. Add extension-host integration coverage that exercises large workspace discovery/tree refresh behavior
+1. Add telemetry-backed performance baselines for open, reindex, and large-solution refresh paths
+2. Add extension-host integration coverage that exercises large workspace discovery/tree refresh behavior
+3. Add targeted profiler traces for slow real-world workspaces to identify any remaining hot paths
 
 ### Library Metadata
 

@@ -19,6 +19,7 @@ The format is based on Keep a Changelog and this project uses Semantic Versionin
 - Reduced no-op analyzer invalidation churn by publishing incremental index refresh events only when file contributions actually mutate
 - Reduced tree-view invalidation churn by differentiating content-only file changes from structural tree changes
 - Improved integration test TLS handling by auto-detecting a local CA PEM (`TCVIEW_NODE_EXTRA_CA_CERTS` or `C:\certs\zscaler.pem`) and relaunching with `NODE_EXTRA_CA_CERTS`
+- Reduced repeated tree provider directory scans by adding mtime-based directory-entry caching and explicit create/delete invalidation
 
 ## [0.0.5] - 2026-03-03
 
