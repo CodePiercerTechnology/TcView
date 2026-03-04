@@ -3,9 +3,21 @@
 ## Main Build Commands
 
 - Compile: `npm run compile`
-- Unit/regression tests: `npm test`
+- Functionality tests: `npm run test:functionality`
+- Regression tests: `npm run test:regression`
+- Update regression goldens: `npm run test:regression:update`
+- Combined non-UI test suite: `npm test`
 - Integration tests: `npm run test:integration`
+- Full matrix (functionality + regression + integration): `npm run test:all`
 - Package VSIX: `npx @vscode/vsce package`
+
+If integration runtime download fails with TLS trust errors in a locked-down network, run:
+
+- `TCVIEW_INTEGRATION_ALLOW_INSECURE_TLS=1 npm run test:integration`
+
+Regression golden baselines live under:
+
+- `src/tests/regression/golden`
 
 ## Extension Development Host
 

@@ -1,0 +1,8 @@
+TYPE E_DeviceMode :
+{attribute 'qualified_only'}
+(
+    Auto := 0,
+    Manual := 1,
+    SemiAuto := 2
+);
+END_TYPE

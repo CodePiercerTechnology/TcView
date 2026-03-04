@@ -6,7 +6,8 @@
 2. Run `npm install`
 3. Run `npm run compile`
 4. Run `npm test`
-5. Press `F5` in VS Code to launch an Extension Development Host
+5. Run `npm run test:integration`
+6. Press `F5` in VS Code to launch an Extension Development Host
 
 ## Before Opening a PR
 
@@ -16,6 +17,7 @@
 - make sure these pass:
   - `npm run compile`
   - `npm test`
+  - `npm run test:integration` (or note why it could not run in your environment)
 
 ## Backend Work
 

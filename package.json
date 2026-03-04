@@ -437,9 +437,13 @@
     "build:backend": "dotnet build backend/TcView.Backend/TcView.Backend.csproj -c Release",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "test": "npm run compile && node out/tests/languageFeatures.test.js",
-    "test:ci": "npm run test",
-    "test:integration": "npm run compile && node scripts/run-integration-tests.js"
+    "test": "npm run compile && node out/tests/run-tests.js",
+    "test:functionality": "npm run compile && node out/tests/run-tests.js --suite functionality",
+    "test:regression": "npm run compile && node out/tests/run-tests.js --suite regression",
+    "test:regression:update": "npm run compile && node out/tests/run-tests.js --suite regression --update",
+    "test:integration": "npm run compile && node scripts/run-integration-tests.js",
+    "test:all": "npm run test && npm run test:integration",
+    "test:ci": "npm run test:all"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

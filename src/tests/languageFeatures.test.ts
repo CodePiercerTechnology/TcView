@@ -22,7 +22,7 @@ function inferPrimitive(expr: string): string {
     return 'UNKNOWN';
 }
 
-async function run(): Promise<void> {
+export async function runLanguageFeatureUtilityTests(): Promise<void> {
     assert.ok(isCaseLabel('1:'));
     assert.ok(isCaseLabel('1, 2, 3:'));
     assert.ok(isCaseLabel('10..20:'));
@@ -251,9 +251,11 @@ async function run(): Promise<void> {
     assert.ok(!xmlAfterStructDutSave.includes('STRUCT\nSTRUCT'));
 }
 
-Promise.resolve(run()).then(() => {
-    console.log('Language feature utility tests passed.');
-}).catch(error => {
-    console.error(error);
-    process.exitCode = 1;
-});
+if (require.main === module) {
+    Promise.resolve(runLanguageFeatureUtilityTests()).then(() => {
+        console.log('Language feature utility tests passed.');
+    }).catch(error => {
+        console.error(error);
+        process.exitCode = 1;
+    });
+}
