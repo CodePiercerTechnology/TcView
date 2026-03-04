@@ -62,14 +62,15 @@ TcView should not drift into:
 - workspace solution and marker discovery now uses lightweight caching plus watcher-driven invalidation to reduce repeated scans
 - analyzer incremental file updates now only publish index refresh events when file contributions actually changed
 - tree watcher refresh now distinguishes content-only changes from structural changes to reduce full cache invalidation churn
+- regression suite now includes a synthetic large-workspace conversion/fragment workload with a golden digest and configurable runtime threshold
 
 ## Next Priorities
 
 ### Performance
 
-1. Add regression checks for larger TwinCAT workspaces
-2. Extend metadata caching and invalidation across any remaining high-frequency project reads
-3. Add telemetry-backed performance baselines for open, reindex, and large-solution refresh paths
+1. Extend metadata caching and invalidation across any remaining high-frequency project reads
+2. Add telemetry-backed performance baselines for open, reindex, and large-solution refresh paths
+3. Add extension-host integration coverage that exercises large workspace discovery/tree refresh behavior
 
 ### Library Metadata
 

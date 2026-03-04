@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "workload": {
+    "pouCopies": 220,
+    "interfaceCopies": 220,
+    "structDutCopies": 220,
+    "enumDutCopies": 220,
+    "fragmentChecks": 160
+  },
+  "digest": "7fddd5bc2a2dcff6b1bc28b5763aef2e6ee57640986cbfac2efdf35a69b30880",
+  "totalOutputBytes": 80740,
+  "fragmentDigest": "b55b9eea4849d08466d51f6e57ed9384533ba82adf3455e0cafc7fab2c6f1cf5",
+  "fragmentBytes": 10800
+}

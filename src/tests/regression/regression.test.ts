@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { extractFragmentSTFromXml } from '../../tcViewFragmentCodec';
 import { TwinCATXmlConverter } from '../../tcViewXmlConverter';
+import { runLargeWorkspaceRegressionTest } from './largeWorkspace.test';
 
 type RegressionCase = {
     name: string;
@@ -113,6 +114,8 @@ export async function runRegressionTests(options?: { updateGoldens?: boolean }):
         compareOrUpdateGolden(testCase.goldenPath, actual, updateGoldens);
         process.stdout.write(`[REGRESSION] ${testCase.name}\n`);
     }
+
+    await runLargeWorkspaceRegressionTest({ updateGoldens });
 }
 
 if (require.main === module) {

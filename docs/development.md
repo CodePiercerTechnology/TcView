@@ -13,6 +13,11 @@
 
 If integration runtime download fails with TLS trust errors in a locked-down network, run:
 
+- `set TCVIEW_NODE_EXTRA_CA_CERTS=C:\certs\zscaler.pem`
+- `npm run test:integration`
+
+or as a fallback:
+
 - `TCVIEW_INTEGRATION_ALLOW_INSECURE_TLS=1 npm run test:integration`
 
 Regression golden baselines live under:

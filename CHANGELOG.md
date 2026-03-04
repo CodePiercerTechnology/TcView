@@ -9,6 +9,7 @@ The format is based on Keep a Changelog and this project uses Semantic Versionin
 ### Added
 - Added a production-alpha readiness gate to the roadmap with required CI, validation, support-matrix, and release-process items
 - Added a Windows GitHub Actions CI workflow that runs compile, regression tests, integration smoke tests, and VSIX packaging validation on pull requests and pushes to `main`
+- Added a synthetic large-workspace regression test with golden digest validation and configurable runtime threshold
 
 ### Changed
 - Added mtime-based caching for `.plcproj`/`.tsproj`/`.tspproj` metadata reads in the project analyzer
@@ -17,6 +18,7 @@ The format is based on Keep a Changelog and this project uses Semantic Versionin
 - Improved tree metadata invalidation so `.plcproj`/`.tsproj` changes clear related caches and refresh grouping/reference views
 - Reduced no-op analyzer invalidation churn by publishing incremental index refresh events only when file contributions actually mutate
 - Reduced tree-view invalidation churn by differentiating content-only file changes from structural tree changes
+- Improved integration test TLS handling by auto-detecting a local CA PEM (`TCVIEW_NODE_EXTRA_CA_CERTS` or `C:\certs\zscaler.pem`) and relaunching with `NODE_EXTRA_CA_CERTS`
 
 ## [0.0.5] - 2026-03-03
 
