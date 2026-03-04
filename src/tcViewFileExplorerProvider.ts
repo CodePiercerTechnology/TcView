@@ -185,6 +185,7 @@ export class TwinCATFileExplorerProvider
     private contentRoot?: string;
     private fileWatcher?: vscode.FileSystemWatcher;
     private refreshTimer: NodeJS.Timeout | undefined;
+    private pendingStructuralRefresh = false;
     private hasActiveSolution = false;
     private discoveryStarted = false;
 
@@ -225,14 +226,25 @@ export class TwinCATFileExplorerProvider
         this._onDidChangeTreeData.fire(undefined);
     }
 
-    private scheduleRefresh(delayMs = 150) {
+    private notifyContentRefresh() {
+        this._onDidChangeTreeData.fire(undefined);
+    }
+
+    private scheduleRefresh(structural = true, delayMs = 150) {
+        this.pendingStructuralRefresh = this.pendingStructuralRefresh || structural;
         if (this.refreshTimer) {
             clearTimeout(this.refreshTimer);
         }
 
         this.refreshTimer = setTimeout(() => {
             this.refreshTimer = undefined;
-            this.refresh();
+            const shouldRunStructuralRefresh = this.pendingStructuralRefresh;
+            this.pendingStructuralRefresh = false;
+            if (shouldRunStructuralRefresh) {
+                this.refresh();
+                return;
+            }
+            this.notifyContentRefresh();
         }, delayMs);
     }
 
@@ -1049,17 +1061,19 @@ export class TwinCATFileExplorerProvider
         this.fileWatcher.onDidChange(uri => {
             this.parsedPOUCache.delete(uri.fsPath);
             this.invalidateMetadataCaches(uri.fsPath);
-            this.scheduleRefresh();
+            const ext = path.extname(uri.fsPath).toLowerCase();
+            const requiresStructuralRefresh = ext === '.plcproj' || ext === '.tsproj' || ext === '.tspproj' || ext === '.sln';
+            this.scheduleRefresh(requiresStructuralRefresh);
         });
 
         this.fileWatcher.onDidCreate(uri => {
             this.invalidateMetadataCaches(uri.fsPath);
-            this.scheduleRefresh();
+            this.scheduleRefresh(true);
         });
         this.fileWatcher.onDidDelete(uri => {
             this.parsedPOUCache.delete(uri.fsPath);
             this.invalidateMetadataCaches(uri.fsPath);
-            this.scheduleRefresh();
+            this.scheduleRefresh(true);
         });
     }
 
@@ -1068,6 +1082,7 @@ export class TwinCATFileExplorerProvider
             clearTimeout(this.refreshTimer);
             this.refreshTimer = undefined;
         }
+        this.pendingStructuralRefresh = false;
         this.fileWatcher?.dispose();
         this.parsedPOUCache.clear();
         this.projectMetadataXmlCache.clear();

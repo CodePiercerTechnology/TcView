@@ -341,15 +341,25 @@ export class TwinCATProjectAnalyzer {
         }
 
         const start = Date.now();
+        let didMutateIndex = false;
         for (const filePath of deleted) {
-            this.removeFileContributions(filePath);
+            didMutateIndex = this.removeFileContributions(filePath) || didMutateIndex;
         }
 
-        await Promise.allSettled(changed.map(filePath => this.parseFile(filePath)));
-        this.indexRevision++;
-        this.indexRefreshedEmitter.fire();
+        const parseResults = await Promise.allSettled(changed.map(filePath => this.parseFile(filePath)));
+        for (const result of parseResults) {
+            if (result.status === 'fulfilled' && result.value) {
+                didMutateIndex = true;
+                break;
+            }
+        }
+
+        if (didMutateIndex) {
+            this.indexRevision++;
+            this.indexRefreshedEmitter.fire();
+        }
         if (this.isPerfLoggingEnabled()) {
-            console.log(`[TcView Perf] Incremental symbol update (${changed.length} changed, ${deleted.length} deleted): ${Date.now() - start} ms`);
+            console.log(`[TcView Perf] Incremental symbol update (${changed.length} changed, ${deleted.length} deleted, mutation=${didMutateIndex}): ${Date.now() - start} ms`);
         }
     }
 
@@ -430,16 +440,16 @@ export class TwinCATProjectAnalyzer {
     /**
      * Parse a single PLC file and extract symbols
      */
-    private async parseFile(filePath: string): Promise<void> {
+    private async parseFile(filePath: string): Promise<boolean> {
         if (!this.isPLCFile(filePath)) {
-            return;
+            return false;
         }
 
         try {
             const fingerprint = await this.getFileFingerprint(filePath);
             const previousFingerprint = this.fileFingerprints.get(filePath);
             if (fingerprint && previousFingerprint === fingerprint && this.fileContributions.has(filePath)) {
-                return;
+                return false;
             }
 
             const ext = path.extname(filePath).toLowerCase();
@@ -471,8 +481,10 @@ export class TwinCATProjectAnalyzer {
             if (fingerprint) {
                 this.fileFingerprints.set(filePath, fingerprint);
             }
+            return true;
         } catch (error) {
             console.error(`Error parsing ${filePath}:`, error);
+            return false;
         }
     }
 
@@ -703,9 +715,9 @@ export class TwinCATProjectAnalyzer {
         }
     }
 
-    private removeFileContributions(filePath: string): void {
+    private removeFileContributions(filePath: string): boolean {
         const previous = this.fileContributions.get(filePath);
-        if (!previous) return;
+        if (!previous) return false;
 
         for (const key of previous.symbolKeys) {
             const symbol = this.symbols.get(key);
@@ -730,6 +742,7 @@ export class TwinCATProjectAnalyzer {
 
         this.fileContributions.delete(filePath);
         this.fileFingerprints.delete(filePath);
+        return true;
     }
 
     private async getFileFingerprint(filePath: string): Promise<string | undefined> {

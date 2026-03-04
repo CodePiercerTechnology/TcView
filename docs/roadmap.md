@@ -60,14 +60,16 @@ TcView should not drift into:
 
 - `.plcproj`/`.tsproj`/`.tspproj` project metadata parsing now uses mtime-based caching in core analyzer/tree paths
 - workspace solution and marker discovery now uses lightweight caching plus watcher-driven invalidation to reduce repeated scans
+- analyzer incremental file updates now only publish index refresh events when file contributions actually changed
+- tree watcher refresh now distinguishes content-only changes from structural changes to reduce full cache invalidation churn
 
 ## Next Priorities
 
 ### Performance
 
-1. Narrow analyzer/tree invalidation further on file change
-2. Add regression checks for larger TwinCAT workspaces
-3. Extend metadata caching and invalidation across any remaining high-frequency project reads
+1. Add regression checks for larger TwinCAT workspaces
+2. Extend metadata caching and invalidation across any remaining high-frequency project reads
+3. Add telemetry-backed performance baselines for open, reindex, and large-solution refresh paths
 
 ### Library Metadata
 
