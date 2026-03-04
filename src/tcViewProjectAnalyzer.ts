@@ -190,7 +190,7 @@ export class TwinCATProjectAnalyzer {
             return;
         }
 
-        // Find TwinCAT project root (look for .tsproj files)
+        // Find TwinCAT project root (look for .tsproj/.tspproj files)
         for (const folder of workspaceFolders) {
             const tsprojFiles = await this.findTsprojFiles(folder.uri.fsPath);
             if (tsprojFiles.length > 0) {
@@ -199,7 +199,7 @@ export class TwinCATProjectAnalyzer {
             }
         }
 
-        // If no .tsproj found, use first workspace folder
+        // If no .tsproj/.tspproj found, use first workspace folder
         if (!this.projectRoot) {
             this.projectRoot = workspaceFolders[0].uri.fsPath;
         }
@@ -221,19 +221,21 @@ export class TwinCATProjectAnalyzer {
     }
 
     /**
-     * Find all .tsproj files in a directory
+     * Find all .tsproj/.tspproj files in a directory
      */
     private async findTsprojFiles(dir: string): Promise<string[]> {
         const files: string[] = [];
         try {
             const entries = await fs.promises.readdir(dir, { withFileTypes: true });
             for (const entry of entries) {
-                if (entry.isFile() && entry.name.endsWith('.tsproj')) {
+                const lowerName = entry.name.toLowerCase();
+                // Some TwinCAT solutions store the system manager project as .tspproj.
+                if (entry.isFile() && (lowerName.endsWith('.tsproj') || lowerName.endsWith('.tspproj'))) {
                     files.push(path.join(dir, entry.name));
                 }
             }
         } catch (error) {
-            console.error('Error finding .tsproj files:', error);
+            console.error('Error finding .tsproj/.tspproj files:', error);
         }
         return files;
     }
@@ -244,7 +246,7 @@ export class TwinCATProjectAnalyzer {
     private setupFileWatcher(): void {
         // Watch TwinCAT PLC source plus project/library metadata outputs.
         this.fileWatcher = vscode.workspace.createFileSystemWatcher(
-            '**/*.{TcPOU,TcGVL,TcDUT,TcPRG,TcCOM,TcAPP,TcVAR,TcGDS,TcIO,TcITF,plcproj,tsproj,tmc}'
+            '**/*.{TcPOU,TcGVL,TcDUT,TcPRG,TcCOM,TcAPP,TcVAR,TcGDS,TcIO,TcITF,plcproj,tsproj,tspproj,tmc}'
         );
         this.libraryMetadataWatcher = vscode.workspace.createFileSystemWatcher('**/tcview.libraries.json');
         const globalMetadataPath = this.getGlobalLibraryMetadataPath();
@@ -744,7 +746,7 @@ export class TwinCATProjectAnalyzer {
 
     private isLibraryMetadataFile(filePath: string): boolean {
         const lowerName = path.basename(filePath).toLowerCase();
-        return ['.plcproj', '.tsproj', '.tmc'].includes(path.extname(filePath).toLowerCase())
+        return ['.plcproj', '.tsproj', '.tspproj', '.tmc'].includes(path.extname(filePath).toLowerCase())
             || lowerName === 'tcview.libraries.json';
     }
 

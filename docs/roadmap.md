@@ -80,6 +80,19 @@ TcView should not drift into:
 3. Expand known system/global type/member modeling where TwinCAT compiler behavior is predictable
 4. Add more regression tests for user-reported diagnostics and save issues
 
+### Tree View UX
+
+#### Near-Term
+
+1. Expand tree and explorer context menus with authoring actions such as add folder, add POU, add DUT, and related TwinCAT item creation flows
+2. Automatically switch focus to the TcView container when a TwinCAT solution or project is opened, including after reload when the workspace was opened directly through TcView
+3. Add a guided "Add PLC Project to Solution" workflow with options to either copy the PLC project into the solution structure or reference the original project directory in place
+
+#### Later Polish
+
+1. Add clearer tree-item icon differentiation for folders, interfaces, DUTs, POUs, methods, properties, actions, and other TwinCAT artifact types
+2. Continue aligning naming, grouping, and interaction polish with familiar XAE-style project browsing without widening scope
+
 ### Packaging and Release
 
 1. Decide whether backend-enabled releases will ship:

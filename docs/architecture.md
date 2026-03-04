@@ -99,11 +99,12 @@ TcView intentionally avoids treating arbitrary folders as TwinCAT roots.
 Valid roots:
 
 - solution root:
-  - contains `.sln` and `.tsproj`
+  - contains `.sln` and `.tsproj` or `.tspproj`
 - standalone PLC root:
   - contains `.plcproj`
 
 Anything else remains a normal VS Code folder, with TcView inactive or in welcome state.
+The `Open TwinCAT Solution` command accepts `.sln` only.
 
 ## Tree View Model
 

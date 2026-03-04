@@ -6,6 +6,25 @@ The format is based on Keep a Changelog and this project uses Semantic Versionin
 
 ## [Unreleased]
 
+## [0.0.5] - 2026-03-03
+
+### Fixed
+- Improved TwinCAT Automation Interface project opening for library operations by trying both `tsproj` and `sln` targets and emitting detailed open-attempt diagnostics
+
+## [0.0.4] - 2026-03-03
+
+### Fixed
+- Prevented backend request ID parsing failures by using a safe client-side counter and 64-bit request ID parsing in the backend
+
+## [0.0.3] - 2026-03-03
+
+### Changed
+- Limited `Add TwinCAT Library To Project` to the `References` context area instead of exposing it as a top-level sidebar action
+- Fixed standalone TwinCAT `.plcproj` workspaces so PLC project files appear in the TcView tree
+- Packaged the TcView backend build output in the VSIX and wired prepublish to build it automatically so library install/add/remove commands can run after install
+
+## [0.0.2] - 2026-03-03
+
 ### Added
 - Layered library recognition from `.tmc`, Managed Libraries metadata, built-in Beckhoff catalog metadata, and per-user/workspace metadata files
 - Library project metadata import into a global per-user TcView metadata catalog
@@ -18,7 +37,7 @@ The format is based on Keep a Changelog and this project uses Semantic Versionin
 - Improved syntax recognition for conversion builtins and block comments
 - Expanded built-in Beckhoff metadata coverage, including common `Tc3_Module` HRESULT constants
 - Reorganized repository documentation around user guide, architecture, library metadata, development, and release readiness
-- Tightened VSIX contents with a runtime-focused `files` whitelist
+- Fixed VSIX packaging so runtime XML parser dependencies are shipped and the tree view commands/providers register correctly after install
 
 ## [0.0.1] - 2026-02-27
 

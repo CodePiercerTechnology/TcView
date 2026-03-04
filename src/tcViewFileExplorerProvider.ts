@@ -60,6 +60,8 @@ const EXPANDABLE_POU_EXTENSIONS = new Set([
     '.tcitf'
 ]);
 
+const SOLUTION_PROJECT_EXTENSIONS = ['.tsproj', '.tspproj'];
+
 const toArray = <T>(value: T | T[] | undefined): T[] =>
     Array.isArray(value) ? value : value ? [value] : [];
 
@@ -467,7 +469,10 @@ export class TwinCATFileExplorerProvider
             const entries = await fs.promises.readdir(folderPath, { withFileTypes: true });
             const files = entries.filter(entry => entry.isFile()).map(entry => entry.name);
             const slnPath = files.find(name => name.toLowerCase().endsWith('.sln'));
-            const tsprojPath = files.find(name => name.toLowerCase().endsWith('.tsproj'));
+            // Treat .tspproj as equivalent to .tsproj for TwinCAT solution detection.
+            const tsprojPath = files.find(name =>
+                SOLUTION_PROJECT_EXTENSIONS.some(extension => name.toLowerCase().endsWith(extension))
+            );
             const plcprojPath = files.find(name => name.toLowerCase().endsWith('.plcproj'));
             const isTwinCATSolution = !!(slnPath && tsprojPath);
             const isStandalonePlcProject = !!plcprojPath;
@@ -599,6 +604,20 @@ export class TwinCATFileExplorerProvider
             }
         }));
 
+        const isStandalonePlcRoot = !!(!this.rootIdentifiers?.slnPath && !this.rootIdentifiers?.tsprojPath && this.rootIdentifiers?.plcprojPath);
+        if (isStandalonePlcRoot && plcEntries.length === 0) {
+            const plcprojPath = this.rootIdentifiers?.plcprojPath!;
+            const projectFolderItem = new TwinCATFileTreeItem(
+                vscode.Uri.file(this.contentRoot),
+                vscode.TreeItemCollapsibleState.Collapsed,
+                TwinCATItemType.PlcProjectFolder,
+                plcprojPath,
+                undefined,
+                path.basename(plcprojPath, '.plcproj')
+            );
+            plcEntries.push(projectFolderItem);
+        }
+
         return {
             system: sortItems(systemEntries),
             plc: sortItems(plcEntries),
@@ -629,7 +648,7 @@ export class TwinCATFileExplorerProvider
             vscode.Uri.file(path.join(folderPath, 'References')),
             vscode.TreeItemCollapsibleState.Collapsed,
             TwinCATItemType.ReferencesRoot,
-            folderPath,
+            plcProj,
             referencesItems,
             'References'
         );
@@ -975,7 +994,7 @@ export class TwinCATFileExplorerProvider
         if (!this.workspaceRoot) return;
 
         this.fileWatcher = vscode.workspace.createFileSystemWatcher(
-            '**/*.{tcpou,tcprg,tcapp,tccom,tcgvl,tcdut,tcvar,tcgds,tcio,tcitf,TcPOU,TcPRG,TcAPP,TcCOM,TcGVL,TcDUT,TcVAR,TcGDS,TcIO,TcITF,plcproj,tsproj,sln}'
+            '**/*.{tcpou,tcprg,tcapp,tccom,tcgvl,tcdut,tcvar,tcgds,tcio,tcitf,TcPOU,TcPRG,TcAPP,TcCOM,TcGVL,TcDUT,TcVAR,TcGDS,TcIO,TcITF,plcproj,tsproj,tspproj,sln}'
         );
 
         this.fileWatcher.onDidChange(uri => {

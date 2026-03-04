@@ -21,18 +21,20 @@ export type UpdateProjectLibraryReferenceResult = {
 
 export class TwinCATBackendClient {
     private queue: Promise<unknown> = Promise.resolve();
+    // Monotonic request ids let the backend correlate responses to each invocation.
+    private requestId = 0;
 
     constructor(private readonly extensionPath: string) {}
 
-    public installLibraryProject(params: { tsprojPath: string; plcprojPath: string; outputDirectory?: string }): Promise<InstallLibraryProjectResult> {
+    public installLibraryProject(params: { tsprojPath: string; plcprojPath: string; solutionPath?: string; outputDirectory?: string }): Promise<InstallLibraryProjectResult> {
         return this.enqueue(() => this.invokeBackend<InstallLibraryProjectResult>('installLibraryProject', params));
     }
 
-    public addLibraryReference(params: { tsprojPath: string; plcprojPath: string; libraryName: string; version?: string; vendor?: string }): Promise<UpdateProjectLibraryReferenceResult> {
+    public addLibraryReference(params: { tsprojPath: string; plcprojPath: string; solutionPath?: string; libraryName: string; version?: string; vendor?: string }): Promise<UpdateProjectLibraryReferenceResult> {
         return this.enqueue(() => this.invokeBackend<UpdateProjectLibraryReferenceResult>('addLibraryReference', params));
     }
 
-    public removeLibraryReference(params: { tsprojPath: string; plcprojPath: string; referenceName: string; version?: string; vendor?: string; displayName?: string }): Promise<UpdateProjectLibraryReferenceResult> {
+    public removeLibraryReference(params: { tsprojPath: string; plcprojPath: string; solutionPath?: string; referenceName: string; version?: string; vendor?: string; displayName?: string }): Promise<UpdateProjectLibraryReferenceResult> {
         return this.enqueue(() => this.invokeBackend<UpdateProjectLibraryReferenceResult>('removeLibraryReference', params));
     }
 
@@ -110,7 +112,7 @@ export class TwinCATBackendClient {
             });
 
             const request = JSON.stringify({
-                id: Date.now(),
+                id: ++this.requestId,
                 method,
                 params
             });

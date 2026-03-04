@@ -2,7 +2,7 @@
   "name": "tcview",
   "displayName": "TcView",
   "description": "TcView: view and edit TwinCAT XML files as IEC Structured Text (ST).",
-  "version": "0.0.1",
+  "version": "0.0.5",
   "publisher": "user",
   "repository": {
     "type": "git",
@@ -20,7 +20,27 @@
   ],
   "main": "./out/extension.js",
   "activationEvents": [
-    "onFileSystem:twincat"
+    "onFileSystem:twincat",
+    "onView:twincat.files",
+    "onLanguage:iec-st",
+    "onCommand:tcview.refreshFiles",
+    "onCommand:tcview.openFile",
+    "onCommand:tcview.openLibraryReference",
+    "onCommand:tcview.openFromExplorer",
+    "onCommand:tcview.openSolution",
+    "onCommand:tcview.switchToXml",
+    "onCommand:tcview.validateSyntax",
+    "onCommand:tcview.showIndexStats",
+    "onCommand:tcview.checkLspStatus",
+    "onCommand:tcview.showPerfStats",
+    "onCommand:tcview.buildSolutionWithMsBuild",
+    "onCommand:tcview.showLibraries",
+    "onCommand:tcview.createLibraryMetadataTemplate",
+    "onCommand:tcview.importLibraryMetadata",
+    "onCommand:tcview.importLibraryProjectMetadata",
+    "onCommand:tcview.installLibraryProject",
+    "onCommand:tcview.addLibraryReference",
+    "onCommand:tcview.removeLibraryReference"
   ],
   "contributes": {
     "viewsContainers": {
@@ -45,12 +65,12 @@
     "viewsWelcome": [
       {
         "view": "twincat.files",
-        "contents": "No folder is open.\n[Open TwinCAT Solution or Project](command:tcview.openSolution)",
+        "contents": "No folder is open.\n[Open TwinCAT Solution](command:tcview.openSolution)",
         "when": "workspaceFolderCount == 0 && tcview.discoveryComplete"
       },
       {
         "view": "twincat.files",
-        "contents": "No TwinCAT solution or project was found in this folder.\n[Open TwinCAT Solution or Project](command:tcview.openSolution)",
+        "contents": "No TwinCAT solution was found in this folder.\n[Open TwinCAT Solution](command:tcview.openSolution)",
         "when": "workspaceFolderCount != 0 && tcview.discoveryComplete && !tcview.hasTwinCATFiles && !tcview.isLookingForTwinCAT"
       }
     ],
@@ -76,7 +96,7 @@
       },
       {
         "command": "tcview.openSolution",
-        "title": "Open TwinCAT Solution or Project",
+        "title": "Open TwinCAT Solution",
         "icon": "$(folder-opened)"
       },
       {
@@ -288,6 +308,34 @@
         }
       }
     },
+    "configurationDefaults": {
+      "files.associations": {
+        "*.TcPOU": "xml",
+        "*.TcGVL": "xml",
+        "*.TcDUT": "xml",
+        "*.TcPRG": "xml",
+        "*.TcAPP": "xml",
+        "*.TcCOM": "xml",
+        "*.TcVAR": "xml",
+        "*.TcGDS": "xml",
+        "*.TcIO": "xml",
+        "*.TcITF": "xml",
+        "*.tcpou": "xml",
+        "*.tcgvl": "xml",
+        "*.tcdut": "xml",
+        "*.tcprg": "xml",
+        "*.tcapp": "xml",
+        "*.tccom": "xml",
+        "*.tcvar": "xml",
+        "*.tcgds": "xml",
+        "*.tcio": "xml",
+        "*.tcitf": "xml",
+        "*.plcproj": "xml",
+        "*.tsproj": "xml",
+        "*.tspproj": "xml",
+        "*.tmc": "xml"
+      }
+    },
     "menus": {
       "view/title": [
         {
@@ -304,11 +352,6 @@
           "command": "tcview.buildSolutionWithMsBuild",
           "when": "view == twincat.files && tcview.hasSolution",
           "group": "navigation@2"
-        },
-        {
-          "command": "tcview.addLibraryReference",
-          "when": "view == twincat.files && tcview.hasSolution",
-          "group": "navigation@3"
         }
       ],
       "view/item/context": [
@@ -324,7 +367,7 @@
         },
         {
           "command": "tcview.addLibraryReference",
-          "when": "view == twincat.files && tcview.hasSolution && viewItem == plcProjectFolder",
+          "when": "view == twincat.files && tcview.hasSolution && viewItem == referencesRoot",
           "group": "navigation@4"
         },
         {
@@ -358,11 +401,6 @@
           "command": "tcview.installLibraryProject",
           "when": "tcview.hasSolution && (explorerResourceIsFolder || resourceExtname == .plcproj)",
           "group": "navigation@5"
-        },
-        {
-          "command": "tcview.addLibraryReference",
-          "when": "tcview.hasSolution && (explorerResourceIsFolder || resourceExtname == .plcproj)",
-          "group": "navigation@6"
         }
       ],
       "editor/title": [
@@ -395,7 +433,8 @@
     ]
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
+    "vscode:prepublish": "npm run compile && npm run build:backend",
+    "build:backend": "dotnet build backend/TcView.Backend/TcView.Backend.csproj -c Release",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "test": "npm run compile && node out/tests/languageFeatures.test.js",
@@ -427,6 +466,10 @@
     "resources/**",
     "syntaxes/**",
     "docs/**",
+    "backend/TcView.Backend/bin/Release/net8.0-windows/**",
+    "node_modules/xml2js/**",
+    "node_modules/sax/**",
+    "node_modules/xmlbuilder/**",
     "README.md",
     "CHANGELOG.md",
     "LICENSE",

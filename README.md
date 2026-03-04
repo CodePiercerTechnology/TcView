@@ -46,11 +46,12 @@ Use TwinCAT XAE for device engineering, configuration activation, runtime contro
 TcView activates on real TwinCAT roots only:
 
 - TwinCAT solution root:
-  - contains both `.sln` and `.tsproj`
+  - contains `.sln` plus `.tsproj` or `.tspproj`
 - Standalone PLC project root:
   - contains `.plcproj`
 
-A plain `.sln` without a `.tsproj` is not treated as a TwinCAT solution.
+A plain `.sln` without a `.tsproj` or `.tspproj` is not treated as a TwinCAT solution.
+The `Open TwinCAT Solution` command only opens `.sln` files.
 
 ## Supported File Types
 

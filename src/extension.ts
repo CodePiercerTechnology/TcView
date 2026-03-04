@@ -16,6 +16,8 @@ export function activate(context: vscode.ExtensionContext) {
     console.log('TcView extension is now active!');
     const metadataConverter = new TwinCATXmlConverter();
     const backendClient = new TwinCATBackendClient(context.extensionPath);
+    // TwinCAT solutions can be represented by either .tsproj or .tspproj sibling files.
+    const solutionProjectExtensions = ['.tsproj', '.tspproj'];
     const supportedTwinCATExts = new Set(['.tcpou', '.tcgvl', '.tcdut', '.tcprg', '.tcapp', '.tccom', '.tcvar', '.tcgds', '.tcio', '.tcitf']);
     const libraryPanels = new Map<string, vscode.WebviewPanel>();
     const libraryViewCache = new Map<string, { revision: number; html: string }>();
@@ -155,6 +157,7 @@ export function activate(context: vscode.ExtensionContext) {
 
                 await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
                 const xmlDocument = await vscode.workspace.openTextDocument(originalUri);
+                await vscode.languages.setTextDocumentLanguage(xmlDocument, 'xml');
                 const xmlEditor = await vscode.window.showTextDocument(xmlDocument, {
                     preview: false,
                     viewColumn
@@ -394,7 +397,9 @@ export function activate(context: vscode.ExtensionContext) {
             const entries = await fs.promises.readdir(folderPath, { withFileTypes: true });
             const files = entries.filter(entry => entry.isFile()).map(entry => entry.name);
             const solution = files.find(name => name.toLowerCase().endsWith('.sln'));
-            const tsproj = files.find(name => name.toLowerCase().endsWith('.tsproj'));
+            const tsproj = files.find(name =>
+                solutionProjectExtensions.some(extension => name.toLowerCase().endsWith(extension))
+            );
             const plcproj = files.find(name => name.toLowerCase().endsWith('.plcproj'));
             const isTwinCATSolution = !!(solution && tsproj);
             const isStandalonePlcProject = !!plcproj;
@@ -420,7 +425,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     const resolveTwinCATFolderCandidate = async (folderPath: string, depth = 2): Promise<{ folderPath: string; solutionPath?: string } | undefined> => {
         const markers = await findTwinCATProjectMarkers(folderPath);
-        if (markers.hasTwinCATFiles) {
+        if (markers.isTwinCATSolution) {
             return { folderPath, solutionPath: markers.solutionPath };
         }
 
@@ -459,19 +464,14 @@ export function activate(context: vscode.ExtensionContext) {
         }
 
         const ext = path.extname(targetPath).toLowerCase();
-        if (!['.sln', '.tsproj', '.plcproj'].includes(ext)) {
+        // The open command is intentionally solution-only; project files are handled by tree discovery.
+        if (ext !== '.sln') {
             return undefined;
         }
 
         const folderPath = path.dirname(targetPath);
         const markers = await findTwinCATProjectMarkers(folderPath);
-        if (ext === '.sln' && !markers.isTwinCATSolution) {
-            return undefined;
-        }
-        if (ext === '.tsproj' && !markers.isTwinCATSolution) {
-            return undefined;
-        }
-        if (ext === '.plcproj' && !markers.isStandalonePlcProject) {
+        if (!markers.isTwinCATSolution) {
             return undefined;
         }
         return {
@@ -517,7 +517,8 @@ export function activate(context: vscode.ExtensionContext) {
         }
 
         if (target instanceof TwinCATFileTreeItem) {
-            if (target.itemType === TwinCATItemType.ReferenceItem && target.parentPath?.toLowerCase().endsWith('.plcproj')) {
+            if ((target.itemType === TwinCATItemType.ReferenceItem || target.itemType === TwinCATItemType.ReferencesRoot) &&
+                target.parentPath?.toLowerCase().endsWith('.plcproj')) {
                 return target.parentPath;
             }
             return resolvePlcProjectTarget(target.resourceUri);
@@ -796,7 +797,7 @@ export function activate(context: vscode.ExtensionContext) {
     };
 
     const showSolutionNotOpenWarning = () => {
-        vscode.window.showWarningMessage('TcView: Open a TwinCAT solution first.');
+        vscode.window.showWarningMessage('TcView: Open a TwinCAT solution (.sln) first.');
     };
 
     const openSolutionCommand = vscode.commands.registerCommand('tcview.openSolution', async () => {
@@ -811,8 +812,8 @@ export function activate(context: vscode.ExtensionContext) {
                 solutionPath
             }));
             picks.push({
-                label: 'Browse for TwinCAT Solution or Project File...',
-                description: 'Open a different TwinCAT root in this window',
+                label: 'Browse for TwinCAT Solution File...',
+                description: 'Open a different TwinCAT solution in this window',
                 solutionPath: ''
             });
 
@@ -835,9 +836,9 @@ export function activate(context: vscode.ExtensionContext) {
                 canSelectFiles: true,
                 canSelectFolders: false,
                 canSelectMany: false,
-                openLabel: 'Open TwinCAT Solution or Project',
+                openLabel: 'Open TwinCAT Solution',
                 filters: {
-                    'TwinCAT Solution or Project': ['sln', 'plcproj', 'tsproj']
+                    'TwinCAT Solutions': ['sln']
                 }
             });
             if (!selection || selection.length === 0) {
@@ -848,14 +849,7 @@ export function activate(context: vscode.ExtensionContext) {
             const targetPath = target.fsPath;
             const resolvedRoot = await resolveOpenableTwinCATRoot(targetPath);
             if (!resolvedRoot) {
-                const ext = path.extname(targetPath).toLowerCase();
-                if (ext === '.sln') {
-                    vscode.window.showWarningMessage('TcView: That solution is not a TwinCAT solution. Select a solution whose folder also contains a .tsproj.');
-                } else if (ext === '.tsproj') {
-                    vscode.window.showWarningMessage('TcView: That .tsproj is not part of a TwinCAT solution root. Select a TwinCAT .sln or .plcproj.');
-                } else {
-                    vscode.window.showWarningMessage('TcView: Select a valid TwinCAT .sln or .plcproj.');
-                }
+                vscode.window.showWarningMessage('TcView: That solution is not a TwinCAT solution. Select a .sln whose folder also contains a .tsproj or .tspproj.');
                 continue;
             }
 
@@ -1591,7 +1585,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
         const tsprojPath = await resolveTsprojForSolution(solutionPath);
         if (!tsprojPath) {
-            vscode.window.showWarningMessage('TcView: No TwinCAT .tsproj was found for the active solution.');
+            vscode.window.showWarningMessage('TcView: No TwinCAT .tsproj or .tspproj was found for the active solution.');
             return;
         }
 
@@ -1599,6 +1593,7 @@ export function activate(context: vscode.ExtensionContext) {
             const result = await backendClient.installLibraryProject({
                 tsprojPath,
                 plcprojPath,
+                solutionPath,
                 outputDirectory: path.join(context.globalStorageUri.fsPath, 'libraries')
             });
             for (const line of result.diagnostics) {
@@ -1624,7 +1619,7 @@ export function activate(context: vscode.ExtensionContext) {
     const addLibraryReferenceCommand = vscode.commands.registerCommand('tcview.addLibraryReference', async (targetArg?: vscode.Uri | TwinCATFileTreeItem) => {
         const plcprojPath = await resolvePlcProjectTarget(targetArg);
         if (!plcprojPath) {
-            vscode.window.showWarningMessage('TcView: Select a PLC project (.plcproj) or PLC project folder.');
+            vscode.window.showWarningMessage('TcView: Select a PLC project References node.');
             return;
         }
 
@@ -1635,7 +1630,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
         const tsprojPath = await resolveTsprojForSolution(solutionPath);
         if (!tsprojPath) {
-            vscode.window.showWarningMessage('TcView: No TwinCAT .tsproj was found for the active solution.');
+            vscode.window.showWarningMessage('TcView: No TwinCAT .tsproj or .tspproj was found for the active solution.');
             return;
         }
 
@@ -1679,6 +1674,7 @@ export function activate(context: vscode.ExtensionContext) {
             const result = await backendClient.addLibraryReference({
                 tsprojPath,
                 plcprojPath,
+                solutionPath,
                 libraryName: libraryName.trim(),
                 version: version?.trim(),
                 vendor: vendor?.trim()
@@ -1722,7 +1718,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
         const tsprojPath = await resolveTsprojForSolution(solutionPath);
         if (!tsprojPath) {
-            vscode.window.showWarningMessage('TcView: No TwinCAT .tsproj was found for the active solution.');
+            vscode.window.showWarningMessage('TcView: No TwinCAT .tsproj or .tspproj was found for the active solution.');
             return;
         }
 
@@ -1741,6 +1737,7 @@ export function activate(context: vscode.ExtensionContext) {
             const result = await backendClient.removeLibraryReference({
                 tsprojPath,
                 plcprojPath,
+                solutionPath,
                 referenceName: identity.name,
                 version: identity.version,
                 vendor: identity.vendor,
@@ -2137,7 +2134,7 @@ export function activate(context: vscode.ExtensionContext) {
     });
 
     const solutionWatcher = vscode.workspace.createFileSystemWatcher('**/*.sln');
-    const tmcWatcher = vscode.workspace.createFileSystemWatcher('**/*.{tmc,plcproj,tsproj,sln}');
+    const tmcWatcher = vscode.workspace.createFileSystemWatcher('**/*.{tmc,plcproj,tsproj,tspproj,sln}');
     const solutionContextRefresh = () => {
         void refreshActiveSolutionContext();
     };
