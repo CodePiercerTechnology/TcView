@@ -56,14 +56,18 @@ TcView should not drift into:
   - remove library reference
 - backend support is opt-in and currently requires a locally built backend executable
 
+### Performance Baseline
+
+- `.plcproj`/`.tsproj`/`.tspproj` project metadata parsing now uses mtime-based caching in core analyzer/tree paths
+- workspace solution and marker discovery now uses lightweight caching plus watcher-driven invalidation to reduce repeated scans
+
 ## Next Priorities
 
 ### Performance
 
-1. Cache parsed `.tsproj` and `.plcproj` content by `mtime`
-2. Reduce repeated workspace/root scans
-3. Narrow analyzer/tree invalidation further on file change
-4. Add regression checks for larger TwinCAT workspaces
+1. Narrow analyzer/tree invalidation further on file change
+2. Add regression checks for larger TwinCAT workspaces
+3. Extend metadata caching and invalidation across any remaining high-frequency project reads
 
 ### Library Metadata
 
@@ -100,6 +104,22 @@ TcView should not drift into:
    - framework-dependent backend
    - or no backend in the VSIX
 2. Document that release choice explicitly before publishing beyond local/manual installs
+
+## Production Alpha Readiness Gate
+
+### Required for Alpha
+
+1. Establish a Windows CI pipeline that runs compile, regression tests, integration smoke tests, and VSIX packaging validation on every PR
+2. Add an alpha release checklist with explicit pass/fail criteria for build, install, open/edit/save, library operations, and solution build flows
+3. Validate optional backend behavior across supported machine states (backend present, backend missing, backend launch/runtime failure) with clear user-facing error guidance
+4. Add a tester-facing troubleshooting guide that covers required toolchain versions (VS Code, TwinCAT/XAE, .NET runtime/MSBuild) and expected workspace layouts
+5. Add issue templates for alpha testers that capture environment/version metadata and minimal reproduction artifacts
+6. Define an initial support matrix (TwinCAT build range, VS Code versions, workspace shape: solution vs standalone PLC project)
+
+### Before Public Preview
+
+1. Decide and document telemetry/error-reporting policy for alpha builds, including privacy notes and opt-in/opt-out behavior
+2. Add signed/reproducible release packaging and a documented rollback process
 
 ## Later Work
 

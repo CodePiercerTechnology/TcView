@@ -175,6 +175,7 @@ export class TwinCATFileExplorerProvider
     readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
     private parsedPOUCache = new Map<string, any>();
+    private projectMetadataXmlCache = new Map<string, { mtimeMs: number; xml: any }>();
     private folderChildrenCache = new Map<string, TwinCATFileTreeItem[]>();
     private plcReferencesCache = new Map<string, TwinCATFileTreeItem[]>();
     private topLevelGroupsCache: { system: TwinCATFileTreeItem[]; plc: TwinCATFileTreeItem[]; io: TwinCATFileTreeItem[] } | undefined;
@@ -199,6 +200,8 @@ export class TwinCATFileExplorerProvider
         }
 
         this.workspaceRoot = workspaceRoot;
+        this.parsedPOUCache.clear();
+        this.projectMetadataXmlCache.clear();
         this.discoveryStarted = false;
         this.setDiscoveryState('booting');
         this.fileWatcher?.dispose();
@@ -387,6 +390,47 @@ export class TwinCATFileExplorerProvider
         return name.startsWith('.') || name.startsWith('_');
     }
 
+    private getMetadataCacheKey(filePath: string) {
+        return path.normalize(filePath).toLowerCase();
+    }
+
+    private async getProjectMetadataXml(filePath: string): Promise<any | undefined> {
+        const key = this.getMetadataCacheKey(filePath);
+        try {
+            const stat = await fs.promises.stat(filePath);
+            const cached = this.projectMetadataXmlCache.get(key);
+            if (cached && cached.mtimeMs === stat.mtimeMs) {
+                return cached.xml;
+            }
+
+            const content = await fs.promises.readFile(filePath, 'utf8');
+            const parser = new xml2js.Parser({
+                explicitArray: true,
+                mergeAttrs: true
+            });
+            const xml = await parser.parseStringPromise(content);
+            this.projectMetadataXmlCache.set(key, { mtimeMs: stat.mtimeMs, xml });
+            return xml;
+        } catch {
+            this.projectMetadataXmlCache.delete(key);
+            return undefined;
+        }
+    }
+
+    private invalidateMetadataCaches(filePath: string) {
+        const ext = path.extname(filePath).toLowerCase();
+        if (ext === '.plcproj') {
+            this.plcReferencesCache.delete(this.getMetadataCacheKey(filePath));
+        }
+
+        if (ext === '.plcproj' || ext === '.tsproj' || ext === '.tspproj') {
+            this.projectMetadataXmlCache.delete(this.getMetadataCacheKey(filePath));
+            if (ext === '.tsproj' || ext === '.tspproj') {
+                this.tsprojStructure = undefined;
+            }
+        }
+    }
+
     private setDiscoveryState(state: 'booting' | 'loading' | 'ready' | 'empty') {
         this.discoveryState = state;
         this.onDiscoveryStateChanged?.({
@@ -489,12 +533,14 @@ export class TwinCATFileExplorerProvider
 
     private async parseTsprojStructure(tsprojPath: string): Promise<{ plcFolderPaths: Set<string>; hasSystem: boolean; ioFolderPaths: Set<string> }> {
         try {
-            const content = await fs.promises.readFile(tsprojPath, 'utf8');
-            const parser = new xml2js.Parser({
-                explicitArray: true,
-                mergeAttrs: true
-            });
-            const xml = await parser.parseStringPromise(content);
+            const xml = await this.getProjectMetadataXml(tsprojPath);
+            if (!xml) {
+                return {
+                    plcFolderPaths: new Set<string>(),
+                    hasSystem: false,
+                    ioFolderPaths: new Set<string>()
+                };
+            }
             const projectRoot = xml.TcSmProject?.Project?.[0];
             const plcProjects = toArray(projectRoot?.Plc?.[0]?.Project);
             const plcFolderPaths = new Set<string>();
@@ -568,6 +614,10 @@ export class TwinCATFileExplorerProvider
     private async buildTopLevelGroups() {
         if (!this.contentRoot) {
             return { system: [], plc: [], io: [] };
+        }
+
+        if (!this.tsprojStructure && this.rootIdentifiers?.tsprojPath) {
+            this.tsprojStructure = await this.parseTsprojStructure(this.rootIdentifiers.tsprojPath);
         }
 
         const entries = await fs.promises.readdir(this.contentRoot, {
@@ -698,18 +748,17 @@ export class TwinCATFileExplorerProvider
     }
 
     private async getPlcReferencesItems(plcprojPath: string): Promise<TwinCATFileTreeItem[]> {
-        const cached = this.plcReferencesCache.get(plcprojPath);
+        const cacheKey = this.getMetadataCacheKey(plcprojPath);
+        const cached = this.plcReferencesCache.get(cacheKey);
         if (cached) {
             return cached;
         }
 
         try {
-            const content = await fs.promises.readFile(plcprojPath, 'utf8');
-            const parser = new xml2js.Parser({
-                explicitArray: true,
-                mergeAttrs: true
-            });
-            const xml = await parser.parseStringPromise(content);
+            const xml = await this.getProjectMetadataXml(plcprojPath);
+            if (!xml) {
+                return [];
+            }
             const project = xml.Project;
             const itemGroups = toArray(project?.ItemGroup);
             const placeholderRefs = itemGroups.flatMap(group => toArray(group.PlaceholderReference));
@@ -765,7 +814,7 @@ export class TwinCATFileExplorerProvider
                 }
                 const sorted = [...deduped.values()]
                     .sort((a, b) => (a.label?.toString() || '').localeCompare(b.label?.toString() || ''));
-                this.plcReferencesCache.set(plcprojPath, sorted);
+                this.plcReferencesCache.set(cacheKey, sorted);
                 return sorted;
             } catch {
                 // Fall back to placeholder references only if analyzer init fails.
@@ -773,7 +822,7 @@ export class TwinCATFileExplorerProvider
 
             const sorted = items
                 .sort((a, b) => (a.label?.toString() || '').localeCompare(b.label?.toString() || ''));
-            this.plcReferencesCache.set(plcprojPath, sorted);
+            this.plcReferencesCache.set(cacheKey, sorted);
             return sorted;
         } catch {
             return [];
@@ -999,11 +1048,19 @@ export class TwinCATFileExplorerProvider
 
         this.fileWatcher.onDidChange(uri => {
             this.parsedPOUCache.delete(uri.fsPath);
+            this.invalidateMetadataCaches(uri.fsPath);
             this.scheduleRefresh();
         });
 
-        this.fileWatcher.onDidCreate(() => this.scheduleRefresh());
-        this.fileWatcher.onDidDelete(() => this.scheduleRefresh());
+        this.fileWatcher.onDidCreate(uri => {
+            this.invalidateMetadataCaches(uri.fsPath);
+            this.scheduleRefresh();
+        });
+        this.fileWatcher.onDidDelete(uri => {
+            this.parsedPOUCache.delete(uri.fsPath);
+            this.invalidateMetadataCaches(uri.fsPath);
+            this.scheduleRefresh();
+        });
     }
 
     dispose() {
@@ -1013,6 +1070,7 @@ export class TwinCATFileExplorerProvider
         }
         this.fileWatcher?.dispose();
         this.parsedPOUCache.clear();
+        this.projectMetadataXmlCache.clear();
     }
 }
 

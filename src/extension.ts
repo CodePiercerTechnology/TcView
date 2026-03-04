@@ -204,6 +204,30 @@ export function activate(context: vscode.ExtensionContext) {
     const buildDiagnostics = vscode.languages.createDiagnosticCollection('tcview-build');
     const projectDiagnostics = vscode.languages.createDiagnosticCollection('tcview-project');
     const activeSolutionStateKey = 'tcview.activeSolutionPath';
+    type TwinCATProjectMarkers = {
+        solutionPath: string | undefined;
+        tsprojPath: string | undefined;
+        plcprojPath: string | undefined;
+        isTwinCATSolution: boolean;
+        isStandalonePlcProject: boolean;
+        hasTwinCATFiles: boolean;
+    };
+    const workspaceSolutionsCacheTtlMs = 1000;
+    let workspaceSolutionsCache: { expiresAt: number; solutions: vscode.Uri[] } | undefined;
+    const markerCache = new Map<string, { mtimeMs: number; markers: TwinCATProjectMarkers }>();
+    const emptyProjectMarkers = (): TwinCATProjectMarkers => ({
+        solutionPath: undefined,
+        tsprojPath: undefined,
+        plcprojPath: undefined,
+        isTwinCATSolution: false,
+        isStandalonePlcProject: false,
+        hasTwinCATFiles: false
+    });
+    const getFolderCacheKey = (folderPath: string) => path.normalize(folderPath).toLowerCase();
+    const invalidateWorkspaceDiscoveryCaches = () => {
+        workspaceSolutionsCache = undefined;
+        markerCache.clear();
+    };
 
     const isDirectory = async (candidate: vscode.Uri) => {
         try {
@@ -228,6 +252,11 @@ export function activate(context: vscode.ExtensionContext) {
     };
 
     const findWorkspaceSolutions = async () => {
+        const now = Date.now();
+        if (workspaceSolutionsCache && workspaceSolutionsCache.expiresAt > now) {
+            return [...workspaceSolutionsCache.solutions];
+        }
+
         const candidates = await vscode.workspace.findFiles('**/*.sln', '**/{node_modules,.git,_*}/**', 50);
         const validSolutions: vscode.Uri[] = [];
         for (const candidate of candidates) {
@@ -236,6 +265,10 @@ export function activate(context: vscode.ExtensionContext) {
                 validSolutions.push(candidate);
             }
         }
+        workspaceSolutionsCache = {
+            expiresAt: now + workspaceSolutionsCacheTtlMs,
+            solutions: [...validSolutions]
+        };
         return validSolutions;
     };
 
@@ -393,7 +426,14 @@ export function activate(context: vscode.ExtensionContext) {
     };
 
     const findTwinCATProjectMarkers = async (folderPath: string) => {
+        const cacheKey = getFolderCacheKey(folderPath);
         try {
+            const folderStat = await fs.promises.stat(folderPath);
+            const cached = markerCache.get(cacheKey);
+            if (cached && cached.mtimeMs === folderStat.mtimeMs) {
+                return cached.markers;
+            }
+
             const entries = await fs.promises.readdir(folderPath, { withFileTypes: true });
             const files = entries.filter(entry => entry.isFile()).map(entry => entry.name);
             const solution = files.find(name => name.toLowerCase().endsWith('.sln'));
@@ -403,7 +443,7 @@ export function activate(context: vscode.ExtensionContext) {
             const plcproj = files.find(name => name.toLowerCase().endsWith('.plcproj'));
             const isTwinCATSolution = !!(solution && tsproj);
             const isStandalonePlcProject = !!plcproj;
-            return {
+            const markers = {
                 solutionPath: isTwinCATSolution && solution ? path.join(folderPath, solution) : undefined,
                 tsprojPath: tsproj ? path.join(folderPath, tsproj) : undefined,
                 plcprojPath: plcproj ? path.join(folderPath, plcproj) : undefined,
@@ -411,15 +451,11 @@ export function activate(context: vscode.ExtensionContext) {
                 isStandalonePlcProject,
                 hasTwinCATFiles: isTwinCATSolution || isStandalonePlcProject
             };
+            markerCache.set(cacheKey, { mtimeMs: folderStat.mtimeMs, markers });
+            return markers;
         } catch {
-            return {
-                solutionPath: undefined,
-                tsprojPath: undefined,
-                plcprojPath: undefined,
-                isTwinCATSolution: false,
-                isStandalonePlcProject: false,
-                hasTwinCATFiles: false
-            };
+            markerCache.delete(cacheKey);
+            return emptyProjectMarkers();
         }
     };
 
@@ -1624,14 +1660,9 @@ export function activate(context: vscode.ExtensionContext) {
         }
 
         const solutionPath = await resolveSolutionTarget(vscode.Uri.file(plcprojPath));
-        if (!solutionPath) {
-            showSolutionNotOpenWarning();
-            return;
-        }
-        const tsprojPath = await resolveTsprojForSolution(solutionPath);
+        const tsprojPath = solutionPath ? await resolveTsprojForSolution(solutionPath) : undefined;
         if (!tsprojPath) {
-            vscode.window.showWarningMessage('TcView: No TwinCAT .tsproj or .tspproj was found for the active solution.');
-            return;
+            libraryOutput.appendLine('[TcView Libraries] Add reference: .tsproj fallback is unavailable; using .plcproj primary path only.');
         }
 
         const picks = await collectKnownLibraryCandidates();
@@ -1712,14 +1743,9 @@ export function activate(context: vscode.ExtensionContext) {
         }
 
         const solutionPath = await resolveSolutionTarget(vscode.Uri.file(plcprojPath));
-        if (!solutionPath) {
-            showSolutionNotOpenWarning();
-            return;
-        }
-        const tsprojPath = await resolveTsprojForSolution(solutionPath);
+        const tsprojPath = solutionPath ? await resolveTsprojForSolution(solutionPath) : undefined;
         if (!tsprojPath) {
-            vscode.window.showWarningMessage('TcView: No TwinCAT .tsproj or .tspproj was found for the active solution.');
-            return;
+            libraryOutput.appendLine('[TcView Libraries] Remove reference: .tsproj fallback is unavailable; using .plcproj primary path only.');
         }
 
         const displayName = typeof targetArg.tooltip === 'string' ? targetArg.tooltip : undefined;
@@ -2136,9 +2162,11 @@ export function activate(context: vscode.ExtensionContext) {
     const solutionWatcher = vscode.workspace.createFileSystemWatcher('**/*.sln');
     const tmcWatcher = vscode.workspace.createFileSystemWatcher('**/*.{tmc,plcproj,tsproj,tspproj,sln}');
     const solutionContextRefresh = () => {
+        invalidateWorkspaceDiscoveryCaches();
         void refreshActiveSolutionContext();
     };
     const projectDiagnosticsRefresh = () => {
+        invalidateWorkspaceDiscoveryCaches();
         void updateProjectDiagnostics();
     };
     solutionWatcher.onDidCreate(solutionContextRefresh);
@@ -2148,6 +2176,7 @@ export function activate(context: vscode.ExtensionContext) {
     tmcWatcher.onDidDelete(projectDiagnosticsRefresh);
     tmcWatcher.onDidChange(projectDiagnosticsRefresh);
     const workspaceFolderChangeListener = vscode.workspace.onDidChangeWorkspaceFolders(() => {
+        invalidateWorkspaceDiscoveryCaches();
         fileExplorerProvider.setWorkspaceRoot(vscode.workspace.workspaceFolders ? vscode.workspace.workspaceFolders[0].uri.fsPath : undefined);
         void refreshActiveSolutionContext();
         void updateProjectDiagnostics();

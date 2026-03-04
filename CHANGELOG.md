@@ -6,6 +6,15 @@ The format is based on Keep a Changelog and this project uses Semantic Versionin
 
 ## [Unreleased]
 
+### Added
+- Added a production-alpha readiness gate to the roadmap with required CI, validation, support-matrix, and release-process items
+
+### Changed
+- Added mtime-based caching for `.plcproj`/`.tsproj`/`.tspproj` metadata reads in the project analyzer
+- Added mtime-based XML parse caching for `.plcproj`/`.tsproj` in the TcView tree provider
+- Reduced repeated workspace solution/marker scans in extension activation flows via lightweight caching with watcher-driven invalidation
+- Improved tree metadata invalidation so `.plcproj`/`.tsproj` changes clear related caches and refresh grouping/reference views
+
 ## [0.0.5] - 2026-03-03
 
 ### Fixed

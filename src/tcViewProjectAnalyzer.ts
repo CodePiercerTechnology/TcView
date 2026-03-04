@@ -142,6 +142,7 @@ export class TwinCATProjectAnalyzer {
     private libraryContextModes = new Map<string, TwinCATLibraryRef['mode']>();
     private implicitSystemLibraries = new Set<string>();
     private projectBuildNumber = 0;
+    private projectMetadataTextCache = new Map<string, { mtimeMs: number; text: string }>();
     private tmcParseCache = new Map<string, { mtimeMs: number; symbols: TwinCATSymbol[]; dataTypes: TwinCATDataType[] }>();
     private managedLibraryIndex: Map<string, ManagedLibraryMetadata[]> | undefined;
     private managedLibraryIndexPromise: Promise<Map<string, ManagedLibraryMetadata[]>> | undefined;
@@ -272,6 +273,7 @@ export class TwinCATProjectAnalyzer {
         }
 
         if (this.isLibraryMetadataFile(filePath)) {
+            this.invalidateProjectMetadataTextCache(filePath);
             if (path.extname(filePath).toLowerCase() === '.tmc') {
                 this.tmcParseCache.delete(filePath);
             }
@@ -750,6 +752,35 @@ export class TwinCATProjectAnalyzer {
             || lowerName === 'tcview.libraries.json';
     }
 
+    private getMetadataCacheKey(filePath: string): string {
+        return path.normalize(filePath).toLowerCase();
+    }
+
+    private invalidateProjectMetadataTextCache(filePath: string): void {
+        const ext = path.extname(filePath).toLowerCase();
+        if (ext === '.plcproj' || ext === '.tsproj' || ext === '.tspproj') {
+            this.projectMetadataTextCache.delete(this.getMetadataCacheKey(filePath));
+        }
+    }
+
+    private async readProjectMetadataText(filePath: string): Promise<string | undefined> {
+        const key = this.getMetadataCacheKey(filePath);
+        try {
+            const stat = await fs.promises.stat(filePath);
+            const cached = this.projectMetadataTextCache.get(key);
+            if (cached && cached.mtimeMs === stat.mtimeMs) {
+                return cached.text;
+            }
+
+            const text = await fs.promises.readFile(filePath, 'utf8');
+            this.projectMetadataTextCache.set(key, { mtimeMs: stat.mtimeMs, text });
+            return text;
+        } catch {
+            this.projectMetadataTextCache.delete(key);
+            return undefined;
+        }
+    }
+
     private async refreshLibraryMetadata(): Promise<void> {
         for (const key of this.libraryPlaceholderSymbolKeys) {
             const existing = this.symbols.get(key);
@@ -859,7 +890,10 @@ export class TwinCATProjectAnalyzer {
 
     private async readProgramBuildFromPlcProj(plcProjPath: string): Promise<number> {
         try {
-            const text = await fs.promises.readFile(plcProjPath, 'utf8');
+            const text = await this.readProjectMetadataText(plcProjPath);
+            if (!text) {
+                return 0;
+            }
             const versionText = text.match(/<ProgramVersion>\s*([^<]+)\s*<\/ProgramVersion>/i)?.[1]?.trim();
             if (!versionText) {
                 return 0;
@@ -1348,7 +1382,10 @@ export class TwinCATProjectAnalyzer {
         catalog: Map<string, LibraryCatalogEntry[]>
     ): Promise<TwinCATLibraryRef[]> {
         try {
-            const text = await fs.promises.readFile(plcProjPath, 'utf8');
+            const text = await this.readProjectMetadataText(plcProjPath);
+            if (!text) {
+                return [];
+            }
             const refs: TwinCATLibraryRef[] = [];
             const blockRegex = /<PlaceholderReference\b[^>]*\bInclude\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/PlaceholderReference>/gi;
             let match: RegExpExecArray | null;
@@ -1920,6 +1957,7 @@ export class TwinCATProjectAnalyzer {
         this.initializePromise = undefined;
         this.libraryPlaceholderSymbolKeys.clear();
         this.tmcParseCache.clear();
+        this.projectMetadataTextCache.clear();
         this.managedLibraryIndex = undefined;
         this.managedLibraryIndexPromise = undefined;
         this.indexRefreshedEmitter.dispose();
