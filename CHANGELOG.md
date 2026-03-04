@@ -11,6 +11,7 @@ The format is based on Keep a Changelog and this project uses Semantic Versionin
 - Added a Windows GitHub Actions CI workflow that runs compile, regression tests, integration smoke tests, and VSIX packaging validation on pull requests and pushes to `main`
 - Added a synthetic large-workspace regression test with golden digest validation and configurable runtime threshold
 - Added integration smoke coverage for a synthetic large-workspace tree refresh/open path
+- Added optional JSON performance reporting for the large-workspace regression workload and CI artifact upload for baseline tracking
 
 ### Changed
 - Added mtime-based caching for `.plcproj`/`.tsproj`/`.tspproj` metadata reads in the project analyzer

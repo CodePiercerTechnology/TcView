@@ -63,6 +63,27 @@ function compareOrUpdateGolden(actual: LargeWorkspaceGolden, updateGoldens: bool
     );
 }
 
+function writeOptionalPerfReport(report: {
+    elapsedMs: number;
+    totalConversions: number;
+    fragmentChecks: number;
+    totalOutputBytes: number;
+    fragmentBytes: number;
+    digest: string;
+    fragmentDigest: string;
+}): void {
+    const reportPath = process.env.TCVIEW_PERF_REPORT_FILE;
+    if (!reportPath) {
+        return;
+    }
+
+    const resolvedPath = path.isAbsolute(reportPath)
+        ? reportPath
+        : path.resolve(process.cwd(), reportPath);
+    ensureParentDir(resolvedPath);
+    fs.writeFileSync(resolvedPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+}
+
 export async function runLargeWorkspaceRegressionTest(options?: { updateGoldens?: boolean }): Promise<void> {
     const updateGoldens = options?.updateGoldens ?? false;
     const converter = new TwinCATXmlConverter();
@@ -131,14 +152,26 @@ export async function runLargeWorkspaceRegressionTest(options?: { updateGoldens?
         'Set TCVIEW_LARGE_WORKSPACE_MAX_MS to adjust this threshold for constrained environments.'
     );
 
+    const digest = outputHash.digest('hex');
+    const fragmentDigest = fragmentHash.digest('hex');
+
     compareOrUpdateGolden({
         version: 1,
         workload,
-        digest: outputHash.digest('hex'),
+        digest,
         totalOutputBytes,
-        fragmentDigest: fragmentHash.digest('hex'),
+        fragmentDigest,
         fragmentBytes
     }, updateGoldens);
+    writeOptionalPerfReport({
+        elapsedMs,
+        totalConversions,
+        fragmentChecks: workload.fragmentChecks,
+        totalOutputBytes,
+        fragmentBytes,
+        digest,
+        fragmentDigest
+    });
 
     process.stdout.write(
         `[REGRESSION] Large workspace synthetic workload (${totalConversions} conversions, ${workload.fragmentChecks} fragments) completed in ${elapsedMs} ms\n`

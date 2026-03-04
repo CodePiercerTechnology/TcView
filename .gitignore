@@ -22,6 +22,7 @@ pnpm-debug.log*
 # Coverage
 coverage/
 .nyc_output/
+.test-results/
 
 # OS / editor artifacts
 .DS_Store

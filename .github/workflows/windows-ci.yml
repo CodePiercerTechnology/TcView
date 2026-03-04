@@ -34,6 +34,8 @@ jobs:
         run: npm run compile
 
       - name: Regression tests
+        env:
+          TCVIEW_PERF_REPORT_FILE: .test-results/perf/large-workspace.json
         run: npm run test:regression
 
       - name: Integration smoke tests
@@ -47,3 +49,10 @@ jobs:
         with:
           name: tcview-ci-vsix
           path: tcview-ci.vsix
+
+      - name: Upload performance artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tcview-performance
+          path: .test-results/perf/large-workspace.json
+          if-no-files-found: warn

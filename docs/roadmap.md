@@ -65,6 +65,7 @@ TcView should not drift into:
 - regression suite now includes a synthetic large-workspace conversion/fragment workload with a golden digest and configurable runtime threshold
 - tree provider directory entry scans now use mtime-based caching for high-frequency folder/plc-project discovery paths
 - integration smoke tests now include a synthetic large-workspace refresh/open path for extension-host coverage
+- CI now publishes large-workspace regression performance output as an artifact to support trend tracking
 
 ## Next Priorities
 
@@ -72,7 +73,7 @@ TcView should not drift into:
 
 1. Add telemetry-backed performance baselines for open, reindex, and large-solution refresh paths
 2. Add targeted profiler traces for slow real-world workspaces to identify any remaining hot paths
-3. Add CI trend reporting for key performance checks to flag regressions earlier
+3. Add pass/fail guardrails for CI performance metrics once baseline history is established
 
 ### Library Metadata
 

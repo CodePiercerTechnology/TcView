@@ -24,6 +24,11 @@ Regression golden baselines live under:
 
 - `src/tests/regression/golden`
 
+Optional: export a machine-readable performance snapshot from the large-workspace regression check:
+
+- `set TCVIEW_PERF_REPORT_FILE=.test-results/perf/large-workspace.json`
+- `npm run test:regression`
+
 ## Extension Development Host
 
 Typical workflow:
