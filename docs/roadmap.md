@@ -64,14 +64,15 @@ TcView should not drift into:
 - tree watcher refresh now distinguishes content-only changes from structural changes to reduce full cache invalidation churn
 - regression suite now includes a synthetic large-workspace conversion/fragment workload with a golden digest and configurable runtime threshold
 - tree provider directory entry scans now use mtime-based caching for high-frequency folder/plc-project discovery paths
+- integration smoke tests now include a synthetic large-workspace refresh/open path for extension-host coverage
 
 ## Next Priorities
 
 ### Performance
 
 1. Add telemetry-backed performance baselines for open, reindex, and large-solution refresh paths
-2. Add extension-host integration coverage that exercises large workspace discovery/tree refresh behavior
-3. Add targeted profiler traces for slow real-world workspaces to identify any remaining hot paths
+2. Add targeted profiler traces for slow real-world workspaces to identify any remaining hot paths
+3. Add CI trend reporting for key performance checks to flag regressions earlier
 
 ### Library Metadata
 
