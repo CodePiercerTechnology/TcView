@@ -441,7 +441,7 @@
     "test:functionality": "npm run compile && node out/tests/run-tests.js --suite functionality",
     "test:regression": "npm run compile && node out/tests/run-tests.js --suite regression",
     "test:regression:update": "npm run compile && node out/tests/run-tests.js --suite regression --update",
-    "test:integration": "npm run compile && node scripts/run-integration-tests.js",
+    "test:integration": "npm run compile && vscode-test",
     "test:all": "npm run test && npm run test:integration",
     "test:ci": "npm run test:all"
   },
@@ -449,8 +449,9 @@
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.80.0",
     "@types/xml2js": "^0.4.14",
-    "typescript": "^4.9.4",
-    "vscode-test": "^1.0.0"
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
+    "typescript": "^4.9.4"
   },
   "dependencies": {
     "xml2js": "^0.6.2"

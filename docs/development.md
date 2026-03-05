@@ -13,7 +13,7 @@
 
 If integration runtime download fails with TLS trust errors in a locked-down network, run:
 
-- `set TCVIEW_NODE_EXTRA_CA_CERTS=C:\certs\zscaler.pem`
+- configure your system/Node trust chain so `NODE_EXTRA_CA_CERTS` or OS trust includes your organization CA
 - `npm run test:integration`
 
 or as a fallback:
