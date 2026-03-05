@@ -21,6 +21,7 @@ TcView should not drift into:
 - save-back to XML is in place
 - fragment editing works for methods, properties, actions, and transitions
 - TwinCAT-aware tree view groups content into `SYSTEM`, `PLC`, and `I/O`
+- tree explorer now uses clearer TwinCAT artifact icon differentiation and folder-first ordering in filesystem groups
 - valid TwinCAT root detection is enforced
 - `References` tree nodes open an API-style library viewer
 
@@ -103,8 +104,7 @@ TcView should not drift into:
 
 #### Later Polish
 
-1. Add clearer tree-item icon differentiation for folders, interfaces, DUTs, POUs, methods, properties, actions, and other TwinCAT artifact types
-2. Continue aligning naming, grouping, and interaction polish with familiar XAE-style project browsing without widening scope
+1. Continue refining naming/grouping/icon polish using alpha-workspace feedback while keeping scope narrow
 
 ### Packaging and Release
 

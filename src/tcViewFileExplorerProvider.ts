@@ -76,6 +76,124 @@ const collapsibleState = (hasChildren: boolean) =>
         ? vscode.TreeItemCollapsibleState.Collapsed
         : vscode.TreeItemCollapsibleState.None;
 
+type TwinCATFileKind = 'pou' | 'program' | 'gvl' | 'dut' | 'interface' | 'io' | 'var' | 'gds' | 'other';
+
+const getTwinCATFileKind = (filePath: string): TwinCATFileKind => {
+    const ext = path.extname(filePath).toLowerCase();
+    switch (ext) {
+        case '.tcpou':
+        case '.tcapp':
+        case '.tccom':
+            return 'pou';
+        case '.tcprg':
+            return 'program';
+        case '.tcgvl':
+            return 'gvl';
+        case '.tcdut':
+            return 'dut';
+        case '.tcitf':
+            return 'interface';
+        case '.tcio':
+            return 'io';
+        case '.tcvar':
+            return 'var';
+        case '.tcgds':
+            return 'gds';
+        default:
+            return 'other';
+    }
+};
+
+const getTwinCATFileKindLabel = (filePath: string): string | undefined => {
+    const kind = getTwinCATFileKind(filePath);
+    switch (kind) {
+        case 'pou':
+            return 'POU';
+        case 'program':
+            return 'PROGRAM';
+        case 'gvl':
+            return 'GVL';
+        case 'dut':
+            return 'DUT';
+        case 'interface':
+            return 'INTERFACE';
+        case 'io':
+            return 'I/O';
+        case 'var':
+            return 'VAR';
+        case 'gds':
+            return 'GDS';
+        default:
+            return undefined;
+    }
+};
+
+const getTwinCATFileKindIcon = (filePath: string): vscode.ThemeIcon => {
+    const kind = getTwinCATFileKind(filePath);
+    switch (kind) {
+        case 'pou':
+            return new vscode.ThemeIcon('symbol-class');
+        case 'program':
+            return new vscode.ThemeIcon('symbol-method');
+        case 'gvl':
+            return new vscode.ThemeIcon('symbol-variable-group');
+        case 'dut':
+            return new vscode.ThemeIcon('symbol-structure');
+        case 'interface':
+            return new vscode.ThemeIcon('symbol-interface');
+        case 'io':
+            return new vscode.ThemeIcon('plug');
+        case 'var':
+            return new vscode.ThemeIcon('symbol-field');
+        case 'gds':
+            return new vscode.ThemeIcon('symbol-array');
+        default:
+            return new vscode.ThemeIcon('file-code');
+    }
+};
+
+const getExplorerSortWeight = (item: TwinCATFileTreeItem): number => {
+    if (item.itemType === TwinCATItemType.PlcProjectFolder) {
+        return 0;
+    }
+    if (item.itemType === TwinCATItemType.Folder) {
+        return 1;
+    }
+    if (item.itemType !== TwinCATItemType.File) {
+        return 9;
+    }
+
+    const kind = getTwinCATFileKind(item.resourceUri.fsPath);
+    switch (kind) {
+        case 'gvl':
+            return 2;
+        case 'dut':
+            return 3;
+        case 'interface':
+            return 4;
+        case 'program':
+            return 5;
+        case 'pou':
+            return 6;
+        case 'io':
+            return 7;
+        case 'var':
+        case 'gds':
+        case 'other':
+        default:
+            return 8;
+    }
+};
+
+const sortExplorerItems = (items: TwinCATFileTreeItem[]) =>
+    items.sort((a, b) => {
+        const byWeight = getExplorerSortWeight(a) - getExplorerSortWeight(b);
+        if (byWeight !== 0) {
+            return byWeight;
+        }
+        return (a.label?.toString() || '').localeCompare(b.label?.toString() || '');
+    });
+
 // -----------------------------------------------------
 // Tree Item
 // -----------------------------------------------------
@@ -136,6 +254,11 @@ export class TwinCATFileTreeItem extends vscode.TreeItem {
     }
 
     private setIcon() {
+        if (this.itemType === TwinCATItemType.File) {
+            this.iconPath = getTwinCATFileKindIcon(this.resourceUri.fsPath);
+            return;
+        }
+
         const iconMap: Record<TwinCATItemType, string | vscode.ThemeIcon> = {
             statusInfo: new vscode.ThemeIcon('search'),
             statusWarning: new vscode.ThemeIcon('warning'),
@@ -145,9 +268,9 @@ export class TwinCATFileTreeItem extends vscode.TreeItem {
             referencesRoot: new vscode.ThemeIcon('references'),
             referenceItem: new vscode.ThemeIcon('library'),
             folder: vscode.ThemeIcon.Folder,
-            plcProjectFolder: vscode.ThemeIcon.Folder,
-            pouFolder: vscode.ThemeIcon.Folder,
-            file: 'symbol-class',
+            plcProjectFolder: new vscode.ThemeIcon('project'),
+            pouFolder: new vscode.ThemeIcon('folder-library'),
+            file: 'file-code',
             method: 'symbol-method',
             property: 'symbol-property',
             propertyGet: 'arrow-circle-down',
@@ -637,22 +760,28 @@ export class TwinCATFileExplorerProvider
 
         if (entry.isDirectory()) {
             const hasPlcProject = await this.directoryContainsPlcProj(fullPath);
-            return new TwinCATFileTreeItem(
+            const item = new TwinCATFileTreeItem(
                 vscode.Uri.file(fullPath),
                 vscode.TreeItemCollapsibleState.Collapsed,
                 hasPlcProject ? TwinCATItemType.PlcProjectFolder : TwinCATItemType.Folder
             );
+            if (hasPlcProject) {
+                item.description = 'PLC project';
+            }
+            return item;
         }
 
         if (entry.isFile() && this.isTwinCATFile(entry.name)) {
             const uri = vscode.Uri.file(fullPath);
             const hasChildren = this.isExpandablePOUFile(fullPath);
 
-            return new TwinCATFileTreeItem(
+            const item = new TwinCATFileTreeItem(
                 uri,
                 collapsibleState(hasChildren),
                 TwinCATItemType.File
             );
+            item.description = getTwinCATFileKindLabel(fullPath);
+            return item;
         }
 
         return undefined;
@@ -718,9 +847,9 @@ export class TwinCATFileExplorerProvider
             }
 
             return {
-                system: sortItems(systemEntries),
-                plc: sortItems(plcEntries),
-                io: sortItems(ioEntries)
+                system: sortExplorerItems(systemEntries),
+                plc: sortExplorerItems(plcEntries),
+                io: sortExplorerItems(ioEntries)
             };
         });
     }
@@ -753,6 +882,7 @@ export class TwinCATFileExplorerProvider
             'References'
         );
         referencesRoot.tooltip = `${path.basename(folderPath)} references`;
+        referencesRoot.description = `${referencesItems.length}`;
         return [referencesRoot, ...folderItems];
     }
 
@@ -772,7 +902,7 @@ export class TwinCATFileExplorerProvider
 
             const items = itemResults.filter((item): item is TwinCATFileTreeItem => !!item);
 
-            const sorted = sortItems(items);
+            const sorted = sortExplorerItems(items);
             this.folderChildrenCache.set(folderPath, sorted);
             return sorted;
         });

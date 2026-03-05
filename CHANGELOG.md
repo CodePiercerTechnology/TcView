@@ -26,6 +26,7 @@ The format is based on Keep a Changelog and this project uses Semantic Versionin
 - Reduced repeated tree provider directory scans by adding mtime-based directory-entry caching and explicit create/delete invalidation
 - Added stable runtime perf metric families (`open.*`, `reindex.*`, `tree.*`, `save.*`) and baseline rollups for open/reindex/tree refresh analysis
 - Added configurable slow-trace capture (`twincat.performanceTraceThresholdMs`) for targeted profiling of real-world workspace hot paths
+- Improved tree-view visual polish with clearer TwinCAT artifact icon differentiation, folder-first ordering, and concise file-kind labels
 
 ## [0.0.5] - 2026-03-03
 
