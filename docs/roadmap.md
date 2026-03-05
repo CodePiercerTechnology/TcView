@@ -66,14 +66,16 @@ TcView should not drift into:
 - tree provider directory entry scans now use mtime-based caching for high-frequency folder/plc-project discovery paths
 - integration smoke tests now include a synthetic large-workspace refresh/open path for extension-host coverage
 - CI now publishes large-workspace regression performance output as an artifact to support trend tracking
+- runtime telemetry now records stable `open.*`, `reindex.*`, `tree.*`, and `save.*` metric families and computes baseline rollups
+- TcView now supports exporting a JSON performance baseline snapshot from the command palette
 
 ## Next Priorities
 
 ### Performance
 
-1. Add telemetry-backed performance baselines for open, reindex, and large-solution refresh paths
-2. Add targeted profiler traces for slow real-world workspaces to identify any remaining hot paths
-3. Add pass/fail guardrails for CI performance metrics once baseline history is established
+1. Add targeted profiler traces for slow real-world workspaces to identify any remaining hot paths
+2. Add pass/fail guardrails for CI performance metrics once baseline history is established
+3. Add representative workspace baseline documents for alpha test environments
 
 ### Library Metadata
 

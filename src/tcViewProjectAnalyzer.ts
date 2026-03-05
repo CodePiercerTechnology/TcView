@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as xml2js from 'xml2js';
 import { TwinCATXmlConverter } from './tcViewXmlConverter';
 import { TwinCATLibraryRef } from './tcViewTypes';
+import { withPerfMetric } from './tcViewTelemetry';
 
 /**
  * Represents a symbol in the TwinCAT project (variable, type, FB, etc.)
@@ -342,22 +343,24 @@ export class TwinCATProjectAnalyzer {
 
         const start = Date.now();
         let didMutateIndex = false;
-        for (const filePath of deleted) {
-            didMutateIndex = this.removeFileContributions(filePath) || didMutateIndex;
-        }
-
-        const parseResults = await Promise.allSettled(changed.map(filePath => this.parseFile(filePath)));
-        for (const result of parseResults) {
-            if (result.status === 'fulfilled' && result.value) {
-                didMutateIndex = true;
-                break;
+        await withPerfMetric('reindex.incremental', async () => {
+            for (const filePath of deleted) {
+                didMutateIndex = this.removeFileContributions(filePath) || didMutateIndex;
             }
-        }
 
-        if (didMutateIndex) {
-            this.indexRevision++;
-            this.indexRefreshedEmitter.fire();
-        }
+            const parseResults = await Promise.allSettled(changed.map(filePath => this.parseFile(filePath)));
+            for (const result of parseResults) {
+                if (result.status === 'fulfilled' && result.value) {
+                    didMutateIndex = true;
+                    break;
+                }
+            }
+
+            if (didMutateIndex) {
+                this.indexRevision++;
+                this.indexRefreshedEmitter.fire();
+            }
+        });
         if (this.isPerfLoggingEnabled()) {
             console.log(`[TcView Perf] Incremental symbol update (${changed.length} changed, ${deleted.length} deleted, mutation=${didMutateIndex}): ${Date.now() - start} ms`);
         }
@@ -383,24 +386,26 @@ export class TwinCATProjectAnalyzer {
         }
         
         try {
-            // Clear existing data
-            this.symbols.clear();
-            this.dataTypes.clear();
-            this.globalVars.clear();
-            this.librarySymbols.clear();
-            this.libraryDataTypes.clear();
-            this.libraryContextModes.clear();
-            this.fileContributions.clear();
-            this.fileFingerprints.clear();
+            await withPerfMetric('reindex.full', async () => {
+                // Clear existing data
+                this.symbols.clear();
+                this.dataTypes.clear();
+                this.globalVars.clear();
+                this.librarySymbols.clear();
+                this.libraryDataTypes.clear();
+                this.libraryContextModes.clear();
+                this.fileContributions.clear();
+                this.fileFingerprints.clear();
 
-            // Find all PLC files
-            const plcFiles = await this.findPLCFiles();
+                // Find all PLC files
+                const plcFiles = await this.findPLCFiles();
 
-            // Parse files in parallel
-            await Promise.allSettled(plcFiles.map(file => this.parseFile(file)));
-            await this.refreshLibraryMetadata();
-            this.indexRevision++;
-            this.indexRefreshedEmitter.fire();
+                // Parse files in parallel
+                await Promise.allSettled(plcFiles.map(file => this.parseFile(file)));
+                await this.refreshLibraryMetadata();
+                this.indexRevision++;
+                this.indexRefreshedEmitter.fire();
+            });
 
             console.log(`Project scan complete. Found ${this.symbols.size} symbols, ${this.dataTypes.size} data types, ${this.globalVars.size} global variables.`);
             if (this.isPerfLoggingEnabled()) {
@@ -641,9 +646,11 @@ export class TwinCATProjectAnalyzer {
         }
 
         const start = Date.now();
-        await this.refreshLibraryMetadata();
-        this.indexRevision++;
-        this.indexRefreshedEmitter.fire();
+        await withPerfMetric('reindex.libraryMetadata', async () => {
+            await this.refreshLibraryMetadata();
+            this.indexRevision++;
+            this.indexRefreshedEmitter.fire();
+        });
         if (this.isPerfLoggingEnabled()) {
             console.log(`[TcView Perf] Library metadata refresh: ${Date.now() - start} ms`);
         }

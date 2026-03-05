@@ -8,7 +8,7 @@ import { TwinCATXmlConverter } from './tcViewXmlConverter';
 import { TwinCATBackendClient } from './backend/tcViewBackendClient';
 import { registerLanguageFeatures } from './iecStLanguageFeatures';
 import { disposeProjectAnalyzer, getProjectAnalyzer, initializeProjectAnalyzer, onProjectAnalyzerCreated, refreshProjectAnalyzerLibraryMetadata } from './tcViewProjectAnalyzer';
-import { disposeTelemetry, logError, showPerfSummary, withPerfMetric } from './tcViewTelemetry';
+import { disposeTelemetry, logError, showPerfSummary, withPerfMetric, writePerfSnapshot } from './tcViewTelemetry';
 
 let analyzerInitPromise: Promise<void> | undefined;
 
@@ -109,7 +109,9 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Command: Refresh files in sidebar
     const refreshCommand = vscode.commands.registerCommand('tcview.refreshFiles', () => {
-        fileExplorerProvider.refresh();
+        void withPerfMetric('tree.refresh.manual', async () => {
+            fileExplorerProvider.refresh();
+        });
     });
 
     // Command: Open file from sidebar
@@ -198,6 +200,30 @@ export function activate(context: vscode.ExtensionContext) {
     const showPerfStatsCommand = vscode.commands.registerCommand('tcview.showPerfStats', () => {
         showPerfSummary();
         vscode.window.showInformationMessage('TcView performance stats written to the TcView output channel.');
+    });
+    const exportPerfBaselineCommand = vscode.commands.registerCommand('tcview.exportPerfBaseline', async () => {
+        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        const defaultUri = workspaceRoot
+            ? vscode.Uri.file(path.join(workspaceRoot, '.test-results', 'perf', 'runtime-baseline.json'))
+            : undefined;
+        const target = await vscode.window.showSaveDialog({
+            defaultUri,
+            filters: {
+                JSON: ['json']
+            },
+            saveLabel: 'Export TcView Perf Baseline'
+        });
+        if (!target) {
+            return;
+        }
+
+        try {
+            await writePerfSnapshot(target.fsPath);
+            vscode.window.showInformationMessage(`TcView performance baseline exported: ${target.fsPath}`);
+        } catch (error) {
+            logError(`Perf baseline export failed: ${String(error)}`);
+            vscode.window.showErrorMessage(`Failed to export TcView performance baseline: ${String(error)}`);
+        }
     });
 
     const buildOutput = vscode.window.createOutputChannel('TcView Build');
@@ -2193,29 +2219,29 @@ export function activate(context: vscode.ExtensionContext) {
             const fragment = uri.fragment;
             if (fragment) {
                 const baseUri = uri.with({ fragment: '' });
-                const virtualUri = await withPerfMetric(`preload fragment ${path.basename(baseUri.fsPath)}#${fragment}`, () =>
+                const virtualUri = await withPerfMetric('open.fragment.preload', () =>
                     fileSystemProvider.preloadFile(baseUri.fsPath, fragment)
                 );
 
-                const document = await withPerfMetric(`open fragment doc ${path.basename(baseUri.fsPath)}#${fragment}`, () =>
+                const document = await withPerfMetric('open.fragment.document', () =>
                     vscode.workspace.openTextDocument(virtualUri)
                 );
-                await withPerfMetric(`show fragment editor ${path.basename(baseUri.fsPath)}#${fragment}`, () =>
+                await withPerfMetric('open.fragment.editor', () =>
                     vscode.window.showTextDocument(document, { preview: false })
                 );
 
                 await vscode.languages.setTextDocumentLanguage(document, 'iec-st');
             } else {
                 // Regular file - preload and open
-                const virtualUri = await withPerfMetric(`preload ${path.basename(uri.fsPath)}`, () =>
+                const virtualUri = await withPerfMetric('open.file.preload', () =>
                     fileSystemProvider.preloadFile(uri.fsPath)
                 );
                 
                 // Open the virtual file
-                const document = await withPerfMetric(`open doc ${path.basename(uri.fsPath)}`, () =>
+                const document = await withPerfMetric('open.file.document', () =>
                     vscode.workspace.openTextDocument(virtualUri)
                 );
-                await withPerfMetric(`show editor ${path.basename(uri.fsPath)}`, () =>
+                await withPerfMetric('open.file.editor', () =>
                     vscode.window.showTextDocument(document, { preview: false })
                 );
                 
@@ -2235,7 +2261,7 @@ export function activate(context: vscode.ExtensionContext) {
     const saveListener = vscode.workspace.onDidSaveTextDocument(async (document) => {
         if (document.uri.scheme === TwinCATFileSystemProvider.scheme) {
             try {
-                await withPerfMetric('save to original XML', () => fileSystemProvider.saveToOriginal(document.uri));
+                await withPerfMetric('save.toOriginalXml', () => fileSystemProvider.saveToOriginal(document.uri));
                 const showSaveMessage = vscode.workspace.getConfiguration('twincat').get<boolean>('showSaveNotification', false);
                 if (showSaveMessage) {
                     vscode.window.showInformationMessage('Saved to ' + path.basename(TwinCATFileSystemProvider.getOriginalPath(document.uri)));
@@ -2327,6 +2353,7 @@ export function activate(context: vscode.ExtensionContext) {
         openFromExplorerCommand,
         switchToXmlCommand,
         showPerfStatsCommand,
+        exportPerfBaselineCommand,
         openSolutionCommand,
         buildSolutionWithMsBuildCommand,
         openLibraryReferenceCommand,

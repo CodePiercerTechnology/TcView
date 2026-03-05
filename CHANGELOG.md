@@ -12,6 +12,7 @@ The format is based on Keep a Changelog and this project uses Semantic Versionin
 - Added a synthetic large-workspace regression test with golden digest validation and configurable runtime threshold
 - Added integration smoke coverage for a synthetic large-workspace tree refresh/open path
 - Added optional JSON performance reporting for the large-workspace regression workload and CI artifact upload for baseline tracking
+- Added `Export TcView Performance Baseline` command to write a JSON runtime telemetry snapshot for baseline/trend analysis
 
 ### Changed
 - Added mtime-based caching for `.plcproj`/`.tsproj`/`.tspproj` metadata reads in the project analyzer
@@ -22,6 +23,7 @@ The format is based on Keep a Changelog and this project uses Semantic Versionin
 - Reduced tree-view invalidation churn by differentiating content-only file changes from structural tree changes
 - Improved integration test TLS handling by auto-detecting a local CA PEM (`TCVIEW_NODE_EXTRA_CA_CERTS` or `C:\certs\zscaler.pem`) and relaunching with `NODE_EXTRA_CA_CERTS`
 - Reduced repeated tree provider directory scans by adding mtime-based directory-entry caching and explicit create/delete invalidation
+- Added stable runtime perf metric families (`open.*`, `reindex.*`, `tree.*`, `save.*`) and baseline rollups for open/reindex/tree refresh analysis
 
 ## [0.0.5] - 2026-03-03
 

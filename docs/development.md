@@ -10,6 +10,7 @@
 - Integration tests: `npm run test:integration`
 - Full matrix (functionality + regression + integration): `npm run test:all`
 - Package VSIX: `npx @vscode/vsce package`
+- Runtime perf baseline export (from VS Code command palette): `Export TcView Performance Baseline`
 
 If integration runtime download fails with TLS trust errors in a locked-down network, run:
 

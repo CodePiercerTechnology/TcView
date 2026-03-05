@@ -33,6 +33,7 @@
     "onCommand:tcview.showIndexStats",
     "onCommand:tcview.checkLspStatus",
     "onCommand:tcview.showPerfStats",
+    "onCommand:tcview.exportPerfBaseline",
     "onCommand:tcview.buildSolutionWithMsBuild",
     "onCommand:tcview.showLibraries",
     "onCommand:tcview.createLibraryMetadataTemplate",
@@ -123,6 +124,11 @@
         "command": "tcview.showPerfStats",
         "title": "Show TcView Performance Stats",
         "icon": "$(dashboard)"
+      },
+      {
+        "command": "tcview.exportPerfBaseline",
+        "title": "Export TcView Performance Baseline",
+        "icon": "$(export)"
       },
       {
         "command": "tcview.buildSolutionWithMsBuild",
