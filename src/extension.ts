@@ -8,7 +8,7 @@ import { TwinCATXmlConverter } from './tcViewXmlConverter';
 import { TwinCATBackendClient } from './backend/tcViewBackendClient';
 import { registerLanguageFeatures } from './iecStLanguageFeatures';
 import { disposeProjectAnalyzer, getProjectAnalyzer, initializeProjectAnalyzer, onProjectAnalyzerCreated, refreshProjectAnalyzerLibraryMetadata } from './tcViewProjectAnalyzer';
-import { disposeTelemetry, logError, showPerfSummary, withPerfMetric, writePerfSnapshot } from './tcViewTelemetry';
+import { disposeTelemetry, logError, showPerfSummary, withPerfMetric, writePerfSnapshot, writePerfTrace } from './tcViewTelemetry';
 
 let analyzerInitPromise: Promise<void> | undefined;
 
@@ -223,6 +223,30 @@ export function activate(context: vscode.ExtensionContext) {
         } catch (error) {
             logError(`Perf baseline export failed: ${String(error)}`);
             vscode.window.showErrorMessage(`Failed to export TcView performance baseline: ${String(error)}`);
+        }
+    });
+    const exportPerfTraceCommand = vscode.commands.registerCommand('tcview.exportPerfTrace', async () => {
+        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        const defaultUri = workspaceRoot
+            ? vscode.Uri.file(path.join(workspaceRoot, '.test-results', 'perf', 'runtime-trace.json'))
+            : undefined;
+        const target = await vscode.window.showSaveDialog({
+            defaultUri,
+            filters: {
+                JSON: ['json']
+            },
+            saveLabel: 'Export TcView Perf Trace'
+        });
+        if (!target) {
+            return;
+        }
+
+        try {
+            await writePerfTrace(target.fsPath);
+            vscode.window.showInformationMessage(`TcView performance trace exported: ${target.fsPath}`);
+        } catch (error) {
+            logError(`Perf trace export failed: ${String(error)}`);
+            vscode.window.showErrorMessage(`Failed to export TcView performance trace: ${String(error)}`);
         }
     });
 
@@ -2354,6 +2378,7 @@ export function activate(context: vscode.ExtensionContext) {
         switchToXmlCommand,
         showPerfStatsCommand,
         exportPerfBaselineCommand,
+        exportPerfTraceCommand,
         openSolutionCommand,
         buildSolutionWithMsBuildCommand,
         openLibraryReferenceCommand,

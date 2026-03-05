@@ -34,6 +34,7 @@
     "onCommand:tcview.checkLspStatus",
     "onCommand:tcview.showPerfStats",
     "onCommand:tcview.exportPerfBaseline",
+    "onCommand:tcview.exportPerfTrace",
     "onCommand:tcview.buildSolutionWithMsBuild",
     "onCommand:tcview.showLibraries",
     "onCommand:tcview.createLibraryMetadataTemplate",
@@ -131,6 +132,11 @@
         "icon": "$(export)"
       },
       {
+        "command": "tcview.exportPerfTrace",
+        "title": "Export TcView Performance Trace",
+        "icon": "$(pulse)"
+      },
+      {
         "command": "tcview.buildSolutionWithMsBuild",
         "title": "Build TwinCAT Solution",
         "icon": "$(project)"
@@ -178,6 +184,12 @@
           "type": "boolean",
           "default": false,
           "description": "Enable performance timing logs for TcView open/scan operations."
+        },
+        "twincat.performanceTraceThresholdMs": {
+          "type": "number",
+          "default": 250,
+          "minimum": 1,
+          "description": "Threshold in milliseconds for recording slow runtime trace events in open/reindex/tree/save metric families."
         },
         "twincat.showSaveNotification": {
           "type": "boolean",

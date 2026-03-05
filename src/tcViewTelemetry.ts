@@ -18,6 +18,13 @@ type PerfBaselineCategory = {
     errorCount: number;
 };
 
+export interface PerfTraceEvent {
+    timestamp: string;
+    name: string;
+    elapsedMs: number;
+    hadError: boolean;
+}
+
 export type PerfSnapshot = {
     generatedAt: string;
     metrics: Record<string, PerfMetric>;
@@ -29,7 +36,16 @@ export type PerfSnapshot = {
     };
 };
 
+export type PerfTraceSnapshot = {
+    generatedAt: string;
+    thresholdMs: number;
+    events: PerfTraceEvent[];
+    baseline: PerfSnapshot;
+};
+
 const metrics = new Map<string, PerfMetric>();
+const traceEvents: PerfTraceEvent[] = [];
+const maxTraceEvents = 200;
 let outputChannel: vscode.OutputChannel | undefined;
 
 function getChannel(): vscode.OutputChannel {
@@ -85,6 +101,33 @@ function toRecordSnapshot(): Record<string, PerfMetric> {
     return snapshot;
 }
 
+function getTraceThresholdMs(): number {
+    const configured = vscode.workspace.getConfiguration('twincat').get<number>('performanceTraceThresholdMs', 250);
+    if (!Number.isFinite(configured)) {
+        return 250;
+    }
+    return Math.max(1, Math.round(configured));
+}
+
+function isTraceCandidate(name: string): boolean {
+    return name.startsWith('open.')
+        || name.startsWith('reindex.')
+        || name.startsWith('tree.')
+        || name.startsWith('save.');
+}
+
+function appendTraceEvent(name: string, elapsedMs: number, hadError: boolean): void {
+    traceEvents.push({
+        timestamp: new Date().toISOString(),
+        name,
+        elapsedMs,
+        hadError
+    });
+    if (traceEvents.length > maxTraceEvents) {
+        traceEvents.splice(0, traceEvents.length - maxTraceEvents);
+    }
+}
+
 export function isPerfLoggingEnabled(): boolean {
     return vscode.workspace.getConfiguration('twincat').get<boolean>('performanceLogging', false);
 }
@@ -100,9 +143,11 @@ export function logError(message: string): void {
 
 export async function withPerfMetric<T>(name: string, action: () => Promise<T> | Thenable<T>): Promise<T> {
     const start = Date.now();
+    let hadError = false;
     try {
         return await action();
     } catch (error) {
+        hadError = true;
         const current = metrics.get(name) || { count: 0, totalMs: 0, maxMs: 0, lastMs: 0, errors: 0 };
         current.errors += 1;
         metrics.set(name, current);
@@ -115,6 +160,15 @@ export async function withPerfMetric<T>(name: string, action: () => Promise<T> |
         current.maxMs = Math.max(current.maxMs, elapsed);
         current.lastMs = elapsed;
         metrics.set(name, current);
+
+        const shouldTrace = hadError || (isTraceCandidate(name) && elapsed >= getTraceThresholdMs());
+        if (shouldTrace) {
+            appendTraceEvent(name, elapsed, hadError);
+            if (isPerfLoggingEnabled()) {
+                getChannel().appendLine(`[TcView Trace] ${name}: ${elapsed} ms${hadError ? ' (error)' : ''}`);
+            }
+        }
+
         if (isPerfLoggingEnabled()) {
             getChannel().appendLine(`[TcView Perf] ${name}: ${elapsed} ms`);
         }
@@ -144,6 +198,12 @@ export function getPerfSummary(): string {
         `baseline.treeRefresh => ops=${baseline.treeRefresh.operations}, count=${baseline.treeRefresh.totalCount}, avg=${baseline.treeRefresh.avgMs}ms, max=${baseline.treeRefresh.maxMs}ms, errors=${baseline.treeRefresh.errorCount}`,
         `baseline.save => ops=${baseline.save.operations}, count=${baseline.save.totalCount}, avg=${baseline.save.avgMs}ms, max=${baseline.save.maxMs}ms, errors=${baseline.save.errorCount}`
     ];
+    const recentTraceLines = traceEvents.slice(-5)
+        .map(event => `${event.timestamp} | ${event.name} | ${event.elapsedMs}ms${event.hadError ? ' | error' : ''}`);
+    const traceSummaryLines = [
+        `traces.count => ${traceEvents.length} (threshold=${getTraceThresholdMs()}ms)`,
+        ...recentTraceLines
+    ];
 
     return [...metrics.entries()]
         .sort((a, b) => a[0].localeCompare(b[0]))
@@ -151,7 +211,7 @@ export function getPerfSummary(): string {
             const avg = Math.round(stat.totalMs / Math.max(1, stat.count));
             return `${name} => count=${stat.count}, avg=${avg}ms, max=${stat.maxMs}ms, last=${stat.lastMs}ms, errors=${stat.errors}`;
         })
-        .concat(['', ...baselineLines])
+        .concat(['', ...baselineLines, '', ...traceSummaryLines])
         .join('\n');
 }
 
@@ -167,6 +227,21 @@ export async function writePerfSnapshot(filePath: string): Promise<void> {
     const absolutePath = path.isAbsolute(filePath) ? filePath : path.resolve(filePath);
     await fs.promises.mkdir(path.dirname(absolutePath), { recursive: true });
     await fs.promises.writeFile(absolutePath, `${JSON.stringify(getPerfSnapshot(), null, 2)}\n`, 'utf8');
+}
+
+export function getPerfTraceSnapshot(): PerfTraceSnapshot {
+    return {
+        generatedAt: new Date().toISOString(),
+        thresholdMs: getTraceThresholdMs(),
+        events: traceEvents.map(event => ({ ...event })),
+        baseline: getPerfSnapshot()
+    };
+}
+
+export async function writePerfTrace(filePath: string): Promise<void> {
+    const absolutePath = path.isAbsolute(filePath) ? filePath : path.resolve(filePath);
+    await fs.promises.mkdir(path.dirname(absolutePath), { recursive: true });
+    await fs.promises.writeFile(absolutePath, `${JSON.stringify(getPerfTraceSnapshot(), null, 2)}\n`, 'utf8');
 }
 
 export function disposeTelemetry(): void {

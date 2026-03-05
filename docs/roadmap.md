@@ -68,14 +68,15 @@ TcView should not drift into:
 - CI now publishes large-workspace regression performance output as an artifact to support trend tracking
 - runtime telemetry now records stable `open.*`, `reindex.*`, `tree.*`, and `save.*` metric families and computes baseline rollups
 - TcView now supports exporting a JSON performance baseline snapshot from the command palette
+- runtime telemetry now captures threshold-based slow-operation trace events for open/reindex/tree/save flows and supports JSON trace export
 
 ## Next Priorities
 
 ### Performance
 
-1. Add targeted profiler traces for slow real-world workspaces to identify any remaining hot paths
-2. Add pass/fail guardrails for CI performance metrics once baseline history is established
-3. Add representative workspace baseline documents for alpha test environments
+1. Add pass/fail guardrails for CI performance metrics once baseline history is established
+2. Add representative workspace baseline documents for alpha test environments
+3. Add a lightweight trace triage guide for alpha testers so captured traces are consistently actionable
 
 ### Library Metadata
 
