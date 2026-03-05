@@ -30,11 +30,11 @@ export class TwinCATBackendClient {
         return this.enqueue(() => this.invokeBackend<InstallLibraryProjectResult>('installLibraryProject', params));
     }
 
-    public addLibraryReference(params: { tsprojPath: string; plcprojPath: string; solutionPath?: string; libraryName: string; version?: string; vendor?: string }): Promise<UpdateProjectLibraryReferenceResult> {
+    public addLibraryReference(params: { tsprojPath?: string; plcprojPath: string; solutionPath?: string; libraryName: string; version?: string; vendor?: string }): Promise<UpdateProjectLibraryReferenceResult> {
         return this.enqueue(() => this.invokeBackend<UpdateProjectLibraryReferenceResult>('addLibraryReference', params));
     }
 
-    public removeLibraryReference(params: { tsprojPath: string; plcprojPath: string; solutionPath?: string; referenceName: string; version?: string; vendor?: string; displayName?: string }): Promise<UpdateProjectLibraryReferenceResult> {
+    public removeLibraryReference(params: { tsprojPath?: string; plcprojPath: string; solutionPath?: string; referenceName: string; version?: string; vendor?: string; displayName?: string }): Promise<UpdateProjectLibraryReferenceResult> {
         return this.enqueue(() => this.invokeBackend<UpdateProjectLibraryReferenceResult>('removeLibraryReference', params));
     }
 

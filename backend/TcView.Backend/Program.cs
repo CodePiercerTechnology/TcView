@@ -370,10 +370,6 @@ static object HandleAddLibraryReference(JsonObject request)
     var vendor = request["params"]?["vendor"]?.GetValue<string>()?.Trim();
     var diagnostics = new List<string>();
 
-    if (string.IsNullOrWhiteSpace(tsprojPath) || !File.Exists(tsprojPath))
-    {
-        return new AutomationOperationResult(false, null, new[] { "addLibraryReference: tsproj path missing or not found." });
-    }
     if (string.IsNullOrWhiteSpace(plcprojPath) || !File.Exists(plcprojPath))
     {
         return new AutomationOperationResult(false, null, new[] { "addLibraryReference: plcproj path missing or not found." });
@@ -385,15 +381,28 @@ static object HandleAddLibraryReference(JsonObject request)
 
     var libraryNameValue = libraryName;
     var plcprojPathValue = plcprojPath;
+    diagnostics.Add("addLibraryReference: using .plcproj PlaceholderReference update as primary path.");
+    var directAdded = AddPlaceholderReferenceToPlcProj(plcprojPathValue, libraryNameValue, version, vendor, diagnostics);
+    if (directAdded)
+    {
+        return new AutomationOperationResult(true, null, diagnostics);
+    }
+
+    diagnostics.Add("addLibraryReference: primary .plcproj update did not complete. Trying TwinCAT Automation Interface fallback.");
+    if (string.IsNullOrWhiteSpace(tsprojPath) || !File.Exists(tsprojPath))
+    {
+        diagnostics.Add("addLibraryReference: fallback unavailable because tsproj path is missing or not found.");
+        return new AutomationOperationResult(false, null, diagnostics);
+    }
+
     var plcProjectName = ResolvePlcProjectName(plcprojPath) ?? Path.GetFileNameWithoutExtension(plcprojPath);
     return RunTwinCATAutomation(tsprojPath, solutionPath, diagnostics, sysManager =>
     {
         var referencesItem = FindPlcReferencesTreeItem(sysManager, plcProjectName, diagnostics);
         if (referencesItem is null)
         {
-            diagnostics.Add($"addLibraryReference: References node for '{plcProjectName}' was not found. Falling back to direct .plcproj edit.");
-            var fallbackAdded = AddPlaceholderReferenceToPlcProj(plcprojPathValue, libraryNameValue, version, vendor, diagnostics);
-            return new AutomationOperationResult(fallbackAdded, null, diagnostics);
+            diagnostics.Add($"addLibraryReference: fallback failed because References node for '{plcProjectName}' was not found.");
+            return new AutomationOperationResult(false, null, diagnostics);
         }
 
         var added =
@@ -401,9 +410,8 @@ static object HandleAddLibraryReference(JsonObject request)
             TryInvokeWithDiagnostics(referencesItem, diagnostics, "AddLibrary", libraryNameValue);
         if (!added)
         {
-            diagnostics.Add($"addLibraryReference: AddLibrary failed for '{libraryName}'. Falling back to direct .plcproj edit.");
-            var fallbackAdded = AddPlaceholderReferenceToPlcProj(plcprojPathValue, libraryNameValue, version, vendor, diagnostics);
-            return new AutomationOperationResult(fallbackAdded, null, diagnostics);
+            diagnostics.Add($"addLibraryReference: fallback AddLibrary failed for '{libraryName}'.");
+            return new AutomationOperationResult(false, null, diagnostics);
         }
 
         diagnostics.Add($"addLibraryReference: added '{libraryName}' to '{plcProjectName}'.");
@@ -422,10 +430,6 @@ static object HandleRemoveLibraryReference(JsonObject request)
     var displayName = request["params"]?["displayName"]?.GetValue<string>()?.Trim();
     var diagnostics = new List<string>();
 
-    if (string.IsNullOrWhiteSpace(tsprojPath) || !File.Exists(tsprojPath))
-    {
-        return new AutomationOperationResult(false, null, new[] { "removeLibraryReference: tsproj path missing or not found." });
-    }
     if (string.IsNullOrWhiteSpace(plcprojPath) || !File.Exists(plcprojPath))
     {
         return new AutomationOperationResult(false, null, new[] { "removeLibraryReference: plcproj path missing or not found." });
@@ -437,15 +441,28 @@ static object HandleRemoveLibraryReference(JsonObject request)
 
     var referenceNameValue = referenceName;
     var plcprojPathValue = plcprojPath;
+    diagnostics.Add("removeLibraryReference: using .plcproj PlaceholderReference update as primary path.");
+    var directRemoved = RemovePlaceholderReferenceFromPlcProj(plcprojPathValue, referenceNameValue, displayName, diagnostics);
+    if (directRemoved)
+    {
+        return new AutomationOperationResult(true, null, diagnostics);
+    }
+
+    diagnostics.Add("removeLibraryReference: primary .plcproj update did not complete. Trying TwinCAT Automation Interface fallback.");
+    if (string.IsNullOrWhiteSpace(tsprojPath) || !File.Exists(tsprojPath))
+    {
+        diagnostics.Add("removeLibraryReference: fallback unavailable because tsproj path is missing or not found.");
+        return new AutomationOperationResult(false, null, diagnostics);
+    }
+
     var plcProjectName = ResolvePlcProjectName(plcprojPath) ?? Path.GetFileNameWithoutExtension(plcprojPath);
     return RunTwinCATAutomation(tsprojPath, solutionPath, diagnostics, sysManager =>
     {
         var referencesItem = FindPlcReferencesTreeItem(sysManager, plcProjectName, diagnostics);
         if (referencesItem is null)
         {
-            diagnostics.Add($"removeLibraryReference: References node for '{plcProjectName}' was not found. Falling back to direct .plcproj edit.");
-            var fallbackRemoved = RemovePlaceholderReferenceFromPlcProj(plcprojPathValue, referenceNameValue, displayName, diagnostics);
-            return new AutomationOperationResult(fallbackRemoved, null, diagnostics);
+            diagnostics.Add($"removeLibraryReference: fallback failed because References node for '{plcProjectName}' was not found.");
+            return new AutomationOperationResult(false, null, diagnostics);
         }
 
         var removed =
@@ -454,9 +471,8 @@ static object HandleRemoveLibraryReference(JsonObject request)
             TryInvokeWithDiagnostics(referencesItem, diagnostics, "RemoveReference", referenceNameValue);
         if (!removed)
         {
-            diagnostics.Add($"removeLibraryReference: RemoveReference failed for '{referenceName}'. Falling back to direct .plcproj edit.");
-            var fallbackRemoved = RemovePlaceholderReferenceFromPlcProj(plcprojPathValue, referenceNameValue, displayName, diagnostics);
-            return new AutomationOperationResult(fallbackRemoved, null, diagnostics);
+            diagnostics.Add($"removeLibraryReference: fallback RemoveReference failed for '{referenceName}'.");
+            return new AutomationOperationResult(false, null, diagnostics);
         }
 
         diagnostics.Add($"removeLibraryReference: removed '{referenceName}' from '{plcProjectName}'.");
