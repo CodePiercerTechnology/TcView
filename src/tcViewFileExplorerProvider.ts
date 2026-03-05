@@ -230,8 +230,12 @@ export class TwinCATFileTreeItem extends vscode.TreeItem {
     }
 
     private static getLabel(uri: vscode.Uri, type: TwinCATItemType): string {
+        if (type === TwinCATItemType.File) {
+            const ext = path.extname(uri.fsPath);
+            return path.basename(uri.fsPath, ext);
+        }
+
         if (
-            type === TwinCATItemType.File ||
             type === TwinCATItemType.Folder ||
             type === TwinCATItemType.PlcProjectFolder ||
             type === TwinCATItemType.StatusInfo ||

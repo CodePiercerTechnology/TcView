@@ -22,6 +22,7 @@ TcView should not drift into:
 - fragment editing works for methods, properties, actions, and transitions
 - TwinCAT-aware tree view groups content into `SYSTEM`, `PLC`, and `I/O`
 - tree explorer now uses clearer TwinCAT artifact icon differentiation and folder-first ordering in filesystem groups
+- tree explorer file labels now default to extensionless TwinCAT artifact names with concise type badges
 - valid TwinCAT root detection is enforced
 - `References` tree nodes open an API-style library viewer
 
