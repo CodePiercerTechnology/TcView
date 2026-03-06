@@ -15,6 +15,11 @@ This document defines how alpha testers and CI should capture and compare TcView
 - Validation command: `npm run test:perf:guardrails`
 
 Default CI thresholds are intentionally conservative and should be tightened as alpha history grows.
+Use the updater utility to suggest a tighter `maxElapsedMs` from recent reports:
+
+- dry run: `npm run test:perf:update-budget`
+- persist update: `npm run test:perf:update-budget -- --write`
+- include custom history dir: `npm run test:perf:update-budget -- --history-dir .test-results/perf/history --write`
 
 ## Local Capture Workflow
 
@@ -47,5 +52,5 @@ For each profile, store:
 ## Baseline Review Cadence
 
 - review trend deltas weekly during alpha
-- update `.github/perf/ci-budget.json` only after at least three consistent runs
+- update `.github/perf/ci-budget.json` only after at least three consistent runs (the updater defaults to `--min-samples 3`)
 - tighten thresholds incrementally to avoid flaky CI failures

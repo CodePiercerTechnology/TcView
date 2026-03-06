@@ -7,6 +7,7 @@
 - Regression tests: `npm run test:regression`
 - Update regression goldens: `npm run test:regression:update`
 - Performance guardrails: `npm run test:perf:guardrails`
+- Performance budget updater (dry run): `npm run test:perf:update-budget`
 - Combined non-UI test suite: `npm test`
 - Integration tests: `npm run test:integration`
 - Full matrix (functionality + regression + integration): `npm run test:all`
