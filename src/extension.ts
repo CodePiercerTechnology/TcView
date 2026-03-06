@@ -121,8 +121,8 @@ export function activate(context: vscode.ExtensionContext) {
         
         if (item instanceof vscode.Uri) {
             fileUri = item;
-        } else if (item && item.resourceUri) {
-            fileUri = item.resourceUri;
+        } else if (item && item.targetUri) {
+            fileUri = item.targetUri;
         } else {
             vscode.window.showErrorMessage('No file selected');
             return;
@@ -607,7 +607,7 @@ export function activate(context: vscode.ExtensionContext) {
                 target.parentPath?.toLowerCase().endsWith('.plcproj')) {
                 return target.parentPath;
             }
-            return resolvePlcProjectTarget(target.resourceUri);
+            return resolvePlcProjectTarget(target.targetUri);
         }
 
         if (target.scheme !== 'file') {
@@ -876,8 +876,8 @@ export function activate(context: vscode.ExtensionContext) {
         if (target instanceof vscode.Uri) {
             return target;
         }
-        if ((target as TwinCATFileTreeItem).resourceUri) {
-            return (target as TwinCATFileTreeItem).resourceUri;
+        if ((target as TwinCATFileTreeItem).targetUri) {
+            return (target as TwinCATFileTreeItem).targetUri;
         }
         return undefined;
     };

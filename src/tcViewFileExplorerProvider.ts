@@ -106,7 +106,7 @@ const getTwinCATFileKind = (filePath: string): TwinCATFileKind => {
         case '.tcitf':
             return 'interface';
         case '.tcio':
-            return 'io';
+            return 'interface';
         case '.tcvar':
             return 'var';
         case '.tcgds':
@@ -154,27 +154,53 @@ const mapPouTypeLabel = (rawType: string): string | undefined => {
     }
 };
 
+const TREE_ICON_COLOR = {
+    folder: 'charts.yellow',
+    plcRoot: 'charts.blue',
+    plcProject: 'terminal.ansiCyan',
+    folderMembers: 'charts.yellow',
+    pou: 'terminal.ansiBrightBlue',
+    program: 'charts.green',
+    gvl: 'charts.green',
+    dut: 'charts.purple',
+    interface: 'terminal.ansiBrightMagenta',
+    io: 'charts.green',
+    variable: 'charts.yellow',
+    array: 'charts.purple',
+    reference: 'charts.purple',
+    library: 'terminal.ansiCyan',
+    info: 'charts.blue',
+    warning: 'problemsWarningIcon.foreground',
+    system: 'terminal.ansiYellow',
+    method: 'charts.purple',
+    property: 'charts.red',
+    propertyGet: 'charts.green',
+    propertySet: 'charts.blue',
+    action: 'charts.green',
+    transition: 'terminal.ansiYellow'
+} as const;
+
 const getTwinCATFileKindIcon = (filePath: string): vscode.ThemeIcon => {
     const kind = getTwinCATFileKind(filePath);
     switch (kind) {
         case 'pou':
-            return new vscode.ThemeIcon('symbol-class', new vscode.ThemeColor('symbolIcon.classForeground'));
+            return new vscode.ThemeIcon('symbol-class', new vscode.ThemeColor(TREE_ICON_COLOR.pou));
         case 'program':
-            return new vscode.ThemeIcon('symbol-method', new vscode.ThemeColor('symbolIcon.methodForeground'));
+            return new vscode.ThemeIcon('symbol-method', new vscode.ThemeColor(TREE_ICON_COLOR.program));
         case 'gvl':
-            return new vscode.ThemeIcon('symbol-variable-group', new vscode.ThemeColor('symbolIcon.variableForeground'));
+            return new vscode.ThemeIcon('symbol-variable', new vscode.ThemeColor(TREE_ICON_COLOR.gvl));
         case 'dut':
-            return new vscode.ThemeIcon('symbol-structure', new vscode.ThemeColor('terminal.ansiMagenta'));
+            return new vscode.ThemeIcon('symbol-struct', new vscode.ThemeColor(TREE_ICON_COLOR.dut));
         case 'interface':
-            return new vscode.ThemeIcon('symbol-interface', new vscode.ThemeColor('symbolIcon.interfaceForeground'));
+            return new vscode.ThemeIcon('type-hierarchy-super', new vscode.ThemeColor(TREE_ICON_COLOR.interface));
         case 'io':
-            return new vscode.ThemeIcon('plug', new vscode.ThemeColor('terminal.ansiGreen'));
+            return new vscode.ThemeIcon('plug', new vscode.ThemeColor(TREE_ICON_COLOR.io));
         case 'var':
-            return new vscode.ThemeIcon('symbol-field', new vscode.ThemeColor('symbolIcon.fieldForeground'));
+            return new vscode.ThemeIcon('symbol-field', new vscode.ThemeColor(TREE_ICON_COLOR.variable));
         case 'gds':
-            return new vscode.ThemeIcon('symbol-array', new vscode.ThemeColor('symbolIcon.arrayForeground'));
+            return new vscode.ThemeIcon('symbol-array', new vscode.ThemeColor(TREE_ICON_COLOR.array));
         default:
-            return new vscode.ThemeIcon('file-code', new vscode.ThemeColor('symbolIcon.fileForeground'));
+            return new vscode.ThemeIcon('file-code');
     }
 };
 
@@ -189,7 +215,7 @@ const getExplorerSortWeight = (item: TwinCATFileTreeItem): number => {
         return 9;
     }
 
-    const kind = getTwinCATFileKind(item.resourceUri.fsPath);
+    const kind = getTwinCATFileKind(item.targetUri.fsPath);
     switch (kind) {
         case 'gvl':
             return 2;
@@ -226,7 +252,7 @@ const sortExplorerItems = (items: TwinCATFileTreeItem[]) =>
 
 export class TwinCATFileTreeItem extends vscode.TreeItem {
     constructor(
-        public readonly resourceUri: vscode.Uri,
+        public readonly targetUri: vscode.Uri,
         public readonly collapsibleState: vscode.TreeItemCollapsibleState,
         public readonly itemType: TwinCATItemType,
         public readonly parentPath?: string,
@@ -234,9 +260,9 @@ export class TwinCATFileTreeItem extends vscode.TreeItem {
         customLabel?: string,
         isOpenable = OPENABLE_TYPES.has(itemType)
     ) {
-        super(customLabel ?? TwinCATFileTreeItem.getLabel(resourceUri, itemType));
+        super(customLabel ?? TwinCATFileTreeItem.getLabel(targetUri, itemType));
 
-        this.tooltip = resourceUri.fsPath;
+        this.tooltip = targetUri.fsPath;
         this.contextValue = itemType;
         this.setIcon();
 
@@ -285,7 +311,7 @@ export class TwinCATFileTreeItem extends vscode.TreeItem {
 
     private setIcon() {
         if (this.itemType === TwinCATItemType.File) {
-            this.iconPath = getTwinCATFileKindIcon(this.resourceUri.fsPath);
+            this.iconPath = getTwinCATFileKindIcon(this.targetUri.fsPath);
             return;
         }
 
@@ -295,24 +321,23 @@ export class TwinCATFileTreeItem extends vscode.TreeItem {
                 : new vscode.ThemeIcon(id);
 
         const iconMap: Record<TwinCATItemType, vscode.ThemeIcon> = {
-            statusInfo: icon('search', 'charts.blue'),
-            statusWarning: icon('warning', 'problemsWarningIcon.foreground'),
-            systemRoot: icon('server-environment', 'charts.yellow'),
-            plcRoot: icon('symbol-module', 'charts.blue'),
-            ioRoot: icon('plug', 'charts.green'),
-            referencesRoot: icon('references', 'charts.purple'),
-            referenceItem: icon('library', 'terminal.ansiCyan'),
-            folder: icon('folder', 'symbolIcon.folderForeground'),
-            plcProjectFolder: icon('folder-library', 'charts.blue'),
-            // Use the core folder codicon for broad VS Code compatibility.
-            pouFolder: icon('folder', 'symbolIcon.folderForeground'),
-            file: icon('file-code', 'symbolIcon.fileForeground'),
-            method: icon('symbol-method', 'symbolIcon.methodForeground'),
-            property: icon('symbol-property', 'symbolIcon.propertyForeground'),
-            propertyGet: icon('arrow-circle-down', 'charts.green'),
-            propertySet: icon('arrow-circle-up', 'charts.blue'),
-            action: icon('symbol-event', 'symbolIcon.eventForeground'),
-            transition: icon('symbol-interface', 'symbolIcon.interfaceForeground')
+            statusInfo: icon('search', TREE_ICON_COLOR.info),
+            statusWarning: icon('warning', TREE_ICON_COLOR.warning),
+            systemRoot: icon('server-environment', TREE_ICON_COLOR.system),
+            plcRoot: icon('circuit-board', TREE_ICON_COLOR.plcRoot),
+            ioRoot: icon('plug', TREE_ICON_COLOR.io),
+            referencesRoot: icon('references', TREE_ICON_COLOR.reference),
+            referenceItem: icon('library', TREE_ICON_COLOR.library),
+            folder: icon('folder', TREE_ICON_COLOR.folder),
+            plcProjectFolder: icon('circuit-board', TREE_ICON_COLOR.plcProject),
+            pouFolder: icon('folder', TREE_ICON_COLOR.folderMembers),
+            file: icon('file-code'),
+            method: icon('symbol-method', TREE_ICON_COLOR.method),
+            property: icon('symbol-property', TREE_ICON_COLOR.property),
+            propertyGet: icon('arrow-circle-down', TREE_ICON_COLOR.propertyGet),
+            propertySet: icon('arrow-circle-up', TREE_ICON_COLOR.propertySet),
+            action: icon('symbol-event', TREE_ICON_COLOR.action),
+            transition: icon('symbol-interface', TREE_ICON_COLOR.transition)
         };
 
         this.iconPath = iconMap[this.itemType];
@@ -528,17 +553,17 @@ export class TwinCATFileExplorerProvider
                 return this.getTopLevelGroupContents('io');
 
             case TwinCATItemType.Folder:
-                return this.getFolderContents(element.resourceUri.fsPath);
+                return this.getFolderContents(element.targetUri.fsPath);
 
             case TwinCATItemType.PlcProjectFolder:
-                return this.getPlcProjectFolderContents(element.resourceUri.fsPath);
+                return this.getPlcProjectFolderContents(element.targetUri.fsPath);
 
             case TwinCATItemType.ReferencesRoot:
                 return element.xmlContent || [];
 
             case TwinCATItemType.File:
-                return this.isExpandablePOUFile(element.resourceUri.fsPath)
-                    ? this.getStructuredRootChildren(element.resourceUri)
+                return this.isExpandablePOUFile(element.targetUri.fsPath)
+                    ? this.getStructuredRootChildren(element.targetUri)
                     : [];
 
             case TwinCATItemType.POUFolder:
@@ -780,7 +805,7 @@ export class TwinCATFileExplorerProvider
 
     private isIoLikeEntry(name: string) {
         const lower = name.toLowerCase();
-        return lower === 'io' || lower === 'i_o' || lower === 'i-o' || lower.endsWith('.tcio');
+        return lower === 'io' || lower === 'i_o' || lower === 'i-o';
     }
 
     private async createTreeItemFromEntry(folderPath: string, entry: fs.Dirent): Promise<TwinCATFileTreeItem | undefined> {
@@ -1308,7 +1333,7 @@ export class TwinCATFileExplorerProvider
         const prop = element.xmlContent;
         if (!prop) return [];
 
-        const uri = element.resourceUri;
+        const uri = element.targetUri;
         const propertyName = element.label?.toString() || 'UnknownProperty';
         const isInterfaceProperty = this.isInterfaceLikeFile(uri.fsPath);
         const items: TwinCATFileTreeItem[] = [];
