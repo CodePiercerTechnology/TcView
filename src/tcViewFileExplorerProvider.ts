@@ -132,23 +132,23 @@ const getTwinCATFileKindIcon = (filePath: string): vscode.ThemeIcon => {
     const kind = getTwinCATFileKind(filePath);
     switch (kind) {
         case 'pou':
-            return new vscode.ThemeIcon('symbol-class');
+            return new vscode.ThemeIcon('symbol-class', new vscode.ThemeColor('symbolIcon.classForeground'));
         case 'program':
-            return new vscode.ThemeIcon('symbol-method');
+            return new vscode.ThemeIcon('symbol-method', new vscode.ThemeColor('symbolIcon.methodForeground'));
         case 'gvl':
-            return new vscode.ThemeIcon('symbol-variable-group');
+            return new vscode.ThemeIcon('symbol-variable-group', new vscode.ThemeColor('symbolIcon.variableForeground'));
         case 'dut':
-            return new vscode.ThemeIcon('symbol-structure');
+            return new vscode.ThemeIcon('symbol-structure', new vscode.ThemeColor('symbolIcon.structForeground'));
         case 'interface':
-            return new vscode.ThemeIcon('symbol-interface');
+            return new vscode.ThemeIcon('symbol-interface', new vscode.ThemeColor('symbolIcon.interfaceForeground'));
         case 'io':
-            return new vscode.ThemeIcon('plug');
+            return new vscode.ThemeIcon('plug', new vscode.ThemeColor('terminal.ansiGreen'));
         case 'var':
-            return new vscode.ThemeIcon('symbol-field');
+            return new vscode.ThemeIcon('symbol-field', new vscode.ThemeColor('symbolIcon.fieldForeground'));
         case 'gds':
-            return new vscode.ThemeIcon('symbol-array');
+            return new vscode.ThemeIcon('symbol-array', new vscode.ThemeColor('symbolIcon.arrayForeground'));
         default:
-            return new vscode.ThemeIcon('file-code');
+            return new vscode.ThemeIcon('file-code', new vscode.ThemeColor('symbolIcon.fileForeground'));
     }
 };
 
@@ -263,31 +263,32 @@ export class TwinCATFileTreeItem extends vscode.TreeItem {
             return;
         }
 
-        const iconMap: Record<TwinCATItemType, string | vscode.ThemeIcon> = {
-            statusInfo: new vscode.ThemeIcon('search'),
-            statusWarning: new vscode.ThemeIcon('warning'),
-            systemRoot: new vscode.ThemeIcon('server-environment'),
-            plcRoot: new vscode.ThemeIcon('symbol-module'),
-            ioRoot: new vscode.ThemeIcon('plug'),
-            referencesRoot: new vscode.ThemeIcon('references'),
-            referenceItem: new vscode.ThemeIcon('library'),
-            folder: vscode.ThemeIcon.Folder,
-            plcProjectFolder: new vscode.ThemeIcon('project'),
-            pouFolder: new vscode.ThemeIcon('folder-library'),
-            file: 'file-code',
-            method: 'symbol-method',
-            property: 'symbol-property',
-            propertyGet: 'arrow-circle-down',
-            propertySet: 'arrow-circle-up',
-            action: 'symbol-event',
-            transition: 'symbol-interface'
+        const icon = (id: string, colorId?: string): vscode.ThemeIcon =>
+            colorId
+                ? new vscode.ThemeIcon(id, new vscode.ThemeColor(colorId))
+                : new vscode.ThemeIcon(id);
+
+        const iconMap: Record<TwinCATItemType, vscode.ThemeIcon> = {
+            statusInfo: icon('search', 'charts.blue'),
+            statusWarning: icon('warning', 'problemsWarningIcon.foreground'),
+            systemRoot: icon('server-environment', 'charts.orange'),
+            plcRoot: icon('symbol-module', 'charts.blue'),
+            ioRoot: icon('plug', 'charts.green'),
+            referencesRoot: icon('references', 'charts.purple'),
+            referenceItem: icon('library', 'symbolIcon.referenceForeground'),
+            folder: icon('folder', 'symbolIcon.folderForeground'),
+            plcProjectFolder: icon('folder-library', 'charts.blue'),
+            pouFolder: icon('folder-library', 'charts.purple'),
+            file: icon('file-code', 'symbolIcon.fileForeground'),
+            method: icon('symbol-method', 'symbolIcon.methodForeground'),
+            property: icon('symbol-property', 'symbolIcon.propertyForeground'),
+            propertyGet: icon('arrow-circle-down', 'charts.green'),
+            propertySet: icon('arrow-circle-up', 'charts.blue'),
+            action: icon('symbol-event', 'symbolIcon.eventForeground'),
+            transition: icon('symbol-interface', 'symbolIcon.interfaceForeground')
         };
 
-        const icon = iconMap[this.itemType];
-        this.iconPath =
-            icon instanceof vscode.ThemeIcon
-                ? icon
-                : new vscode.ThemeIcon(icon);
+        this.iconPath = iconMap[this.itemType];
     }
 }
 
