@@ -6,6 +6,7 @@
 - Functionality tests: `npm run test:functionality`
 - Regression tests: `npm run test:regression`
 - Update regression goldens: `npm run test:regression:update`
+- Performance guardrails: `npm run test:perf:guardrails`
 - Combined non-UI test suite: `npm test`
 - Integration tests: `npm run test:integration`
 - Full matrix (functionality + regression + integration): `npm run test:all`
@@ -30,6 +31,12 @@ Optional: export a machine-readable performance snapshot from the large-workspac
 
 - `set TCVIEW_PERF_REPORT_FILE=.test-results/perf/large-workspace.json`
 - `npm run test:regression`
+- `npm run test:perf:guardrails`
+
+Performance process documents:
+
+- [performance-baselines.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/performance-baselines.md)
+- [performance-trace-triage.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/performance-trace-triage.md)
 
 ## Extension Development Host
 
@@ -86,6 +93,8 @@ and does not need to rely on a large ignore-only package layout.
 - [README.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/README.md): user-facing overview and install/use guidance
 - [architecture.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/architecture.md): implementation structure and boundaries
 - [library-metadata.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/library-metadata.md): metadata model and library recognition
+- [performance-baselines.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/performance-baselines.md): baseline capture process and CI guardrail inputs
+- [performance-trace-triage.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/performance-trace-triage.md): runtime trace triage checklist for alpha issues
 - [production-readiness.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/production-readiness.md): release gates and remaining risk areas
 - [roadmap.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/roadmap.md): roadmap and planned work
 

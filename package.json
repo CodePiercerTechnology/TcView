@@ -459,6 +459,7 @@
     "test:functionality": "npm run compile && node out/tests/run-tests.js --suite functionality",
     "test:regression": "npm run compile && node out/tests/run-tests.js --suite regression",
     "test:regression:update": "npm run compile && node out/tests/run-tests.js --suite regression --update",
+    "test:perf:guardrails": "node scripts/check-perf-guardrails.js",
     "test:integration": "npm run compile && vscode-test",
     "test:all": "npm run test && npm run test:integration",
     "test:ci": "npm run test:all"

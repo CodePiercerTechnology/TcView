@@ -38,6 +38,12 @@ jobs:
           TCVIEW_PERF_REPORT_FILE: .test-results/perf/large-workspace.json
         run: npm run test:regression
 
+      - name: Performance guardrails
+        env:
+          TCVIEW_PERF_REPORT_FILE: .test-results/perf/large-workspace.json
+          TCVIEW_PERF_BUDGET_FILE: .github/perf/ci-budget.json
+        run: npm run test:perf:guardrails
+
       - name: Integration smoke tests
         run: npm run test:integration
 

@@ -71,14 +71,16 @@ TcView should not drift into:
 - runtime telemetry now records stable `open.*`, `reindex.*`, `tree.*`, and `save.*` metric families and computes baseline rollups
 - TcView now supports exporting a JSON performance baseline snapshot from the command palette
 - runtime telemetry now captures threshold-based slow-operation trace events for open/reindex/tree/save flows and supports JSON trace export
+- CI now enforces an initial pass/fail performance budget for the large-workspace regression report
+- alpha-facing performance baseline capture guidance and trace triage runbook are now documented
 
 ## Next Priorities
 
 ### Performance
 
 1. Add pass/fail guardrails for CI performance metrics once baseline history is established
-2. Add representative workspace baseline documents for alpha test environments
-3. Add a lightweight trace triage guide for alpha testers so captured traces are consistently actionable
+2. Continue collecting representative workspace baseline documents for alpha test environments and tighten guardrail thresholds from observed history
+3. Keep trace triage guidance aligned with new metric families and alpha issue patterns
 
 ### Library Metadata
 

@@ -42,6 +42,7 @@
 
 - `PASS` Startup behavior was tightened to avoid eager heavy work on activation
 - `PASS` Library analyzer paths are now more local-first and backend-light
+- `PASS` CI includes an initial pass/fail large-workspace performance guardrail check
 - `PARTIAL` Tree/analyzer invalidation still has room for more granular caching
 - `TODO` Explicit performance budgets and larger-project regression coverage
 
