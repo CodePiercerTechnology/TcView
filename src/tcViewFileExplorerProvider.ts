@@ -271,14 +271,15 @@ export class TwinCATFileTreeItem extends vscode.TreeItem {
         const iconMap: Record<TwinCATItemType, vscode.ThemeIcon> = {
             statusInfo: icon('search', 'charts.blue'),
             statusWarning: icon('warning', 'problemsWarningIcon.foreground'),
-            systemRoot: icon('server-environment', 'charts.orange'),
+            systemRoot: icon('server-environment', 'charts.yellow'),
             plcRoot: icon('symbol-module', 'charts.blue'),
             ioRoot: icon('plug', 'charts.green'),
             referencesRoot: icon('references', 'charts.purple'),
             referenceItem: icon('library', 'symbolIcon.referenceForeground'),
             folder: icon('folder', 'symbolIcon.folderForeground'),
             plcProjectFolder: icon('folder-library', 'charts.blue'),
-            pouFolder: icon('folder-library', 'charts.purple'),
+            // Use the core folder codicon for broad VS Code compatibility.
+            pouFolder: icon('folder', 'symbolIcon.folderForeground'),
             file: icon('file-code', 'symbolIcon.fileForeground'),
             method: icon('symbol-method', 'symbolIcon.methodForeground'),
             property: icon('symbol-property', 'symbolIcon.propertyForeground'),
@@ -1265,4 +1266,3 @@ export class TwinCATFileExplorerProvider
         this.directoryEntriesCache.clear();
     }
 }
-
