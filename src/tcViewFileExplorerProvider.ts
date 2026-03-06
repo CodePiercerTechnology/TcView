@@ -141,8 +141,9 @@ const getTwinCATFileKindLabel = (filePath: string): string | undefined => {
 };
 
 const mapPouTypeLabel = (rawType: string): string | undefined => {
-    switch (rawType.toUpperCase()) {
+    switch (rawType.replace(/\s+/g, '_').toUpperCase()) {
         case 'FUNCTION_BLOCK':
+        case 'FUNCTIONBLOCK':
             return 'FB';
         case 'FUNCTION':
             return 'FUN';
@@ -163,7 +164,7 @@ const getTwinCATFileKindIcon = (filePath: string): vscode.ThemeIcon => {
         case 'gvl':
             return new vscode.ThemeIcon('symbol-variable-group', new vscode.ThemeColor('symbolIcon.variableForeground'));
         case 'dut':
-            return new vscode.ThemeIcon('symbol-structure', new vscode.ThemeColor('symbolIcon.structForeground'));
+            return new vscode.ThemeIcon('symbol-structure', new vscode.ThemeColor('terminal.ansiMagenta'));
         case 'interface':
             return new vscode.ThemeIcon('symbol-interface', new vscode.ThemeColor('symbolIcon.interfaceForeground'));
         case 'io':
@@ -300,7 +301,7 @@ export class TwinCATFileTreeItem extends vscode.TreeItem {
             plcRoot: icon('symbol-module', 'charts.blue'),
             ioRoot: icon('plug', 'charts.green'),
             referencesRoot: icon('references', 'charts.purple'),
-            referenceItem: icon('library', 'symbolIcon.referenceForeground'),
+            referenceItem: icon('library', 'terminal.ansiCyan'),
             folder: icon('folder', 'symbolIcon.folderForeground'),
             plcProjectFolder: icon('folder-library', 'charts.blue'),
             // Use the core folder codicon for broad VS Code compatibility.
@@ -1078,19 +1079,59 @@ export class TwinCATFileExplorerProvider
         if (ext === '.tcpou' || ext === '.tcprg' || ext === '.tcapp' || ext === '.tccom') {
             const root = xml.TcPOU?.[0] ?? xml.TcPlcObject?.POU?.[0] ?? xml.TcPlcObject?.TcPOU?.[0];
             const rawType = extractText(root?.Type);
-            if (!rawType) {
-                return undefined;
+            if (rawType) {
+                return mapPouTypeLabel(rawType) ?? rawType.toUpperCase();
             }
-            return mapPouTypeLabel(rawType) ?? rawType.toUpperCase();
+
+            const declaration = extractText(root?.Declaration);
+            const declarationType = this.getPouTypeFromDeclaration(declaration);
+            return declarationType ? mapPouTypeLabel(declarationType) ?? declarationType.toUpperCase() : undefined;
         }
 
         if (ext === '.tcdut') {
             const root = xml.TcDUT?.[0] ?? xml.TcPlcObject?.DUT?.[0] ?? xml.TcPlcObject?.TcDUT?.[0];
             const rawType = extractText(root?.Type);
-            return rawType ? rawType.toUpperCase() : undefined;
+            if (rawType) {
+                return rawType.toUpperCase();
+            }
+
+            const declaration = extractText(root?.Declaration);
+            return this.getDutTypeFromDeclaration(declaration);
         }
 
         return undefined;
+    }
+
+    private getPouTypeFromDeclaration(declaration: string | undefined): string | undefined {
+        if (!declaration) {
+            return undefined;
+        }
+
+        const match = declaration.match(/^\s*(PROGRAM|FUNCTION_BLOCK|FUNCTION)\b/im);
+        return match?.[1];
+    }
+
+    private getDutTypeFromDeclaration(declaration: string | undefined): string | undefined {
+        if (!declaration) {
+            return undefined;
+        }
+
+        const normalized = declaration.replace(/\r/g, '');
+        const headerMatch = normalized.match(/^\s*TYPE\s+[A-Za-z_]\w*\s*:\s*/im);
+        if (!headerMatch) {
+            return undefined;
+        }
+
+        const afterHeader = normalized.slice(headerMatch.index! + headerMatch[0].length).trim();
+        if (/^STRUCT\b/i.test(afterHeader)) {
+            return 'STRUCT';
+        }
+        if (/^(?:\{[^\n]*\}\s*)*\(/.test(afterHeader)) {
+            return 'ENUM';
+        }
+
+        const aliasMatch = afterHeader.match(/^([A-Za-z_]\w*)/);
+        return aliasMatch?.[1]?.toUpperCase();
     }
 
     private hasStructuredMembers(xml: any): boolean {
