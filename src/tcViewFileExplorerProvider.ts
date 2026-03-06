@@ -66,6 +66,18 @@ const SOLUTION_PROJECT_EXTENSIONS = ['.tsproj', '.tspproj'];
 const toArray = <T>(value: T | T[] | undefined): T[] =>
     Array.isArray(value) ? value : value ? [value] : [];
 
+const extractText = (value: unknown): string | undefined => {
+    if (Array.isArray(value)) {
+        return extractText(value[0]);
+    }
+    if (value === undefined || value === null) {
+        return undefined;
+    }
+
+    const text = value.toString().trim();
+    return text.length > 0 ? text : undefined;
+};
+
 const sortItems = (items: TwinCATFileTreeItem[]) =>
     items.sort((a, b) =>
         (a.label?.toString() || '').localeCompare(b.label?.toString() || '')
@@ -123,6 +135,19 @@ const getTwinCATFileKindLabel = (filePath: string): string | undefined => {
             return 'VAR';
         case 'gds':
             return 'GDS';
+        default:
+            return undefined;
+    }
+};
+
+const mapPouTypeLabel = (rawType: string): string | undefined => {
+    switch (rawType.toUpperCase()) {
+        case 'FUNCTION_BLOCK':
+            return 'FB';
+        case 'FUNCTION':
+            return 'FUN';
+        case 'PROGRAM':
+            return 'PRG';
         default:
             return undefined;
     }
@@ -779,14 +804,14 @@ export class TwinCATFileExplorerProvider
 
         if (entry.isFile() && this.isTwinCATFile(entry.name)) {
             const uri = vscode.Uri.file(fullPath);
-            const hasChildren = this.isExpandablePOUFile(fullPath);
+            const detail = await this.getFileTreePresentation(uri);
 
             const item = new TwinCATFileTreeItem(
                 uri,
-                collapsibleState(hasChildren),
+                collapsibleState(detail.hasChildren),
                 TwinCATItemType.File
             );
-            item.description = getTwinCATFileKindLabel(fullPath);
+            item.description = detail.label ?? getTwinCATFileKindLabel(fullPath);
             return item;
         }
 
@@ -1029,6 +1054,60 @@ export class TwinCATFileExplorerProvider
         return ext === '.tcitf' || ext === '.tcio';
     }
 
+    private async getFileTreePresentation(uri: vscode.Uri): Promise<{ hasChildren: boolean; label?: string }> {
+        const filePath = uri.fsPath;
+        const ext = path.extname(filePath).toLowerCase();
+        const defaultHasChildren = this.isExpandablePOUFile(filePath);
+        const needsXmlTypeLabel = ext === '.tcpou' || ext === '.tcprg' || ext === '.tcapp' || ext === '.tccom' || ext === '.tcdut';
+        if (!defaultHasChildren && !needsXmlTypeLabel) {
+            return { hasChildren: false };
+        }
+
+        try {
+            const xml = await this.getParsedPOU(uri);
+            const label = this.getSpecificFileTypeLabel(filePath, xml);
+            const hasChildren = defaultHasChildren ? this.hasStructuredMembers(xml) : false;
+            return { hasChildren, label };
+        } catch {
+            return { hasChildren: defaultHasChildren };
+        }
+    }
+
+    private getSpecificFileTypeLabel(filePath: string, xml: any): string | undefined {
+        const ext = path.extname(filePath).toLowerCase();
+        if (ext === '.tcpou' || ext === '.tcprg' || ext === '.tcapp' || ext === '.tccom') {
+            const root = xml.TcPOU?.[0] ?? xml.TcPlcObject?.POU?.[0] ?? xml.TcPlcObject?.TcPOU?.[0];
+            const rawType = extractText(root?.Type);
+            if (!rawType) {
+                return undefined;
+            }
+            return mapPouTypeLabel(rawType) ?? rawType.toUpperCase();
+        }
+
+        if (ext === '.tcdut') {
+            const root = xml.TcDUT?.[0] ?? xml.TcPlcObject?.DUT?.[0] ?? xml.TcPlcObject?.TcDUT?.[0];
+            const rawType = extractText(root?.Type);
+            return rawType ? rawType.toUpperCase() : undefined;
+        }
+
+        return undefined;
+    }
+
+    private hasStructuredMembers(xml: any): boolean {
+        const root = this.extractStructuredRoot(xml);
+        if (!root) {
+            return false;
+        }
+
+        const hasNamedMembers = (collection: any[]) =>
+            collection.some(entry => !!extractText(entry?.Name));
+
+        return hasNamedMembers(toArray(root.Method))
+            || hasNamedMembers(toArray(root.Property))
+            || hasNamedMembers(toArray(root.Action))
+            || hasNamedMembers(toArray(root.Transition));
+    }
+
     // -------------------------------------------------
     // XML
     // -------------------------------------------------
@@ -1084,7 +1163,7 @@ export class TwinCATFileExplorerProvider
 
         const folderMap = new Map<string, TwinCATFileTreeItem[]>();
 
-        const extractName = (v: any) => (Array.isArray(v) ? v[0]?.toString() : v?.toString());
+        const extractName = (v: any) => extractText(v);
 
         // Extract folder name from FolderPath attribute (removes trailing slash)
         const extractFolderName = (xmlObj: any): string | undefined => {
@@ -1144,7 +1223,7 @@ export class TwinCATFileExplorerProvider
         };
 
         processItems(methods, TwinCATItemType.Method);
-        processItems(properties, TwinCATItemType.Property, p => !!(p.Get || p.Set));
+        processItems(properties, TwinCATItemType.Property, p => !!(p.Get?.[0] || p.Set?.[0]));
         processItems(actions, TwinCATItemType.Action);
         processItems(transitions, TwinCATItemType.Transition);
 
@@ -1158,12 +1237,14 @@ export class TwinCATFileExplorerProvider
             if (!name) continue;
 
             const children = folderMap.get(name) || [];
+            if (children.length === 0) {
+                continue;
+            }
 
             folderItems.push(
                 new TwinCATFileTreeItem(
                     uri.with({ fragment: `Folder:${name}` }),
-                    // Make folders expandable even if no children
-                    vscode.TreeItemCollapsibleState.Collapsed,
+                    collapsibleState(children.length > 0),
                     TwinCATItemType.POUFolder,
                     uri.fsPath,
                     sortItems(children),
