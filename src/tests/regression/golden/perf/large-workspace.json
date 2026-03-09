@@ -1,14 +1,19 @@
 {
-  "version": 1,
+  "version": 2,
   "workload": {
     "pouCopies": 220,
     "interfaceCopies": 220,
     "structDutCopies": 220,
     "enumDutCopies": 220,
-    "fragmentChecks": 160
+    "fragmentChecks": 160,
+    "savePouCopies": 80,
+    "saveStructDutCopies": 80,
+    "saveEnumDutCopies": 80
   },
   "digest": "7fddd5bc2a2dcff6b1bc28b5763aef2e6ee57640986cbfac2efdf35a69b30880",
   "totalOutputBytes": 80740,
   "fragmentDigest": "b55b9eea4849d08466d51f6e57ed9384533ba82adf3455e0cafc7fab2c6f1cf5",
-  "fragmentBytes": 10800
+  "fragmentBytes": 10800,
+  "saveDigest": "f4e3ebc7a874a02b91624255d80272b5b89f055bef89852b883e1d68ea9b73ea",
+  "saveBytes": 118160
 }

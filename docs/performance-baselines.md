@@ -6,6 +6,7 @@ This document defines how alpha testers and CI should capture and compare TcView
 
 - keep a stable baseline for the synthetic large-workspace workload
 - capture representative runtime snapshots from alpha workspaces
+- track save-path workload stability in addition to convert/fragment throughput
 - make pass/fail guardrails explicit and reproducible
 
 ## CI Guardrail Inputs
@@ -13,6 +14,10 @@ This document defines how alpha testers and CI should capture and compare TcView
 - Report file: `.test-results/perf/large-workspace.json`
 - Budget file: `.github/perf/ci-budget.json`
 - Validation command: `npm run test:perf:guardrails`
+- Current synthetic guardrail dimensions:
+  - full-file conversions
+  - fragment extraction
+  - repeated save-roundtrip transforms
 
 Default CI thresholds are intentionally conservative and should be tightened as alpha history grows.
 Use the updater utility to suggest a tighter `maxElapsedMs` from recent reports:

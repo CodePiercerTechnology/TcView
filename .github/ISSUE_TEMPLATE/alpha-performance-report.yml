@@ -1,0 +1,76 @@
+name: Alpha Performance Report
+description: Report a slow or high-churn TcView workflow with baseline/trace artifacts.
+title: "[Alpha Perf]: "
+labels:
+  - alpha
+  - performance
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for slow open, tree refresh, reindex, or save behavior.
+        Attach exported baseline/trace files when possible.
+  - type: input
+    id: tcview_version
+    attributes:
+      label: TcView version or commit
+      placeholder: 0.0.5 / 5937eaf
+    validations:
+      required: true
+  - type: input
+    id: vscode_version
+    attributes:
+      label: VS Code version
+      placeholder: 1.99.0
+    validations:
+      required: true
+  - type: input
+    id: twincat_version
+    attributes:
+      label: TwinCAT / XAE version
+      placeholder: 3.x build number if known
+  - type: dropdown
+    id: workspace_shape
+    attributes:
+      label: Workspace shape
+      options:
+        - Solution (.sln + .tsproj/.tspproj + .plcproj)
+        - Standalone PLC project (.plcproj)
+        - Large multi-project solution
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: scenario
+    attributes:
+      label: Slow scenario
+      placeholder: |
+        Opening a TcPOU file takes ~4 seconds after workspace load.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. Open workspace
+        2. Wait for TcView tree
+        3. Open file ...
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed timing or symptoms
+      description: Include measured duration if known, or describe the visible slowdown.
+    validations:
+      required: true
+  - type: textarea
+    id: perf_artifacts
+    attributes:
+      label: Baseline and trace artifacts
+      description: Attach `runtime-baseline.json`, `runtime-trace.json`, or `.test-results/perf/large-workspace.json` when available.
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context

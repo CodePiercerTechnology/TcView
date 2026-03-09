@@ -28,8 +28,9 @@ If your change touches TwinCAT Automation Interface commands, also validate the 
 Current note:
 
 - backend features are optional
-- the VSIX does not currently ship a backend executable
-- do not document backend-powered commands as turnkey unless packaging changes too
+- the VSIX now ships the release backend for Windows alpha builds
+- validate backend-powered commands against the bundled backend path first
+- only use `twincat.backend.executablePath` when testing an override scenario
 
 ## Scope Discipline
 

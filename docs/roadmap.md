@@ -57,7 +57,15 @@ TcView should not drift into:
   - install library project
   - add library reference
   - remove library reference
-- backend support is opt-in and currently requires a locally built backend executable
+- Windows alpha packaging now ships a bundled backend for Automation Interface commands by default
+
+### Alpha Readiness
+
+- Windows CI now runs compile, regression tests, integration smoke tests, performance guardrails, and VSIX packaging validation
+- alpha release checklist, tester troubleshooting guide, and initial support matrix are now documented
+- GitHub issue templates now exist for alpha bug and performance reports
+- repo-local governance files now cover CODEOWNERS, PR validation checklist, and recommended GitHub ruleset settings
+- local validation now checks that the bundled backend is present in both release output and packaged VSIX artifacts
 
 ### Performance Baseline
 
@@ -75,6 +83,7 @@ TcView should not drift into:
 - CI now enforces an initial pass/fail performance budget for the large-workspace regression report
 - alpha-facing performance baseline capture guidance and trace triage runbook are now documented
 - perf budget updater utility now computes tighten-only `maxElapsedMs` suggestions from recent reports
+- synthetic large-workspace regression coverage now also includes repeated save-roundtrip transforms so perf guardrails cover save-path churn in addition to open/fragment work
 
 ## Next Priorities
 
@@ -115,22 +124,16 @@ TcView should not drift into:
 
 ### Packaging and Release
 
-1. Decide whether backend-enabled releases will ship:
-   - self-contained backend
-   - framework-dependent backend
-   - or no backend in the VSIX
-2. Document that release choice explicitly before publishing beyond local/manual installs
+1. Decide whether the shipped backend remains:
+   - framework-dependent
+   - or moves to self-contained packaging
+2. Document that bundled-backend release choice explicitly before publishing beyond local/manual installs
 
 ## Production Alpha Readiness Gate
 
 ### Required for Alpha
 
-1. Establish a Windows CI pipeline that runs compile, regression tests, integration smoke tests, and VSIX packaging validation on every PR
-2. Add an alpha release checklist with explicit pass/fail criteria for build, install, open/edit/save, library operations, and solution build flows
-3. Validate optional backend behavior across supported machine states (backend present, backend missing, backend launch/runtime failure) with clear user-facing error guidance
-4. Add a tester-facing troubleshooting guide that covers required toolchain versions (VS Code, TwinCAT/XAE, .NET runtime/MSBuild) and expected workspace layouts
-5. Add issue templates for alpha testers that capture environment/version metadata and minimal reproduction artifacts
-6. Define an initial support matrix (TwinCAT build range, VS Code versions, workspace shape: solution vs standalone PLC project)
+1. Validate optional backend behavior across supported machine states (backend present, backend missing, backend launch/runtime failure) with clear user-facing error guidance
 
 ### Before Public Preview
 

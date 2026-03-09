@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import { TwinCATFileExplorerProvider, TwinCATFileTreeItem, TwinCATItemType } from './tcViewFileExplorerProvider';
 import { TwinCATFileSystemProvider } from './tcViewFileSystemProvider';
 import { TwinCATXmlConverter } from './tcViewXmlConverter';
-import { TwinCATBackendClient } from './backend/tcViewBackendClient';
+import { formatBackendCommandError, TwinCATBackendClient } from './backend/tcViewBackendClient';
 import { registerLanguageFeatures } from './iecStLanguageFeatures';
 import { disposeProjectAnalyzer, getProjectAnalyzer, initializeProjectAnalyzer, onProjectAnalyzerCreated, refreshProjectAnalyzerLibraryMetadata } from './tcViewProjectAnalyzer';
 import { disposeTelemetry, logError, showPerfSummary, withPerfMetric, writePerfSnapshot, writePerfTrace } from './tcViewTelemetry';
@@ -1702,7 +1702,7 @@ export function activate(context: vscode.ExtensionContext) {
         } catch (error) {
             libraryOutput.appendLine(`[TcView Libraries] Install library project failed: ${String(error)}`);
             libraryOutput.show(true);
-            vscode.window.showErrorMessage(`TcView: TwinCAT library project install failed. ${String(error)}`);
+            vscode.window.showErrorMessage(`TcView: TwinCAT library project install failed. ${formatBackendCommandError(error)}`);
         }
     });
 
@@ -1780,7 +1780,7 @@ export function activate(context: vscode.ExtensionContext) {
         } catch (error) {
             libraryOutput.appendLine(`[TcView Libraries] Add library reference failed: ${String(error)}`);
             libraryOutput.show(true);
-            vscode.window.showErrorMessage(`TcView: Add library reference failed. ${String(error)}`);
+            vscode.window.showErrorMessage(`TcView: Add library reference failed. ${formatBackendCommandError(error)}`);
         }
     });
 
@@ -1839,7 +1839,7 @@ export function activate(context: vscode.ExtensionContext) {
         } catch (error) {
             libraryOutput.appendLine(`[TcView Libraries] Remove library reference failed: ${String(error)}`);
             libraryOutput.show(true);
-            vscode.window.showErrorMessage(`TcView: Remove library reference failed. ${String(error)}`);
+            vscode.window.showErrorMessage(`TcView: Remove library reference failed. ${formatBackendCommandError(error)}`);
         }
     });
 

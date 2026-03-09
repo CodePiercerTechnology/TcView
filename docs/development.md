@@ -73,8 +73,9 @@ Use this when working on TwinCAT Automation Interface features such as:
 Current reality:
 
 - the repo contains backend source
-- the packaged VSIX does not currently ship the backend executable
-- backend commands require a local backend build and `twincat.backend.executablePath`
+- the packaged VSIX ships the release backend output for Windows alpha builds
+- backend commands should work against the bundled backend by default
+- `twincat.backend.executablePath` is an override when testing a custom backend
 
 ## Packaging
 
@@ -96,6 +97,10 @@ and does not need to rely on a large ignore-only package layout.
 - [library-metadata.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/library-metadata.md): metadata model and library recognition
 - [performance-baselines.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/performance-baselines.md): baseline capture process and CI guardrail inputs
 - [performance-trace-triage.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/performance-trace-triage.md): runtime trace triage checklist for alpha issues
+- [alpha-release-checklist.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/alpha-release-checklist.md): pre-alpha ship checklist with build/install/function/perf gates
+- [alpha-troubleshooting.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/alpha-troubleshooting.md): tester troubleshooting and environment capture guide
+- [support-matrix.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/support-matrix.md): initial alpha support boundary
+- [github-rulesets.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/github-rulesets.md): recommended GitHub branch/ruleset baseline for `main`
 - [production-readiness.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/production-readiness.md): release gates and remaining risk areas
 - [roadmap.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/roadmap.md): roadmap and planned work
 

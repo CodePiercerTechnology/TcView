@@ -49,13 +49,16 @@ function main() {
     const maxElapsedMs = readNumericOverride('TCVIEW_PERF_MAX_ELAPSED_MS', thresholds.maxElapsedMs);
     const minTotalConversions = readNumericOverride('TCVIEW_PERF_MIN_TOTAL_CONVERSIONS', thresholds.minTotalConversions);
     const minFragmentChecks = readNumericOverride('TCVIEW_PERF_MIN_FRAGMENT_CHECKS', thresholds.minFragmentChecks);
+    const minSaveChecks = readNumericOverride('TCVIEW_PERF_MIN_SAVE_CHECKS', thresholds.minSaveChecks);
     const expectedDigest = process.env.TCVIEW_PERF_EXPECTED_DIGEST || thresholds.expectedDigest;
     const expectedFragmentDigest = process.env.TCVIEW_PERF_EXPECTED_FRAGMENT_DIGEST || thresholds.expectedFragmentDigest;
+    const expectedSaveDigest = process.env.TCVIEW_PERF_EXPECTED_SAVE_DIGEST || thresholds.expectedSaveDigest;
 
     const failures = [];
     assertCondition(Number.isFinite(report.elapsedMs), `report.elapsedMs must be finite. Received: ${String(report.elapsedMs)}`, failures);
     assertCondition(Number.isFinite(report.totalConversions), `report.totalConversions must be finite. Received: ${String(report.totalConversions)}`, failures);
     assertCondition(Number.isFinite(report.fragmentChecks), `report.fragmentChecks must be finite. Received: ${String(report.fragmentChecks)}`, failures);
+    assertCondition(Number.isFinite(report.saveChecks), `report.saveChecks must be finite. Received: ${String(report.saveChecks)}`, failures);
 
     if (Number.isFinite(maxElapsedMs)) {
         assertCondition(report.elapsedMs <= maxElapsedMs, `elapsedMs ${report.elapsedMs} exceeds maxElapsedMs ${maxElapsedMs}`, failures);
@@ -66,6 +69,9 @@ function main() {
     if (Number.isFinite(minFragmentChecks)) {
         assertCondition(report.fragmentChecks >= minFragmentChecks, `fragmentChecks ${report.fragmentChecks} is below minFragmentChecks ${minFragmentChecks}`, failures);
     }
+    if (Number.isFinite(minSaveChecks)) {
+        assertCondition(report.saveChecks >= minSaveChecks, `saveChecks ${report.saveChecks} is below minSaveChecks ${minSaveChecks}`, failures);
+    }
     if (typeof expectedDigest === 'string' && expectedDigest.length > 0) {
         assertCondition(report.digest === expectedDigest, `digest mismatch. expected=${expectedDigest} actual=${String(report.digest)}`, failures);
     }
@@ -73,6 +79,13 @@ function main() {
         assertCondition(
             report.fragmentDigest === expectedFragmentDigest,
             `fragmentDigest mismatch. expected=${expectedFragmentDigest} actual=${String(report.fragmentDigest)}`,
+            failures
+        );
+    }
+    if (typeof expectedSaveDigest === 'string' && expectedSaveDigest.length > 0) {
+        assertCondition(
+            report.saveDigest === expectedSaveDigest,
+            `saveDigest mismatch. expected=${expectedSaveDigest} actual=${String(report.saveDigest)}`,
             failures
         );
     }
@@ -87,7 +100,7 @@ function main() {
 
     console.log(
         `[PERF][PASS] ${budget.suite || 'large-workspace'} elapsed=${report.elapsedMs}ms ` +
-        `conversions=${report.totalConversions} fragments=${report.fragmentChecks}`
+        `conversions=${report.totalConversions} fragments=${report.fragmentChecks} saves=${report.saveChecks}`
     );
 }
 

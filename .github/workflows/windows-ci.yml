@@ -50,6 +50,11 @@ jobs:
       - name: Package VSIX
         run: npm exec --package @vscode/vsce -- vsce package --out tcview-ci.vsix
 
+      - name: Validate bundled backend packaging
+        env:
+          TCVIEW_VSIX_PATH: tcview-ci.vsix
+        run: npm run test:packaging:backend
+
       - name: Upload VSIX artifact
         uses: actions/upload-artifact@v4
         with:

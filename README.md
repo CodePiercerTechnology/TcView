@@ -39,7 +39,7 @@ Use TwinCAT XAE for device engineering, configuration activation, runtime contro
   - built-in Beckhoff catalog metadata
   - per-user and optional workspace metadata files
 - Import library project metadata into the global TcView metadata catalog
-- Use optional TwinCAT Automation Interface commands for library install/add/remove when a backend executable is configured
+- Use optional TwinCAT Automation Interface commands for library install/add/remove through the bundled backend
 
 ## Supported Roots
 
@@ -81,7 +81,7 @@ The `Open TwinCAT Solution` command only opens `.sln` files.
 2. `vsce package`
 3. Install the generated `.vsix` in VS Code
 
-## Optional Backend
+## Bundled Backend
 
 Most TcView features run entirely in the VS Code extension host.
 
@@ -93,9 +93,10 @@ The backend is only needed for TwinCAT Automation Interface operations such as:
 
 Important:
 
-- The packaged extension does not currently ship a backend executable.
-- To use those commands, build `backend/TcView.Backend` yourself and set `twincat.backend.executablePath`.
-- The backend targets `net8.0-windows`.
+- The packaged extension ships a bundled backend for these commands.
+- The bundled backend currently targets `net8.0-windows`.
+- `twincat.backend.executablePath` is an override for advanced/custom backend scenarios, not a normal user requirement.
+- If the bundled backend cannot launch, verify the required .NET runtime is installed and capture the exact error text.
 
 ## Settings You Will Likely Care About
 
@@ -105,7 +106,7 @@ Important:
 | `twincat.backend.tmcRoots` | Additional `.tmc` lookup roots |
 | `twincat.library.managedRoots` | Additional Managed Libraries roots |
 | `twincat.library.metadataFiles` | Additional library metadata JSON files |
-| `twincat.backend.executablePath` | Path to the optional TcView backend executable |
+| `twincat.backend.executablePath` | Optional override path for a custom TcView backend executable |
 
 ## Library Metadata
 

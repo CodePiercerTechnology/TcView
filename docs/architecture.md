@@ -89,8 +89,9 @@ Key files:
 Current packaging note:
 
 - backend source exists in the repo
-- the shipped VSIX does not currently include a backend executable
-- backend commands require a locally built backend and `twincat.backend.executablePath`
+- Windows alpha VSIX packaging includes the release backend output
+- backend commands use the bundled backend by default
+- `twincat.backend.executablePath` exists as an override for advanced/custom backend scenarios
 
 ## TwinCAT Root Detection
 

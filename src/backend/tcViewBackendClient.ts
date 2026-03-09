@@ -1,7 +1,13 @@
 import * as fs from 'fs';
-import * as path from 'path';
 import { spawn } from 'child_process';
 import * as vscode from 'vscode';
+import {
+    BackendInvocation,
+    formatBackendCommandError,
+    getBackendInvocationCandidates,
+    getBackendMissingErrorMessage,
+    resolveBackendInvocationFromCandidates
+} from './tcViewBackendRuntime';
 
 type BackendResponse<T> = {
     id: number;
@@ -18,6 +24,7 @@ export type UpdateProjectLibraryReferenceResult = {
     success: boolean;
     diagnostics: string[];
 };
+export { formatBackendCommandError } from './tcViewBackendRuntime';
 
 export class TwinCATBackendClient {
     private queue: Promise<unknown> = Promise.resolve();
@@ -47,7 +54,7 @@ export class TwinCATBackendClient {
     private async invokeBackend<T>(method: string, params: unknown): Promise<T> {
         const invocation = this.resolveBackendInvocation();
         if (!invocation) {
-            throw new Error('TcView backend executable was not found. Build backend/TcView.Backend or set twincat.backend.executablePath.');
+            throw new Error(getBackendMissingErrorMessage());
         }
 
         return new Promise<T>((resolve, reject) => {
@@ -121,35 +128,11 @@ export class TwinCATBackendClient {
         });
     }
 
-    private resolveBackendInvocation(): { command: string; args: string[] } | undefined {
+    private resolveBackendInvocation(): BackendInvocation | undefined {
         const configured = vscode.workspace.getConfiguration('twincat').get<string>('backend.executablePath', '').trim();
-        const candidates = configured
-            ? [configured]
-            : [
-                path.join(this.extensionPath, 'backend', 'TcView.Backend', 'bin', 'Debug', 'net8.0-windows', 'TcView.Backend.exe'),
-                path.join(this.extensionPath, 'backend', 'TcView.Backend', 'bin', 'Release', 'net8.0-windows', 'TcView.Backend.exe'),
-                path.join(this.extensionPath, 'backend', 'TcView.Backend', 'bin', 'Debug', 'net8.0-windows', 'TcView.Backend.dll'),
-                path.join(this.extensionPath, 'backend', 'TcView.Backend', 'bin', 'Release', 'net8.0-windows', 'TcView.Backend.dll')
-            ];
-
-        for (const candidate of candidates) {
-            if (!candidate || !fs.existsSync(candidate)) {
-                continue;
-            }
-
-            if (candidate.toLowerCase().endsWith('.dll')) {
-                return {
-                    command: 'dotnet',
-                    args: [candidate]
-                };
-            }
-
-            return {
-                command: candidate,
-                args: []
-            };
-        }
-
-        return undefined;
+        return resolveBackendInvocationFromCandidates(
+            getBackendInvocationCandidates(this.extensionPath, configured),
+            fs.existsSync
+        );
     }
 }

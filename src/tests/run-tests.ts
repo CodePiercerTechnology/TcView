@@ -1,4 +1,5 @@
 import { runSuites, TestSuite } from './harness';
+import { runBackendClientUtilityTests } from './backendClient.test';
 import { runLanguageFeatureUtilityTests } from './languageFeatures.test';
 import { runRegressionTests } from './regression/regression.test';
 
@@ -31,7 +32,10 @@ async function main(): Promise<void> {
     const suiteMap: Record<SuiteName, TestSuite> = {
         functionality: {
             name: 'Functionality',
-            run: runLanguageFeatureUtilityTests
+            run: async () => {
+                await runLanguageFeatureUtilityTests();
+                await runBackendClientUtilityTests();
+            }
         },
         regression: {
             name: updateGoldens ? 'Regression (update goldens)' : 'Regression',

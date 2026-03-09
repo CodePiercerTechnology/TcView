@@ -11,7 +11,7 @@
 - `PASS` Windows-only extension distribution is explicit
 - `PASS` TcView scope is documented as supplemental to TwinCAT XAE
 - `PASS` Current feature set stays code-centric instead of attempting runtime/configuration parity
-- `PARTIAL` Optional backend-powered Automation Interface features exist, but backend packaging/distribution is not finalized
+- `PARTIAL` Optional backend-powered Automation Interface features exist, and Windows alpha packaging now bundles the backend, but the final runtime packaging mode still needs confirmation
 
 ## 1. Data Safety
 
@@ -58,8 +58,21 @@
 
 - `PASS` VSIX contents are now controlled by a `files` whitelist in [package.json](c:/Users/TwinCAT/Documents/MyStuff/TcView/package.json)
 - `PASS` Dev-heavy sources/docs/test assets are not required in the shipped runtime package
-- `PARTIAL` Backend is not currently shipped in the VSIX, so backend-powered commands depend on a locally built/configured backend
-- `TODO` Finalize backend release strategy before broader distribution
+- `PASS` Windows alpha VSIX packaging includes the release backend output for Automation Interface commands
+- `PASS` Local validation now checks that bundled backend files exist both in build output and inside the packaged VSIX
+- `PARTIAL` Bundled backend packaging is currently framework-dependent on `net8.0-windows`; broader release strategy still needs confirmation
+- `TODO` Decide whether the shipped backend remains framework-dependent or moves to self-contained packaging before broader distribution
+
+## 7. Alpha Operations
+
+- `PASS` Windows CI runs compile, regression tests, integration smoke tests, performance guardrails, and VSIX packaging validation
+- `PASS` Alpha release checklist exists in [alpha-release-checklist.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/alpha-release-checklist.md)
+- `PASS` Tester troubleshooting guide exists in [alpha-troubleshooting.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/alpha-troubleshooting.md)
+- `PASS` Initial support matrix exists in [support-matrix.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/support-matrix.md)
+- `PASS` GitHub issue templates exist for alpha bug and performance reports under `.github/ISSUE_TEMPLATE`
+- `PASS` Repo-local governance files now exist for code ownership, PR validation checklist, and recommended GitHub ruleset settings
+- `PASS` Local tests now cover bundled-backend resolution, stale override fallback, and missing-runtime guidance paths
+- `PARTIAL` Optional backend behavior across backend-present, backend-missing, and backend-failure machine states still needs broader live validation against real Automation Interface environments
 
 ## Practical Release Readiness Summary
 
