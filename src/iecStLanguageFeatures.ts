@@ -359,6 +359,7 @@ const blockPairs: { [key: string]: string } = {
 
 // All blocks that close with END_VAR
 const varBlocks = ['VAR', 'VAR_INPUT', 'VAR_OUTPUT', 'VAR_IN_OUT', 'VAR_TEMP', 'VAR_GLOBAL', 'VAR_INST', 'VAR_STAT'];
+const unusedDeclarationScopes = new Set(['VAR', 'VAR_INPUT', 'VAR_OUTPUT', 'VAR_IN_OUT', 'VAR_TEMP', 'VAR_GLOBAL', 'VAR_INST', 'VAR_STAT']);
 
 
 
@@ -1297,7 +1298,7 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         const allDeclared = new Set(ast.declarations.map(d => d.upper));
         const astSymbolTypes = new Map(ast.declarations.map(d => [d.upper, normalizeTypeName(d.type)] as [string, string]));
         const astLocalsForUnusedCheck = ast.declarations
-            .filter(d => d.scopeKind === 'VAR' || d.scopeKind === 'VAR_TEMP')
+            .filter(d => unusedDeclarationScopes.has(d.scopeKind))
             .map(d => ({ name: d.name, upper: d.upper, line: d.line, startCol: d.startCol, endCol: d.endCol }));
 
         const systemVars = getSystemVariables();
@@ -1446,7 +1447,7 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
             if (!(usedInBody || usedInWholePou)) {
                 diagnostics.push(new vscode.Diagnostic(
                     new vscode.Range(local.line, local.startCol, local.line, local.endCol),
-                    `Local variable '${local.name}' is declared but never used.`,
+                    `Declaration '${local.name}' is declared but never used.`,
                     severityUnused
                 ));
             }
@@ -1672,8 +1673,8 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
                         }
                     }
 
-                    // Unused local variable
-                    if (message.startsWith('Local variable ') && message.includes('declared but never used')) {
+                    // Unused declaration
+                    if (message.startsWith('Declaration ') && message.includes('declared but never used')) {
                         const action = new vscode.CodeAction('Remove unused variable declaration line', vscode.CodeActionKind.QuickFix);
                         action.diagnostics = [diagnostic];
                         action.edit = new vscode.WorkspaceEdit();
@@ -2137,7 +2138,8 @@ function extractVariableDeclarations(text: string): {
             scopeDeclarations.set(upperName, { line: lineIndex, startCol, endCol });
         }
 
-        if (currentScope.startsWith('VAR@') || currentScope.startsWith('VAR_TEMP@')) {
+        const activeScope = currentScope;
+        if (activeScope && [...unusedDeclarationScopes].some(scope => activeScope.startsWith(`${scope}@`))) {
             localsForUnusedCheck.push({ name, upper: upperName, line: lineIndex, startCol, endCol });
         }
     });

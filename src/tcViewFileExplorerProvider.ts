@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as xml2js from 'xml2js';
 import { getProjectAnalyzer, initializeProjectAnalyzer } from './tcViewProjectAnalyzer';
+import { TwinCATFileSystemProvider } from './tcViewFileSystemProvider';
 import { withPerfMetric } from './tcViewTelemetry';
 
 export enum TwinCATItemType {
@@ -155,10 +156,10 @@ const mapPouTypeLabel = (rawType: string): string | undefined => {
 };
 
 const TREE_ICON_COLOR = {
-    folder: 'charts.yellow',
+    folder: 'charts.orange',
     plcRoot: 'charts.blue',
     plcProject: 'terminal.ansiCyan',
-    folderMembers: 'charts.yellow',
+    folderMembers: 'charts.orange',
     pou: 'terminal.ansiBrightBlue',
     program: 'charts.green',
     gvl: 'charts.green',
@@ -180,29 +181,121 @@ const TREE_ICON_COLOR = {
     transition: 'terminal.ansiYellow'
 } as const;
 
-const getTwinCATFileKindIcon = (filePath: string): vscode.ThemeIcon => {
+type DiagnosticBreadcrumb = {
+    errors: number;
+    warnings: number;
+};
+
+const EMPTY_DIAGNOSTIC_BREADCRUMB: DiagnosticBreadcrumb = {
+    errors: 0,
+    warnings: 0
+};
+
+const combineDiagnosticBreadcrumb = (
+    left: DiagnosticBreadcrumb,
+    right: DiagnosticBreadcrumb
+): DiagnosticBreadcrumb => ({
+    errors: left.errors + right.errors,
+    warnings: left.warnings + right.warnings
+});
+
+const summarizeDiagnostics = (diagnostics: readonly vscode.Diagnostic[]): DiagnosticBreadcrumb => {
+    let errors = 0;
+    let warnings = 0;
+
+    for (const diagnostic of diagnostics) {
+        if (diagnostic.severity === vscode.DiagnosticSeverity.Error) {
+            errors += 1;
+        } else if (diagnostic.severity === vscode.DiagnosticSeverity.Warning) {
+            warnings += 1;
+        }
+    }
+
+    return { errors, warnings };
+};
+
+const PROBLEM_ERROR_COLOR = 'problemsErrorIcon.foreground';
+const PROBLEM_WARNING_COLOR = 'problemsWarningIcon.foreground';
+
+const formatDiagnosticTooltip = (summary: DiagnosticBreadcrumb | undefined): string | undefined => {
+    if (!summary || (summary.errors === 0 && summary.warnings === 0)) {
+        return undefined;
+    }
+
+    const parts: string[] = [];
+    if (summary.errors > 0) {
+        parts.push(`${summary.errors} error${summary.errors === 1 ? '' : 's'}`);
+    }
+    if (summary.warnings > 0) {
+        parts.push(`${summary.warnings} warning${summary.warnings === 1 ? '' : 's'}`);
+    }
+    return parts.join(', ');
+};
+
+const formatDiagnosticBadge = (summary: DiagnosticBreadcrumb | undefined): string | undefined => {
+    if (!summary || (summary.errors === 0 && summary.warnings === 0)) {
+        return undefined;
+    }
+
+    const parts: string[] = [];
+    if (summary.errors > 0) {
+        parts.push(`[x${summary.errors}]`);
+    }
+    if (summary.warnings > 0) {
+        parts.push(`[!${summary.warnings}]`);
+    }
+    return parts.join(' ');
+};
+
+type ThemeIconSpec = {
+    id: string;
+    colorId?: string;
+};
+
+const getProblemColorId = (summary: DiagnosticBreadcrumb | undefined): string | undefined => {
+    if (!summary) {
+        return undefined;
+    }
+    if (summary.errors > 0) {
+        return PROBLEM_ERROR_COLOR;
+    }
+    if (summary.warnings > 0) {
+        return PROBLEM_WARNING_COLOR;
+    }
+    return undefined;
+};
+
+const toThemeIcon = (spec: ThemeIconSpec, overrideColorId?: string): vscode.ThemeIcon =>
+    overrideColorId || spec.colorId
+        ? new vscode.ThemeIcon(spec.id, new vscode.ThemeColor(overrideColorId || spec.colorId!))
+        : new vscode.ThemeIcon(spec.id);
+
+const getTwinCATFileKindIconSpec = (filePath: string): ThemeIconSpec => {
     const kind = getTwinCATFileKind(filePath);
     switch (kind) {
         case 'pou':
-            return new vscode.ThemeIcon('symbol-class', new vscode.ThemeColor(TREE_ICON_COLOR.pou));
+            return { id: 'symbol-class', colorId: TREE_ICON_COLOR.pou };
         case 'program':
-            return new vscode.ThemeIcon('symbol-method', new vscode.ThemeColor(TREE_ICON_COLOR.program));
+            return { id: 'symbol-method', colorId: TREE_ICON_COLOR.program };
         case 'gvl':
-            return new vscode.ThemeIcon('symbol-variable', new vscode.ThemeColor(TREE_ICON_COLOR.gvl));
+            return { id: 'symbol-variable', colorId: TREE_ICON_COLOR.gvl };
         case 'dut':
-            return new vscode.ThemeIcon('symbol-struct', new vscode.ThemeColor(TREE_ICON_COLOR.dut));
+            return { id: 'symbol-struct', colorId: TREE_ICON_COLOR.dut };
         case 'interface':
-            return new vscode.ThemeIcon('type-hierarchy-super', new vscode.ThemeColor(TREE_ICON_COLOR.interface));
+            return { id: 'type-hierarchy-super', colorId: TREE_ICON_COLOR.interface };
         case 'io':
-            return new vscode.ThemeIcon('plug', new vscode.ThemeColor(TREE_ICON_COLOR.io));
+            return { id: 'plug', colorId: TREE_ICON_COLOR.io };
         case 'var':
-            return new vscode.ThemeIcon('symbol-field', new vscode.ThemeColor(TREE_ICON_COLOR.variable));
+            return { id: 'symbol-field', colorId: TREE_ICON_COLOR.variable };
         case 'gds':
-            return new vscode.ThemeIcon('symbol-array', new vscode.ThemeColor(TREE_ICON_COLOR.array));
+            return { id: 'symbol-array', colorId: TREE_ICON_COLOR.array };
         default:
-            return new vscode.ThemeIcon('file-code');
+            return { id: 'file-code' };
     }
 };
+
+const getTwinCATFileKindIcon = (filePath: string, summary?: DiagnosticBreadcrumb): vscode.ThemeIcon =>
+    toThemeIcon(getTwinCATFileKindIconSpec(filePath), getProblemColorId(summary));
 
 const getExplorerSortWeight = (item: TwinCATFileTreeItem): number => {
     if (item.itemType === TwinCATItemType.PlcProjectFolder) {
@@ -251,6 +344,10 @@ const sortExplorerItems = (items: TwinCATFileTreeItem[]) =>
 // -----------------------------------------------------
 
 export class TwinCATFileTreeItem extends vscode.TreeItem {
+    private readonly baseLabel: string;
+    private readonly baseTooltip: string;
+    private baseDescription?: string;
+
     constructor(
         public readonly targetUri: vscode.Uri,
         public readonly collapsibleState: vscode.TreeItemCollapsibleState,
@@ -262,7 +359,11 @@ export class TwinCATFileTreeItem extends vscode.TreeItem {
     ) {
         super(customLabel ?? TwinCATFileTreeItem.getLabel(targetUri, itemType));
 
-        this.tooltip = targetUri.fsPath;
+        this.baseLabel = customLabel ?? TwinCATFileTreeItem.getLabel(targetUri, itemType);
+        this.label = this.baseLabel;
+        this.id = `${itemType}:${targetUri.toString()}`;
+        this.baseTooltip = targetUri.fsPath;
+        this.tooltip = this.baseTooltip;
         this.contextValue = itemType;
         this.setIcon();
 
@@ -279,6 +380,22 @@ export class TwinCATFileTreeItem extends vscode.TreeItem {
                 arguments: [this]
             };
         }
+    }
+
+    setDescriptionText(description?: string) {
+        this.baseDescription = description;
+        this.description = description;
+    }
+
+    applyDiagnosticState(summary?: DiagnosticBreadcrumb) {
+        const tooltip = formatDiagnosticTooltip(summary);
+        this.tooltip = tooltip
+            ? `${this.baseTooltip}\nProblems: ${tooltip}`
+            : this.baseTooltip;
+        const badge = formatDiagnosticBadge(summary);
+        this.description = this.baseDescription;
+        this.label = badge ? `${this.baseLabel} ${badge}` : this.baseLabel;
+        this.setIcon(summary);
     }
 
     private static getLabel(uri: vscode.Uri, type: TwinCATItemType): string {
@@ -309,38 +426,50 @@ export class TwinCATFileTreeItem extends vscode.TreeItem {
         return path.basename(uri.fsPath);
     }
 
-    private setIcon() {
+    private getBaseIconSpec(): ThemeIconSpec {
         if (this.itemType === TwinCATItemType.File) {
-            this.iconPath = getTwinCATFileKindIcon(this.targetUri.fsPath);
+            return getTwinCATFileKindIconSpec(this.targetUri.fsPath);
+        }
+
+        const iconMap: Record<TwinCATItemType, ThemeIconSpec> = {
+            statusInfo: { id: 'search', colorId: TREE_ICON_COLOR.info },
+            statusWarning: { id: 'warning', colorId: TREE_ICON_COLOR.warning },
+            systemRoot: { id: 'server-environment', colorId: TREE_ICON_COLOR.system },
+            plcRoot: { id: 'circuit-board', colorId: TREE_ICON_COLOR.plcRoot },
+            ioRoot: { id: 'plug', colorId: TREE_ICON_COLOR.io },
+            referencesRoot: { id: 'references', colorId: TREE_ICON_COLOR.reference },
+            referenceItem: { id: 'library', colorId: TREE_ICON_COLOR.library },
+            folder: { id: 'folder', colorId: TREE_ICON_COLOR.folder },
+            plcProjectFolder: { id: 'circuit-board', colorId: TREE_ICON_COLOR.plcProject },
+            pouFolder: { id: 'folder', colorId: TREE_ICON_COLOR.folderMembers },
+            file: { id: 'file-code' },
+            method: { id: 'symbol-method', colorId: TREE_ICON_COLOR.method },
+            property: { id: 'symbol-property', colorId: TREE_ICON_COLOR.property },
+            propertyGet: { id: 'arrow-circle-down', colorId: TREE_ICON_COLOR.propertyGet },
+            propertySet: { id: 'arrow-circle-up', colorId: TREE_ICON_COLOR.propertySet },
+            action: { id: 'symbol-event', colorId: TREE_ICON_COLOR.action },
+            transition: { id: 'symbol-interface', colorId: TREE_ICON_COLOR.transition }
+        };
+
+        return iconMap[this.itemType];
+    }
+
+    private setIcon(summary?: DiagnosticBreadcrumb) {
+        const problemColorId = getProblemColorId(summary);
+        if (problemColorId) {
+            this.iconPath = new vscode.ThemeIcon(
+                summary && summary.errors > 0 ? 'error' : 'warning',
+                new vscode.ThemeColor(problemColorId)
+            );
             return;
         }
 
-        const icon = (id: string, colorId?: string): vscode.ThemeIcon =>
-            colorId
-                ? new vscode.ThemeIcon(id, new vscode.ThemeColor(colorId))
-                : new vscode.ThemeIcon(id);
+        if (this.itemType === TwinCATItemType.File) {
+            this.iconPath = getTwinCATFileKindIcon(this.targetUri.fsPath, summary);
+            return;
+        }
 
-        const iconMap: Record<TwinCATItemType, vscode.ThemeIcon> = {
-            statusInfo: icon('search', TREE_ICON_COLOR.info),
-            statusWarning: icon('warning', TREE_ICON_COLOR.warning),
-            systemRoot: icon('server-environment', TREE_ICON_COLOR.system),
-            plcRoot: icon('circuit-board', TREE_ICON_COLOR.plcRoot),
-            ioRoot: icon('plug', TREE_ICON_COLOR.io),
-            referencesRoot: icon('references', TREE_ICON_COLOR.reference),
-            referenceItem: icon('library', TREE_ICON_COLOR.library),
-            folder: icon('folder', TREE_ICON_COLOR.folder),
-            plcProjectFolder: icon('circuit-board', TREE_ICON_COLOR.plcProject),
-            pouFolder: icon('folder', TREE_ICON_COLOR.folderMembers),
-            file: icon('file-code'),
-            method: icon('symbol-method', TREE_ICON_COLOR.method),
-            property: icon('symbol-property', TREE_ICON_COLOR.property),
-            propertyGet: icon('arrow-circle-down', TREE_ICON_COLOR.propertyGet),
-            propertySet: icon('arrow-circle-up', TREE_ICON_COLOR.propertySet),
-            action: icon('symbol-event', TREE_ICON_COLOR.action),
-            transition: icon('symbol-interface', TREE_ICON_COLOR.transition)
-        };
-
-        this.iconPath = iconMap[this.itemType];
+        this.iconPath = toThemeIcon(this.getBaseIconSpec());
     }
 }
 
@@ -370,6 +499,8 @@ export class TwinCATFileExplorerProvider
     private pendingStructuralRefresh = false;
     private hasActiveSolution = false;
     private discoveryStarted = false;
+    private diagnosticSummaryCache = new Map<string, DiagnosticBreadcrumb>();
+    private diagnosticFileSummaryCache: Map<string, DiagnosticBreadcrumb> | undefined;
 
     constructor(
         private workspaceRoot?: string,
@@ -402,6 +533,11 @@ export class TwinCATFileExplorerProvider
         this.refresh();
     }
 
+    handleDiagnosticsChanged() {
+        this.clearDiagnosticSummaryCaches();
+        this.notifyContentRefresh();
+    }
+
     refresh() {
         this.folderChildrenCache.clear();
         this.plcReferencesCache.clear();
@@ -411,6 +547,11 @@ export class TwinCATFileExplorerProvider
 
     private notifyContentRefresh() {
         this._onDidChangeTreeData.fire(undefined);
+    }
+
+    private clearDiagnosticSummaryCaches() {
+        this.diagnosticSummaryCache.clear();
+        this.diagnosticFileSummaryCache = undefined;
     }
 
     private scheduleRefresh(structural = true, delayMs = 150) {
@@ -441,6 +582,7 @@ export class TwinCATFileExplorerProvider
     }
 
     getTreeItem(element: TwinCATFileTreeItem) {
+        this.applyDiagnosticState(element);
         return element;
     }
 
@@ -485,7 +627,7 @@ export class TwinCATFileExplorerProvider
                     undefined,
                     'Not a project solution, view/edit files only'
                 );
-                warningItem.description = 'Build features are unavailable';
+                warningItem.setDescriptionText('Build features are unavailable');
                 warningItem.tooltip = 'TcView did not detect an open TwinCAT project solution in this workspace. View and edit features remain available.';
                 items.push(warningItem);
             }
@@ -671,6 +813,7 @@ export class TwinCATFileExplorerProvider
         this.folderChildrenCache.clear();
         this.plcReferencesCache.clear();
         this.topLevelGroupsCache = undefined;
+        this.clearDiagnosticSummaryCaches();
         this.rootIdentifiers = undefined;
         this.tsprojStructure = undefined;
         this.contentRoot = undefined;
@@ -808,6 +951,112 @@ export class TwinCATFileExplorerProvider
         return lower === 'io' || lower === 'i_o' || lower === 'i-o';
     }
 
+    private applyDiagnosticState(item: TwinCATFileTreeItem) {
+        switch (item.itemType) {
+            case TwinCATItemType.File:
+            case TwinCATItemType.Folder:
+            case TwinCATItemType.PlcProjectFolder:
+            case TwinCATItemType.SystemRoot:
+            case TwinCATItemType.PlcRoot:
+            case TwinCATItemType.IoRoot:
+                item.applyDiagnosticState(this.getDiagnosticBreadcrumb(item.itemType, item.targetUri.fsPath));
+                return;
+            default:
+                item.applyDiagnosticState(undefined);
+        }
+    }
+
+    private getDiagnosticBreadcrumb(itemType: TwinCATItemType, targetPath: string): DiagnosticBreadcrumb {
+        const cacheKey = `${itemType}:${this.getMetadataCacheKey(targetPath)}`;
+        const cached = this.diagnosticSummaryCache.get(cacheKey);
+        if (cached) {
+            return cached;
+        }
+
+        let summary = EMPTY_DIAGNOSTIC_BREADCRUMB;
+        switch (itemType) {
+            case TwinCATItemType.File:
+                summary = this.getDiagnosticBreadcrumbForFile(targetPath);
+                break;
+            case TwinCATItemType.Folder:
+            case TwinCATItemType.PlcProjectFolder:
+                summary = this.getDiagnosticBreadcrumbForFolder(targetPath);
+                break;
+            case TwinCATItemType.SystemRoot:
+                summary = this.getDiagnosticBreadcrumbForGroup('system');
+                break;
+            case TwinCATItemType.PlcRoot:
+                summary = this.getDiagnosticBreadcrumbForGroup('plc');
+                break;
+            case TwinCATItemType.IoRoot:
+                summary = this.getDiagnosticBreadcrumbForGroup('io');
+                break;
+        }
+
+        this.diagnosticSummaryCache.set(cacheKey, summary);
+        return summary;
+    }
+
+    private getDiagnosticFileSummaryMap(): Map<string, DiagnosticBreadcrumb> {
+        if (this.diagnosticFileSummaryCache) {
+            return this.diagnosticFileSummaryCache;
+        }
+
+        const fileSummaryMap = new Map<string, DiagnosticBreadcrumb>();
+        for (const [uri, diagnostics] of vscode.languages.getDiagnostics()) {
+            let targetPath: string | undefined;
+            if (uri.scheme === 'file') {
+                targetPath = uri.fsPath;
+            } else if (uri.scheme === TwinCATFileSystemProvider.scheme) {
+                targetPath = TwinCATFileSystemProvider.getOriginalPath(uri);
+            }
+            if (!targetPath) {
+                continue;
+            }
+
+            const summary = summarizeDiagnostics(diagnostics);
+            if (summary.errors === 0 && summary.warnings === 0) {
+                continue;
+            }
+
+            const key = this.getMetadataCacheKey(targetPath);
+            const existing = fileSummaryMap.get(key) || EMPTY_DIAGNOSTIC_BREADCRUMB;
+            fileSummaryMap.set(key, combineDiagnosticBreadcrumb(existing, summary));
+        }
+
+        this.diagnosticFileSummaryCache = fileSummaryMap;
+        return fileSummaryMap;
+    }
+
+    private getDiagnosticBreadcrumbForFile(filePath: string): DiagnosticBreadcrumb {
+        return this.getDiagnosticFileSummaryMap().get(this.getMetadataCacheKey(filePath)) || EMPTY_DIAGNOSTIC_BREADCRUMB;
+    }
+
+    private getDiagnosticBreadcrumbForFolder(folderPath: string): DiagnosticBreadcrumb {
+        const normalizedFolderPath = this.getMetadataCacheKey(folderPath);
+        const folderPrefix = `${normalizedFolderPath}${path.sep}`;
+        let summary = EMPTY_DIAGNOSTIC_BREADCRUMB;
+
+        for (const [filePath, fileSummary] of this.getDiagnosticFileSummaryMap()) {
+            if (filePath === normalizedFolderPath || filePath.startsWith(folderPrefix)) {
+                summary = combineDiagnosticBreadcrumb(summary, fileSummary);
+            }
+        }
+
+        return summary;
+    }
+
+    private getDiagnosticBreadcrumbForGroup(group: 'system' | 'plc' | 'io'): DiagnosticBreadcrumb {
+        const groupItems = this.topLevelGroupsCache?.[group] || [];
+        let summary = EMPTY_DIAGNOSTIC_BREADCRUMB;
+
+        for (const item of groupItems) {
+            summary = combineDiagnosticBreadcrumb(summary, this.getDiagnosticBreadcrumb(item.itemType, item.targetUri.fsPath));
+        }
+
+        return summary;
+    }
+
     private async createTreeItemFromEntry(folderPath: string, entry: fs.Dirent): Promise<TwinCATFileTreeItem | undefined> {
         if (this.isHiddenOrExcluded(entry.name)) {
             return undefined;
@@ -823,7 +1072,7 @@ export class TwinCATFileExplorerProvider
                 hasPlcProject ? TwinCATItemType.PlcProjectFolder : TwinCATItemType.Folder
             );
             if (hasPlcProject) {
-                item.description = 'PLC project';
+                item.setDescriptionText('PLC project');
             }
             return item;
         }
@@ -837,7 +1086,7 @@ export class TwinCATFileExplorerProvider
                 collapsibleState(detail.hasChildren),
                 TwinCATItemType.File
             );
-            item.description = detail.label ?? getTwinCATFileKindLabel(fullPath);
+            item.setDescriptionText(detail.label ?? getTwinCATFileKindLabel(fullPath));
             return item;
         }
 
@@ -939,7 +1188,7 @@ export class TwinCATFileExplorerProvider
             'References'
         );
         referencesRoot.tooltip = `${path.basename(folderPath)} references`;
-        referencesRoot.description = `${referencesItems.length}`;
+        referencesRoot.setDescriptionText(`${referencesItems.length}`);
         return [referencesRoot, ...folderItems];
     }
 
@@ -1017,7 +1266,7 @@ export class TwinCATFileExplorerProvider
                         ref,
                         label
                     );
-                    item.description = namespaceValue && namespaceValue !== label ? namespaceValue.toString() : undefined;
+                    item.setDescriptionText(namespaceValue && namespaceValue !== label ? namespaceValue.toString() : undefined);
                     item.tooltip = tooltip;
                     return item;
                 });
@@ -1036,7 +1285,7 @@ export class TwinCATFileExplorerProvider
                             ref,
                             ref.name
                         );
-                        item.description = 'system global';
+                        item.setDescriptionText('system global');
                         item.tooltip = ref.summary
                             ? `${ref.name}\n${ref.summary}`
                             : `${ref.name} (system global)`;
@@ -1411,5 +1660,7 @@ export class TwinCATFileExplorerProvider
         this.parsedPOUCache.clear();
         this.projectMetadataXmlCache.clear();
         this.directoryEntriesCache.clear();
+        this.clearDiagnosticSummaryCaches();
+        this._onDidChangeTreeData.dispose();
     }
 }

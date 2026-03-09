@@ -114,6 +114,10 @@ export function activate(context: vscode.ExtensionContext) {
         });
     });
 
+    const treeDiagnosticsListener = vscode.languages.onDidChangeDiagnostics(() => {
+        fileExplorerProvider.handleDiagnosticsChanged();
+    });
+
     // Command: Open file from sidebar
     const openFileCommand = vscode.commands.registerCommand('tcview.openFile', async (item: TwinCATFileTreeItem | vscode.Uri) => {
         // Handle both direct URI and TreeItem with resourceUri
@@ -2373,6 +2377,7 @@ export function activate(context: vscode.ExtensionContext) {
         treeRegistration,
         fileExplorerProvider,
         refreshCommand,
+        treeDiagnosticsListener,
         openFileCommand,
         openFromExplorerCommand,
         switchToXmlCommand,

@@ -23,6 +23,7 @@ TcView should not drift into:
 - TwinCAT-aware tree view groups content into `SYSTEM`, `PLC`, and `I/O`
 - tree explorer now uses clearer TwinCAT artifact icon differentiation and folder-first ordering in filesystem groups
 - tree explorer file labels now default to extensionless TwinCAT artifact names with concise type badges
+- tree explorer now surfaces warning/error markers from active diagnostics on TwinCAT files and parent tree nodes
 - valid TwinCAT root detection is enforced
 - `References` tree nodes open an API-style library viewer
 
@@ -109,6 +110,8 @@ TcView should not drift into:
 #### Later Polish
 
 1. Continue refining naming/grouping/icon polish using alpha-workspace feedback while keeping scope narrow
+2. Revisit tree diagnostic presentation with a `resourceUri` or hybrid decoration approach so warning/error markers can get closer to native Explorer behavior without regressing TwinCAT-specific icons
+3. Evaluate a custom webview-based TwinCAT explorer only if native tree constraints keep blocking diagnostics/icon UX goals, and treat it as an explicit architectural tradeoff rather than incremental polish
 
 ### Packaging and Release
 
