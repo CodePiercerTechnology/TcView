@@ -172,7 +172,7 @@ const TREE_ICON_COLOR = {
     library: 'terminal.ansiCyan',
     info: 'charts.blue',
     warning: 'problemsWarningIcon.foreground',
-    system: 'terminal.ansiYellow',
+    system: 'charts.purple',
     method: 'charts.purple',
     property: 'charts.red',
     propertyGet: 'charts.green',
