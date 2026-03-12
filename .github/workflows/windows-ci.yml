@@ -1,0 +1,84 @@
+name: Windows CI
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+      - support/**
+  push:
+    branches:
+      - main
+      - develop
+      - feature/**
+      - bugfix/**
+      - chore/**
+      - docs/**
+      - refactor/**
+      - test/**
+      - perf/**
+      - release/**
+      - hotfix/**
+      - support/**
+
+jobs:
+  validate:
+    name: Build, Test, Package
+    runs-on: windows-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compile
+        run: npm run compile
+
+      - name: Regression tests
+        env:
+          TCVIEW_PERF_REPORT_FILE: .test-results/perf/large-workspace.json
+        run: npm run test:regression
+
+      - name: Performance guardrails
+        env:
+          TCVIEW_PERF_REPORT_FILE: .test-results/perf/large-workspace.json
+          TCVIEW_PERF_BUDGET_FILE: .github/perf/ci-budget.json
+        run: npm run test:perf:guardrails
+
+      - name: Integration smoke tests
+        run: npm run test:integration
+
+      - name: Package VSIX
+        run: npm exec --package @vscode/vsce -- vsce package --out tcview-ci.vsix
+
+      - name: Validate bundled backend packaging
+        env:
+          TCVIEW_VSIX_PATH: tcview-ci.vsix
+        run: npm run test:packaging:backend
+
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tcview-ci-vsix
+          path: tcview-ci.vsix
+
+      - name: Upload performance artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tcview-performance
+          path: .test-results/perf/large-workspace.json
+          if-no-files-found: warn
