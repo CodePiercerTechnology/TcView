@@ -3,6 +3,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { extractFragmentSTFromXml } from '../../tcViewFragmentCodec';
+import { runSyntheticWebviewExplorerPerf, SyntheticWebviewPerfResult } from '../../tcViewWebviewExplorerPerf';
 import { TwinCATXmlConverter } from '../../tcViewXmlConverter';
 
 type LargeWorkspaceGolden = {
@@ -84,6 +85,7 @@ function writeOptionalPerfReport(report: {
     digest: string;
     fragmentDigest: string;
     saveDigest: string;
+    webviewExplorer?: SyntheticWebviewPerfResult;
 }): void {
     const reportPath = process.env.TCVIEW_PERF_REPORT_FILE;
     if (!reportPath) {
@@ -196,6 +198,12 @@ export async function runLargeWorkspaceRegressionTest(options?: { updateGoldens?
     const digest = outputHash.digest('hex');
     const fragmentDigest = fragmentHash.digest('hex');
     const saveDigest = saveHash.digest('hex');
+    const webviewExplorer = runSyntheticWebviewExplorerPerf({
+        rootCount: 4,
+        depth: 4,
+        breadth: 5,
+        statePasses: 28
+    });
 
     compareOrUpdateGolden({
         version: 2,
@@ -217,10 +225,12 @@ export async function runLargeWorkspaceRegressionTest(options?: { updateGoldens?
         saveBytes,
         digest,
         fragmentDigest,
-        saveDigest
+        saveDigest,
+        webviewExplorer
     });
 
     process.stdout.write(
-        `[REGRESSION] Large workspace synthetic workload (${totalConversions} conversions, ${workload.fragmentChecks} fragments, ${saveChecks} saves) completed in ${elapsedMs} ms\n`
+        `[REGRESSION] Large workspace synthetic workload (${totalConversions} conversions, ${workload.fragmentChecks} fragments, ${saveChecks} saves) completed in ${elapsedMs} ms; ` +
+        `webview synthetic=${webviewExplorer.elapsedMs} ms (${webviewExplorer.nodeCount} nodes, ${webviewExplorer.statePasses} state passes)\n`
     );
 }

@@ -26,6 +26,8 @@ TcView should not drift into:
 - tree explorer now surfaces warning/error markers from active diagnostics on TwinCAT files and parent tree nodes
 - valid TwinCAT root detection is enforced
 - `References` tree nodes open an API-style library viewer
+- `alpha.2` now includes an alternate webview-based explorer preview so custom tree rendering can be evaluated without replacing the stable native tree
+- webview explorer follow-up should add type-specific TwinCAT file creation flows with per-type options/templates (`POU`, `PRG`, `ITF`, `DUT`, `GVL`, etc.) instead of a single generic create flow
 
 ### Language Features
 
@@ -48,15 +50,16 @@ TcView should not drift into:
   - `Tc2_Utilities`
   - `Tc3_GlobalTypes`
   - `Tc3_Module`
-- user-imported library project metadata is stored globally per user
+- PLC-project metadata import now scans `.plcproj` or project folders directly and stores extracted API metadata in the per-user TcView catalog
+- project metadata import explicitly warns that it does not install or update the actual TwinCAT library
 
 ### Automation and Build
 
 - TwinCAT solution build is available through MSBuild
 - optional Automation Interface commands exist for:
-  - install library project
   - add library reference
   - remove library reference
+- library-project install/export remains an advanced Beckhoff/XAE-hosted path and is not currently exposed in the TcView UI
 - Windows alpha packaging now ships a bundled backend for Automation Interface commands by default
 
 ### Alpha Readiness
@@ -66,6 +69,7 @@ TcView should not drift into:
 - GitHub issue templates now exist for alpha bug and performance reports
 - repo-local governance files now cover CODEOWNERS, PR validation checklist, and recommended GitHub ruleset settings
 - local validation now checks that the bundled backend is present in both release output and packaged VSIX artifacts
+- backend validation runbook now documents repeatable bundled-backend and failure-path checks for alpha machines
 
 ### Performance Baseline
 
@@ -84,6 +88,8 @@ TcView should not drift into:
 - alpha-facing performance baseline capture guidance and trace triage runbook are now documented
 - perf budget updater utility now computes tighten-only `maxElapsedMs` suggestions from recent reports
 - synthetic large-workspace regression coverage now also includes repeated save-roundtrip transforms so perf guardrails cover save-path churn in addition to open/fragment work
+- perf history tooling now supports archiving current reports and skips incompatible history when workload digests change, including save-path coverage changes
+- webview explorer refresh now records dedicated `tree.webview.*` runtime metrics, and the synthetic large-workspace perf report now includes a webview-tree structure/state benchmark for `alpha.2` explorer tuning
 
 ## Next Priorities
 
@@ -92,6 +98,7 @@ TcView should not drift into:
 1. Add pass/fail guardrails for CI performance metrics once baseline history is established
 2. Continue collecting representative workspace baseline documents for alpha test environments and tighten guardrail thresholds from observed history
 3. Keep trace triage guidance aligned with new metric families and alpha issue patterns
+4. Reduce post-`openFolder` TcView activation/focus latency so opening a TwinCAT solution from TcView returns to the TcView container with less visible startup lag
 
 ### Library Metadata
 
@@ -100,6 +107,11 @@ TcView should not drift into:
 3. Surface provenance more clearly in completions/hover, not only the library viewer
 4. Reindex library metadata more selectively after imports and `.tmc` updates
 5. Validate the Automation Interface library workflows across more TwinCAT/XAE versions
+6. Continue tightening PLC-project metadata import coverage and provenance details from source scanning
+7. Evaluate offline/semi-automated metadata generation for selected Beckhoff libraries and versions, potentially from official InfoSys content, only if the source structure and licensing make it maintainable
+8. Harden the DTE-hosted library-project install/export path only if the automation value still justifies the XAE-host bootstrap complexity
+9. Add a workflow to treat a library project as a reference project from TcView, so solution library references can stay aligned with that source project over time
+10. Add a guided/manual way to populate or override required library identity metadata for project-source import when `Title`, `Company`, or `LibraryCategory Version` are missing or need correction
 
 ### Editor Quality
 
@@ -121,6 +133,7 @@ TcView should not drift into:
 1. Continue refining naming/grouping/icon polish using alpha-workspace feedback while keeping scope narrow
 2. Revisit tree diagnostic presentation with a `resourceUri` or hybrid decoration approach so warning/error markers can get closer to native Explorer behavior without regressing TwinCAT-specific icons
 3. Evaluate a custom webview-based TwinCAT explorer only if native tree constraints keep blocking diagnostics/icon UX goals, and treat it as an explicit architectural tradeoff rather than incremental polish
+4. Drive the webview explorer toward parity in stages: navigation/open, expansion state, diagnostics/reference cues, then decide whether it should replace or complement the native tree
 
 ### Packaging and Release
 
