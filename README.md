@@ -38,8 +38,10 @@ Use TwinCAT XAE for device engineering, configuration activation, runtime contro
   - installed Managed Libraries metadata
   - built-in Beckhoff catalog metadata
   - per-user and optional workspace metadata files
-- Import library project metadata into the global TcView metadata catalog
-- Use optional TwinCAT Automation Interface commands for library install/add/remove through the bundled backend
+- Import library project metadata by scanning a selected `.plcproj` or project folder and storing the extracted public API in TcView's global metadata catalog
+- Update or remove user library metadata entries from the TcView metadata catalog when project-source metadata changes
+- Prune unused user library metadata entries for the current workspace or selected PLC project
+- Use optional TwinCAT Automation Interface commands for add/remove library reference through the bundled backend
 
 ## Supported Roots
 
@@ -87,7 +89,6 @@ Most TcView features run entirely in the VS Code extension host.
 
 The backend is only needed for TwinCAT Automation Interface operations such as:
 
-- `Install TwinCAT Library Project`
 - `Add TwinCAT Library To Project`
 - `Remove TwinCAT Library From Project`
 
@@ -118,6 +119,12 @@ TcView resolves libraries from several sources in order of confidence:
 4. Built-in catalog metadata
 5. User/workspace metadata
 
+In practice:
+
+- some core Beckhoff libraries already ship with built-in metadata
+- project-local or internal libraries usually need manual metadata import from source
+- `.tmc` only reflects what the current consuming project has compiled/exposed, not a complete external library catalog
+
 Global user metadata lives at:
 
 - `%APPDATA%\\TcView\\tcview.libraries.json`
@@ -130,6 +137,7 @@ For details, see [Library Metadata](docs/library-metadata.md).
 - [Library Metadata](docs/library-metadata.md)
 - [Development](docs/development.md)
 - [Production Readiness](docs/production-readiness.md)
+- [GitFlow](docs/gitflow.md)
 - [Roadmap](docs/roadmap.md)
 - [Contributing](docs/contributing.md)
 - [Security Policy](docs/security.md)

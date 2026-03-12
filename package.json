@@ -2,11 +2,11 @@
   "name": "tcview",
   "displayName": "TcView",
   "description": "TcView: view and edit TwinCAT XML files as IEC Structured Text (ST).",
-  "version": "0.0.5",
+  "version": "1.0.0-alpha.2",
   "publisher": "user",
   "repository": {
     "type": "git",
-    "url": "https://github.com/cody3690/TcView.git"
+    "url": "https://github.com/CodePiercerTechnology/TcView.git"
   },
   "os": [
     "win32"
@@ -20,8 +20,10 @@
   ],
   "main": "./out/extension.js",
   "activationEvents": [
+    "onStartupFinished",
     "onFileSystem:twincat",
     "onView:twincat.files",
+    "onView:twincat.webExplorer",
     "onLanguage:iec-st",
     "onCommand:tcview.refreshFiles",
     "onCommand:tcview.openFile",
@@ -38,9 +40,22 @@
     "onCommand:tcview.buildSolutionWithMsBuild",
     "onCommand:tcview.showLibraries",
     "onCommand:tcview.createLibraryMetadataTemplate",
-    "onCommand:tcview.importLibraryMetadata",
     "onCommand:tcview.importLibraryProjectMetadata",
-    "onCommand:tcview.installLibraryProject",
+    "onCommand:tcview.removeLibraryMetadata",
+    "onCommand:tcview.pruneUnusedLibraryMetadata",
+    "onCommand:tcview.createTwinCATFile",
+    "onCommand:tcview.createTwinCATFolder",
+    "onCommand:tcview.renameTwinCATItem",
+    "onCommand:tcview.deleteTwinCATFile",
+    "onCommand:tcview.deleteTwinCATFolder",
+    "onCommand:tcview.deleteTwinCATMember",
+    "onCommand:tcview.copyTwinCATItem",
+    "onCommand:tcview.cutTwinCATItem",
+    "onCommand:tcview.pasteTwinCATItem",
+    "onCommand:tcview.createTwinCATMethod",
+    "onCommand:tcview.createTwinCATProperty",
+    "onCommand:tcview.createTwinCATAction",
+    "onCommand:tcview.createTwinCATTransition",
     "onCommand:tcview.addLibraryReference",
     "onCommand:tcview.removeLibraryReference"
   ],
@@ -57,21 +72,21 @@
     "views": {
       "twincat": [
         {
-          "id": "twincat.files",
-          "name": "TcView Files",
-          "type": "tree",
-          "icon": "$(file-code)"
+          "id": "twincat.webExplorer",
+          "name": "Explorer",
+          "type": "webview",
+          "icon": "$(symbol-structure)"
         }
       ]
     },
     "viewsWelcome": [
       {
-        "view": "twincat.files",
+        "view": "twincat.webExplorer",
         "contents": "No folder is open.\n[Open TwinCAT Solution](command:tcview.openSolution)",
         "when": "workspaceFolderCount == 0 && tcview.discoveryComplete"
       },
       {
-        "view": "twincat.files",
+        "view": "twincat.webExplorer",
         "contents": "No TwinCAT solution was found in this folder.\n[Open TwinCAT Solution](command:tcview.openSolution)",
         "when": "workspaceFolderCount != 0 && tcview.discoveryComplete && !tcview.hasTwinCATFiles && !tcview.isLookingForTwinCAT"
       }
@@ -152,19 +167,124 @@
         "icon": "$(new-file)"
       },
       {
-        "command": "tcview.importLibraryMetadata",
-        "title": "Import TwinCAT Library Metadata",
-        "icon": "$(cloud-download)"
-      },
-      {
         "command": "tcview.importLibraryProjectMetadata",
         "title": "Import TwinCAT Library Project Metadata",
         "icon": "$(repo-pull)"
       },
       {
-        "command": "tcview.installLibraryProject",
-        "title": "Install TwinCAT Library Project",
-        "icon": "$(package)"
+        "command": "tcview.removeLibraryMetadata",
+        "title": "Remove TwinCAT Library Metadata",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "tcview.pruneUnusedLibraryMetadata",
+        "title": "Prune Unused TwinCAT Library Metadata",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "tcview.createTwinCATFile",
+        "title": "New File...",
+        "icon": "$(new-file)"
+      },
+      {
+        "command": "tcview.createTwinCATFileFromTemplate",
+        "title": "Create TwinCAT File From Template"
+      },
+      {
+        "command": "tcview.createTwinCATFolder",
+        "title": "New Folder...",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "tcview.renameTwinCATItem",
+        "title": "Rename",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "tcview.deleteTwinCATFile",
+        "title": "Delete",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "tcview.deleteTwinCATFolder",
+        "title": "Delete",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "tcview.deleteTwinCATMember",
+        "title": "Delete",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "tcview.copyTwinCATItem",
+        "title": "Copy",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "tcview.cutTwinCATItem",
+        "title": "Cut",
+        "icon": "$(cut)"
+      },
+      {
+        "command": "tcview.pasteTwinCATItem",
+        "title": "Paste",
+        "icon": "$(clippy)"
+      },
+      {
+        "command": "tcview.createTwinCATMethod",
+        "title": "Add Method...",
+        "icon": "$(symbol-method)"
+      },
+      {
+        "command": "tcview.createTwinCATProperty",
+        "title": "Add Property...",
+        "icon": "$(symbol-property)"
+      },
+      {
+        "command": "tcview.createTwinCATAction",
+        "title": "Add Action...",
+        "icon": "$(symbol-event)"
+      },
+      {
+        "command": "tcview.createTwinCATTransition",
+        "title": "Add Transition...",
+        "icon": "$(symbol-interface)"
+      },
+      {
+        "command": "tcview.webExplorerStartRename",
+        "title": "Rename"
+      },
+      {
+        "command": "tcview.webExplorerStartCreateFolder",
+        "title": "New Folder..."
+      },
+      {
+        "command": "tcview.webExplorerAddFunctionBlock",
+        "title": "Add Function Block..."
+      },
+      {
+        "command": "tcview.webExplorerAddFunction",
+        "title": "Add Function..."
+      },
+      {
+        "command": "tcview.webExplorerAddProgram",
+        "title": "Add Program..."
+      },
+      {
+        "command": "tcview.webExplorerAddGvl",
+        "title": "Add Global Variable List..."
+      },
+      {
+        "command": "tcview.webExplorerAddDut",
+        "title": "Add Data Type (STRUCT)..."
+      },
+      {
+        "command": "tcview.webExplorerAddInterface",
+        "title": "Add Interface..."
+      },
+      {
+        "command": "tcview.deleteSelectedWebExplorerItem",
+        "title": "Delete"
       },
       {
         "command": "tcview.addLibraryReference",
@@ -242,6 +362,11 @@
             "type": "string"
           },
           "description": "Additional JSON files that extend TcView's built-in library metadata catalog. Relative paths resolve from the workspace/project root."
+        },
+        "twincat.library.showProjectImportWarning": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a warning before importing metadata from a TwinCAT library project source. The import captures editor metadata only and does not install or update the actual TwinCAT library."
         },
         "twincat.diagnostics.profile": {
           "type": "string",
@@ -370,6 +495,21 @@
           "command": "tcview.buildSolutionWithMsBuild",
           "when": "view == twincat.files && tcview.hasSolution",
           "group": "navigation@2"
+        },
+        {
+          "command": "tcview.refreshFiles",
+          "when": "view == twincat.webExplorer",
+          "group": "navigation"
+        },
+        {
+          "command": "tcview.openSolution",
+          "when": "view == twincat.webExplorer",
+          "group": "navigation@1"
+        },
+        {
+          "command": "tcview.buildSolutionWithMsBuild",
+          "when": "view == twincat.webExplorer && tcview.hasSolution",
+          "group": "navigation@2"
         }
       ],
       "view/item/context": [
@@ -379,9 +519,19 @@
           "group": "navigation@2"
         },
         {
-          "command": "tcview.installLibraryProject",
-          "when": "view == twincat.files && tcview.hasSolution && viewItem == plcProjectFolder",
+          "command": "tcview.importLibraryProjectMetadata",
+          "when": "view == twincat.files && viewItem == plcProjectFolder",
           "group": "navigation@3"
+        },
+        {
+          "command": "tcview.removeLibraryMetadata",
+          "when": "view == twincat.files && (viewItem == plcProjectFolder || viewItem == referenceItem)",
+          "group": "navigation@3.5"
+        },
+        {
+          "command": "tcview.pruneUnusedLibraryMetadata",
+          "when": "view == twincat.files && (viewItem == plcProjectFolder || viewItem == referencesRoot)",
+          "group": "navigation@3.6"
         },
         {
           "command": "tcview.addLibraryReference",
@@ -406,19 +556,19 @@
           "group": "navigation@2"
         },
         {
-          "command": "tcview.importLibraryMetadata",
-          "when": "explorerResourceIsFolder || resourceExtname == .library || resourceExtname == .compiled-library || resourceExtname == .compiled-library-v3 || resourceExtname == .compiled-library-ge33",
+          "command": "tcview.importLibraryProjectMetadata",
+          "when": "explorerResourceIsFolder || resourceExtname == .plcproj",
           "group": "navigation@3"
         },
         {
-          "command": "tcview.importLibraryProjectMetadata",
+          "command": "tcview.removeLibraryMetadata",
           "when": "explorerResourceIsFolder || resourceExtname == .plcproj",
           "group": "navigation@4"
         },
         {
-          "command": "tcview.installLibraryProject",
-          "when": "tcview.hasSolution && (explorerResourceIsFolder || resourceExtname == .plcproj)",
-          "group": "navigation@5"
+          "command": "tcview.pruneUnusedLibraryMetadata",
+          "when": "explorerResourceIsFolder || resourceExtname == .plcproj",
+          "group": "navigation@4.5"
         }
       ],
       "editor/title": [
@@ -427,8 +577,156 @@
           "when": "resourceScheme == twincat || (resourceScheme == file && (resourceExtname == .TcPOU || resourceExtname == .TcGVL || resourceExtname == .TcDUT || resourceExtname == .TcPRG || resourceExtname == .TcAPP || resourceExtname == .TcCOM || resourceExtname == .TcVAR || resourceExtname == .TcGDS || resourceExtname == .TcIO || resourceExtname == .TcITF || resourceExtname == .tcpou || resourceExtname == .tcgvl || resourceExtname == .tcdut || resourceExtname == .tcprg || resourceExtname == .tcapp || resourceExtname == .tccom || resourceExtname == .tcvar || resourceExtname == .tcgds || resourceExtname == .tcio || resourceExtname == .tcitf))",
           "group": "navigation@2"
         }
+      ],
+      "webview/context": [
+        {
+          "command": "tcview.webExplorerAddFunctionBlock",
+          "when": "webviewId == twincat.webExplorer && webviewSection == tcview.node && (tcviewItemType == plcProjectFolder || tcviewItemType == folder)",
+          "group": "1_add@1"
+        },
+        {
+          "command": "tcview.webExplorerAddFunction",
+          "when": "webviewId == twincat.webExplorer && webviewSection == tcview.node && (tcviewItemType == plcProjectFolder || tcviewItemType == folder)",
+          "group": "1_add@2"
+        },
+        {
+          "command": "tcview.webExplorerAddProgram",
+          "when": "webviewId == twincat.webExplorer && webviewSection == tcview.node && (tcviewItemType == plcProjectFolder || tcviewItemType == folder)",
+          "group": "1_add@3"
+        },
+        {
+          "command": "tcview.webExplorerAddGvl",
+          "when": "webviewId == twincat.webExplorer && webviewSection == tcview.node && (tcviewItemType == plcProjectFolder || tcviewItemType == folder)",
+          "group": "1_add@4"
+        },
+        {
+          "command": "tcview.webExplorerAddDut",
+          "when": "webviewId == twincat.webExplorer && webviewSection == tcview.node && (tcviewItemType == plcProjectFolder || tcviewItemType == folder)",
+          "group": "1_add@5"
+        },
+        {
+          "command": "tcview.webExplorerAddInterface",
+          "when": "webviewId == twincat.webExplorer && webviewSection == tcview.node && (tcviewItemType == plcProjectFolder || tcviewItemType == folder)",
+          "group": "1_add@6"
+        },
+        {
+          "command": "tcview.webExplorerStartCreateFolder",
+          "when": "webviewId == twincat.webExplorer && webviewSection == tcview.node && (tcviewItemType == plcProjectFolder || tcviewItemType == folder || (tcviewItemType == pouFolder && (tcviewFileKind == functionBlock || tcviewFileKind == program || tcviewFileKind == interface || tcviewFileKind == gvl)) || ((tcviewItemType == file) && (tcviewFileKind == functionBlock || tcviewFileKind == program || tcviewFileKind == interface || tcviewFileKind == gvl)))",
+          "group": "1_add@7"
+        },
+        {
+          "command": "tcview.createTwinCATMethod",
+          "when": "webviewId == twincat.webExplorer && webviewSection == tcview.node && (tcviewItemType == file || tcviewItemType == pouFolder) && (tcviewFileKind == functionBlock || tcviewFileKind == program || tcviewFileKind == interface)",
+          "group": "1_add@8"
+        },
+        {
+          "command": "tcview.createTwinCATProperty",
+          "when": "webviewId == twincat.webExplorer && webviewSection == tcview.node && (tcviewItemType == file || tcviewItemType == pouFolder) && (tcviewFileKind == functionBlock || tcviewFileKind == program || tcviewFileKind == interface || tcviewFileKind == gvl)",
+          "group": "1_add@9"
+        },
+        {
+          "command": "tcview.createTwinCATAction",
+          "when": "webviewId == twincat.webExplorer && webviewSection == tcview.node && (tcviewItemType == file || tcviewItemType == pouFolder) && (tcviewFileKind == functionBlock || tcviewFileKind == program)",
+          "group": "1_add@10"
+        },
+        {
+          "command": "tcview.createTwinCATTransition",
+          "when": "webviewId == twincat.webExplorer && webviewSection == tcview.node && (tcviewItemType == file || tcviewItemType == pouFolder) && (tcviewFileKind == functionBlock || tcviewFileKind == program)",
+          "group": "1_add@11"
+        },
+        {
+          "command": "tcview.webExplorerStartRename",
+          "when": "webviewId == twincat.webExplorer && webviewSection == tcview.node && (tcviewItemType == folder || tcviewItemType == file || tcviewItemType == pouFolder || tcviewItemType == method || tcviewItemType == property || tcviewItemType == action || tcviewItemType == transition)",
+          "group": "2_edit@1"
+        },
+        {
+          "command": "tcview.copyTwinCATItem",
+          "when": "webviewId == twincat.webExplorer && webviewSection == tcview.node && (tcviewItemType == folder || tcviewItemType == file || tcviewItemType == pouFolder || tcviewItemType == method || tcviewItemType == property || tcviewItemType == action || tcviewItemType == transition)",
+          "group": "2_edit@2"
+        },
+        {
+          "command": "tcview.cutTwinCATItem",
+          "when": "webviewId == twincat.webExplorer && webviewSection == tcview.node && (tcviewItemType == folder || tcviewItemType == file || tcviewItemType == pouFolder || tcviewItemType == method || tcviewItemType == property || tcviewItemType == action || tcviewItemType == transition)",
+          "group": "2_edit@3"
+        },
+        {
+          "command": "tcview.pasteTwinCATItem",
+          "when": "webviewId == twincat.webExplorer && webviewSection == tcview.node && (tcviewItemType == plcProjectFolder || tcviewItemType == folder || tcviewItemType == file || tcviewItemType == pouFolder || tcviewItemType == method || tcviewItemType == property || tcviewItemType == action || tcviewItemType == transition)",
+          "group": "2_edit@4"
+        },
+        {
+          "command": "tcview.deleteSelectedWebExplorerItem",
+          "when": "webviewId == twincat.webExplorer && webviewSection == tcview.node && (tcviewItemType == file || tcviewItemType == folder || tcviewItemType == pouFolder || tcviewItemType == method || tcviewItemType == property || tcviewItemType == propertyGet || tcviewItemType == propertySet || tcviewItemType == action || tcviewItemType == transition)",
+          "group": "3_delete@1"
+        },
+        {
+          "command": "tcview.importLibraryProjectMetadata",
+          "when": "webviewId == twincat.webExplorer && webviewSection == tcview.node && tcviewItemType == plcProjectFolder",
+          "group": "4_library@1"
+        },
+        {
+          "command": "tcview.removeLibraryMetadata",
+          "when": "webviewId == twincat.webExplorer && webviewSection == tcview.node && (tcviewItemType == plcProjectFolder || tcviewItemType == referenceItem)",
+          "group": "4_library@2"
+        },
+        {
+          "command": "tcview.pruneUnusedLibraryMetadata",
+          "when": "webviewId == twincat.webExplorer && webviewSection == tcview.node && (tcviewItemType == plcProjectFolder || tcviewItemType == referencesRoot)",
+          "group": "4_library@3"
+        },
+        {
+          "command": "tcview.addLibraryReference",
+          "when": "webviewId == twincat.webExplorer && webviewSection == tcview.node && tcview.hasSolution && tcviewItemType == referencesRoot",
+          "group": "4_library@4"
+        },
+        {
+          "command": "tcview.removeLibraryReference",
+          "when": "webviewId == twincat.webExplorer && webviewSection == tcview.node && tcview.hasSolution && tcviewItemType == referenceItem",
+          "group": "4_library@5"
+        },
+        {
+          "command": "tcview.openLibraryReference",
+          "when": "webviewId == twincat.webExplorer && webviewSection == tcview.node && tcviewItemType == referenceItem",
+          "group": "navigation@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "tcview.deleteSelectedWebExplorerItem",
+          "when": "false"
+        }
       ]
     },
+    "keybindings": [
+      {
+        "command": "tcview.webExplorerStartRename",
+        "key": "f2",
+        "when": "tcview.webExplorerFocus && !inputFocus"
+      },
+      {
+        "command": "tcview.deleteSelectedWebExplorerItem",
+        "key": "delete",
+        "when": "tcview.webExplorerFocus && !inputFocus"
+      },
+      {
+        "command": "tcview.copyTwinCATItem",
+        "key": "ctrl+c",
+        "mac": "cmd+c",
+        "when": "tcview.webExplorerFocus && !inputFocus"
+      },
+      {
+        "command": "tcview.cutTwinCATItem",
+        "key": "ctrl+x",
+        "mac": "cmd+x",
+        "when": "tcview.webExplorerFocus && !inputFocus"
+      },
+      {
+        "command": "tcview.pasteTwinCATItem",
+        "key": "ctrl+v",
+        "mac": "cmd+v",
+        "when": "tcview.webExplorerFocus && !inputFocus"
+      }
+    ],
     "languages": [
       {
         "id": "iec-st",
@@ -460,8 +758,18 @@
     "test:regression": "npm run compile && node out/tests/run-tests.js --suite regression",
     "test:regression:update": "npm run compile && node out/tests/run-tests.js --suite regression --update",
     "test:perf:guardrails": "node scripts/check-perf-guardrails.js",
+    "test:perf:archive": "node scripts/archive-perf-report.js",
     "test:perf:update-budget": "node scripts/update-perf-budget.js",
     "test:packaging:backend": "node scripts/check-bundled-backend.js",
+    "test:backend:validate": "npm run compile && node scripts/backend-validation-helper.js --extension-path .",
+    "test:backend:install-library": "npm run compile && node scripts/test-install-library-project.js --extension-path .",
+    "github:ruleset:main": "node scripts/apply-github-ruleset.js --owner CodePiercerTechnology --repo TcView",
+    "github:ruleset:main:apply": "node scripts/apply-github-ruleset.js --owner CodePiercerTechnology --repo TcView --apply",
+    "github:rulesets": "node scripts/apply-github-rulesets.js --owner CodePiercerTechnology --repo TcView",
+    "github:rulesets:apply": "node scripts/apply-github-rulesets.js --owner CodePiercerTechnology --repo TcView --apply",
+    "github:repo-settings": "node scripts/apply-github-repo-settings.js --owner CodePiercerTechnology --repo TcView",
+    "github:repo-settings:apply": "node scripts/apply-github-repo-settings.js --owner CodePiercerTechnology --repo TcView --apply",
+    "gitflow": "node scripts/gitflow.js",
     "test:integration": "npm run compile && vscode-test",
     "test:all": "npm run test && npm run test:integration",
     "test:ci": "npm run test:all"
@@ -475,6 +783,7 @@
     "typescript": "^4.9.4"
   },
   "dependencies": {
+    "@vscode/codicons": "^0.0.36",
     "xml2js": "^0.6.2"
   },
   "license": "MIT",
@@ -493,6 +802,7 @@
     "syntaxes/**",
     "docs/**",
     "backend/TcView.Backend/bin/Release/net8.0-windows/**",
+    "node_modules/@vscode/codicons/dist/**",
     "node_modules/xml2js/**",
     "node_modules/sax/**",
     "node_modules/xmlbuilder/**",

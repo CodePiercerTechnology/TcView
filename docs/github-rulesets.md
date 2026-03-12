@@ -1,50 +1,107 @@
-# GitHub Ruleset Baseline
+# GitHub Rulesets
 
-This repo cannot enforce GitHub branch rulesets from tracked source files alone. Apply the following ruleset in the GitHub repository settings for `main`.
+This repo now tracks the protected-branch baseline needed for GitFlow. GitHub still has to apply those payloads through the repository API or settings UI.
 
-## Target
+## Tracked Payloads
 
-- branch pattern: `main`
-- enforcement: active
+Protected branches:
 
-## Recommended Standard Rules
+- [main.json](c:/Users/TwinCAT/Documents/MyStuff/TcView/.github/rulesets/main.json)
+- [develop.json](c:/Users/TwinCAT/Documents/MyStuff/TcView/.github/rulesets/develop.json)
+- [support.json](c:/Users/TwinCAT/Documents/MyStuff/TcView/.github/rulesets/support.json)
 
-1. Restrict direct pushes to `main`
-2. Require a pull request before merge
-3. Require at least 1 approval
-4. Dismiss stale approvals when new commits are pushed
-5. Require all conversations to be resolved before merge
-6. Require status checks to pass before merge
-7. Require linear history
-8. Block force pushes
-9. Block branch deletion
+Protected tags:
+
+- [tags.json](c:/Users/TwinCAT/Documents/MyStuff/TcView/.github/rulesets/tags.json)
+
+Repository merge/deletion settings:
+
+- [repository.json](c:/Users/TwinCAT/Documents/MyStuff/TcView/.github/settings/repository.json)
+
+Apply scripts:
+
+- [apply-github-ruleset.js](c:/Users/TwinCAT/Documents/MyStuff/TcView/scripts/apply-github-ruleset.js)
+- [apply-github-rulesets.js](c:/Users/TwinCAT/Documents/MyStuff/TcView/scripts/apply-github-rulesets.js)
+- [apply-github-repo-settings.js](c:/Users/TwinCAT/Documents/MyStuff/TcView/scripts/apply-github-repo-settings.js)
+
+## Protected Branch Policy
+
+Rulesets are intended for:
+
+- `main`
+- `develop`
+- `support/*`
+- `v*` release tags
+
+Each protected branch should:
+
+1. Block direct deletion
+2. Block force pushes
+3. Require pull requests
+4. Require at least 1 approval
+5. Require code owner review
+6. Dismiss stale approvals on new commits
+7. Require all review threads to be resolved
+8. Require the GitFlow PR policy check
+9. Require CI to pass before merge
+10. Allow merge commits only
+
+Important:
+
+- `required_linear_history` is intentionally not used because standard GitFlow depends on merge commits between long-lived branches.
+- `release/*` and `hotfix/*` are intentionally left unprotected so they can be stabilized directly, but CI still runs on them.
+- release tags are protected from deletion and retargeting after publication.
 
 ## Required Status Checks
 
-At minimum, require:
+Current required checks:
 
 - `Build, Test, Package`
+- `Validate GitFlow PR policy`
 
-If CI is later split into multiple jobs, require the specific job names that cover:
+Supporting workflow files:
 
-- compile
-- non-UI tests
-- integration smoke tests
-- performance guardrails
-- VSIX packaging validation
-- bundled backend packaging validation
+- [windows-ci.yml](c:/Users/TwinCAT/Documents/MyStuff/TcView/.github/workflows/windows-ci.yml)
+- [gitflow-pr-policy.yml](c:/Users/TwinCAT/Documents/MyStuff/TcView/.github/workflows/gitflow-pr-policy.yml)
+- [release-on-main.yml](c:/Users/TwinCAT/Documents/MyStuff/TcView/.github/workflows/release-on-main.yml)
 
-## Supporting In-Repo Files
-
-These repo files are intended to work with the ruleset above:
+Supporting governance files:
 
 - [CODEOWNERS](c:/Users/TwinCAT/Documents/MyStuff/TcView/.github/CODEOWNERS)
 - [PULL_REQUEST_TEMPLATE.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/.github/PULL_REQUEST_TEMPLATE.md)
 - [config.yml](c:/Users/TwinCAT/Documents/MyStuff/TcView/.github/ISSUE_TEMPLATE/config.yml)
-- [windows-ci.yml](c:/Users/TwinCAT/Documents/MyStuff/TcView/.github/workflows/windows-ci.yml)
 
-## Notes
+## Repository Settings
 
-- `CODEOWNERS` only takes effect when GitHub branch protection or rulesets require code owner review.
-- If you later add release branches, clone this ruleset for `release/*` and keep the same required checks.
-- Signed-commit enforcement is reasonable, but keep it optional until contributor workflow is stable.
+Tracked repository settings align GitHub merge behavior with GitFlow:
+
+- allow merge commits
+- disable squash merge
+- disable rebase merge
+- delete merged branches automatically
+- allow GitHub's update-branch action for stale PRs
+
+## Run It
+
+Dry run:
+
+- PowerShell:
+  - `$env:GITHUB_TOKEN='<token-with-repo-admin>'; npm run github:repo-settings`
+  - `$env:GITHUB_TOKEN='<token-with-repo-admin>'; npm run github:rulesets`
+
+Apply:
+
+- PowerShell:
+  - `$env:GITHUB_TOKEN='<token-with-repo-admin>'; npm run github:repo-settings:apply`
+  - `$env:GITHUB_TOKEN='<token-with-repo-admin>'; npm run github:rulesets:apply`
+
+Manual overrides:
+
+- `node scripts/apply-github-repo-settings.js --owner CodePiercerTechnology --repo TcView --apply`
+- `node scripts/apply-github-rulesets.js --owner CodePiercerTechnology --repo TcView --apply`
+
+Requirements:
+
+- token must have repository `Administration: write`
+- ruleset scripts call `https://api.github.com/repos/{owner}/{repo}/rulesets`
+- repository settings script calls `https://api.github.com/repos/{owner}/{repo}`

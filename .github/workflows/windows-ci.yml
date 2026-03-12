@@ -2,9 +2,24 @@ name: Windows CI
 
 on:
   pull_request:
+    branches:
+      - main
+      - develop
+      - support/**
   push:
     branches:
       - main
+      - develop
+      - feature/**
+      - bugfix/**
+      - chore/**
+      - docs/**
+      - refactor/**
+      - test/**
+      - perf/**
+      - release/**
+      - hotfix/**
+      - support/**
 
 jobs:
   validate:

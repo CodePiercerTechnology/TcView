@@ -12,6 +12,7 @@
 ## Before Opening a PR
 
 - keep the change focused
+- target `develop` for normal feature/fix work; only `release/*` and `hotfix/*` should open PRs into `main`
 - add or update tests when behavior changes
 - update docs when commands, settings, or user-visible behavior changes
 - make sure these pass:

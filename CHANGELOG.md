@@ -7,6 +7,22 @@ The format is based on Keep a Changelog and this project uses Semantic Versionin
 ## [Unreleased]
 
 ### Added
+- Added repo-local GitFlow helper tooling for bootstrapping `develop` and creating `feature/*`, `release/*`, and `hotfix/*` branches from the correct base branch
+- Added GitHub automation for GitFlow PR target validation and automatic release tag/VSIX/GitHub Release publication from `main`
+- Added tracked GitHub repository settings and protected branch/tag ruleset payloads for `main`, `develop`, optional `support/*` maintenance branches, and immutable `v*` release tags
+
+### Changed
+- Expanded CI branch coverage from `main` only to the GitFlow branch families used for day-to-day development and release stabilization
+- Replaced the previous linear-history `main` ruleset guidance with merge-commit-based protection that matches standard GitFlow
+
+## [1.0.0-alpha.2] - 2026-03-10
+
+### Changed
+- Rebased the next alpha line on the stabilized `alpha.1` library metadata, external PLC project resolution, and project-scope diagnostics fixes so upcoming webview-tree exploration starts from the corrected baseline
+
+## [1.0.0-alpha.1] - 2026-03-09
+
+### Added
 - Added a production-alpha readiness gate to the roadmap with required CI, validation, support-matrix, and release-process items
 - Added a Windows GitHub Actions CI workflow that runs compile, regression tests, integration smoke tests, and VSIX packaging validation on pull requests and pushes to `main`
 - Added a synthetic large-workspace regression test with golden digest validation and configurable runtime threshold
@@ -14,6 +30,14 @@ The format is based on Keep a Changelog and this project uses Semantic Versionin
 - Added optional JSON performance reporting for the large-workspace regression workload and CI artifact upload for baseline tracking
 - Added `Export TcView Performance Baseline` command to write a JSON runtime telemetry snapshot for baseline/trend analysis
 - Added `Export TcView Performance Trace` command to write threshold-based slow-operation trace events with baseline context
+- Added alpha release checklist, troubleshooting guide, backend validation runbook, support matrix, and GitHub issue templates for tester intake
+- Added bundled-backend packaging validation, backend resolution helper scripts, and repo-local GitHub governance assets (`CODEOWNERS`, PR template, ruleset baseline)
+- Added repo-local script and tracked payload for applying the `main` GitHub ruleset through the GitHub REST API
+- Added save-roundtrip coverage to the synthetic large-workspace performance workload
+- Added performance report archive helper for building budget history
+- Added a supported `Import TwinCAT Library Project Metadata` workflow that scans a selected `.plcproj` or project folder and stores extracted public API metadata for TcView use
+- Added a user warning and opt-out setting before project-source metadata import to make clear that import does not install or update the actual TwinCAT library
+- Added a backend harness for iterating on TwinCAT library project export through Beckhoff/XAE automation without going through the UI flow
 
 ### Changed
 - Added mtime-based caching for `.plcproj`/`.tsproj`/`.tspproj` metadata reads in the project analyzer
@@ -28,6 +52,15 @@ The format is based on Keep a Changelog and this project uses Semantic Versionin
 - Added configurable slow-trace capture (`twincat.performanceTraceThresholdMs`) for targeted profiling of real-world workspace hot paths
 - Improved tree-view visual polish with clearer TwinCAT artifact icon differentiation, folder-first ordering, and concise file-kind labels
 - Aligned TwinCAT tree naming with XAE-style browsing by showing extensionless artifact names in file nodes
+- Changed backend packaging assumptions from local-build-only to bundled-by-default for Windows alpha VSIX builds
+- Tightened backend error guidance for missing bundled backend, stale override paths, and missing .NET runtime
+- Updated performance budget tooling to account for save-path digest compatibility when tuning from history
+- Removed the generic managed-library metadata import flow from surfaced Explorer and TcView menus in favor of the project-source import workflow
+- Exposed project metadata import from the TcView PLC project context menu as well as Explorer
+- Clarified README and alpha docs around built-in Beckhoff metadata, manual project-source import, and the limits of `.tmc` as a full external library source
+- Fixed `.tsproj`-driven PLC project discovery and analyzer resolution so external PLC projects, their `.tmc` files, and project-scoped declarations participate correctly in TcView analysis
+- Improved virtual-document diagnostics so methods, properties, and other fragments validate against parent POU declaration context and sibling members
+- Matched imported library metadata by resolved library version/vendor when available and surfaced missing metadata on reference items in the TcView tree
 
 ## [0.0.5] - 2026-03-03
 

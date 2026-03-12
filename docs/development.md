@@ -38,6 +38,7 @@ Performance process documents:
 
 - [performance-baselines.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/performance-baselines.md)
 - [performance-trace-triage.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/performance-trace-triage.md)
+- Backend validation helper: `npm run test:backend:validate`
 
 ## Extension Development Host
 
@@ -99,8 +100,10 @@ and does not need to rely on a large ignore-only package layout.
 - [performance-trace-triage.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/performance-trace-triage.md): runtime trace triage checklist for alpha issues
 - [alpha-release-checklist.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/alpha-release-checklist.md): pre-alpha ship checklist with build/install/function/perf gates
 - [alpha-troubleshooting.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/alpha-troubleshooting.md): tester troubleshooting and environment capture guide
+- [backend-validation.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/backend-validation.md): backend success/failure validation runbook for alpha machines
 - [support-matrix.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/support-matrix.md): initial alpha support boundary
-- [github-rulesets.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/github-rulesets.md): recommended GitHub branch/ruleset baseline for `main`
+- [gitflow.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/gitflow.md): branch model, local helper commands, release tags, and back-merge policy
+- [github-rulesets.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/github-rulesets.md): protected-branch and repository-settings baseline for GitFlow
 - [production-readiness.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/production-readiness.md): release gates and remaining risk areas
 - [roadmap.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/roadmap.md): roadmap and planned work
 
