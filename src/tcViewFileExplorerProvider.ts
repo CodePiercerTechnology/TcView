@@ -896,6 +896,7 @@ export class TwinCATFileExplorerProvider
             const markerUris = await vscode.workspace.findFiles('**/*.{sln,tsproj,tspproj,plcproj}', '**/{node_modules,.git}/**', 400);
             const rootLower = workspaceRoot.toLowerCase();
             const byFolder = new Map<string, { slnPath?: string; tsprojPath?: string; plcprojPath?: string }>();
+            const slnPaths: string[] = [];
 
             for (const uri of markerUris) {
                 const markerPath = uri.fsPath;
@@ -914,12 +915,36 @@ export class TwinCATFileExplorerProvider
                 const lowerExt = path.extname(markerPath).toLowerCase();
                 if (lowerExt === '.sln') {
                     entry.slnPath = markerPath;
+                    slnPaths.push(markerPath);
                 } else if (lowerExt === '.tsproj' || lowerExt === '.tspproj') {
                     entry.tsprojPath = markerPath;
                 } else if (lowerExt === '.plcproj') {
                     entry.plcprojPath = markerPath;
                 }
                 byFolder.set(folderKey, entry);
+            }
+
+            for (const slnPath of slnPaths) {
+                const referencedTsprojPath = await this.readTwinCatProjectPathFromSolution(slnPath);
+                if (!referencedTsprojPath) {
+                    continue;
+                }
+
+                const resolvedTsprojPath = path.isAbsolute(referencedTsprojPath)
+                    ? path.normalize(referencedTsprojPath)
+                    : path.normalize(path.join(path.dirname(slnPath), referencedTsprojPath));
+                if (!resolvedTsprojPath.toLowerCase().startsWith(rootLower)) {
+                    continue;
+                }
+                if (!SOLUTION_PROJECT_EXTENSIONS.includes(path.extname(resolvedTsprojPath).toLowerCase())) {
+                    continue;
+                }
+
+                const slnFolderKey = path.normalize(path.dirname(slnPath));
+                const entry = byFolder.get(slnFolderKey) ?? {};
+                entry.slnPath = slnPath;
+                entry.tsprojPath = resolvedTsprojPath;
+                byFolder.set(slnFolderKey, entry);
             }
 
             const candidates = [...byFolder.entries()]
@@ -946,6 +971,17 @@ export class TwinCATFileExplorerProvider
             return best
                 ? { folderPath: best.folderPath, identifiers: best.identifiers }
                 : undefined;
+        } catch {
+            return undefined;
+        }
+    }
+
+    private async readTwinCatProjectPathFromSolution(solutionPath: string): Promise<string | undefined> {
+        try {
+            const text = await fs.promises.readFile(solutionPath, 'utf8');
+            const projectRegex = /Project\([^)]*\)\s*=\s*"[^"]+",\s*"([^"]+\.(?:tsproj|tspproj))"/ig;
+            const match = projectRegex.exec(text);
+            return match?.[1];
         } catch {
             return undefined;
         }

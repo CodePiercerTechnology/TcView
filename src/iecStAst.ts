@@ -385,6 +385,7 @@ function shouldSkipSemicolonLine(trimmed: string, typeLike: boolean, caseDepth: 
     if (/^\{.*\}$/.test(trimmed)) return true;
     if (/^(PROGRAM|END_PROGRAM|FUNCTION|END_FUNCTION|FUNCTION_BLOCK|END_FUNCTION_BLOCK|INTERFACE|END_INTERFACE|METHOD|END_METHOD|PROPERTY|END_PROPERTY|ACTION|END_ACTION|TRANSITION|END_TRANSITION|GET|END_GET|SET|END_SET)\b/i.test(trimmed)) return true;
     if (/^(VAR|VAR_INPUT|VAR_OUTPUT|VAR_IN_OUT|VAR_TEMP|VAR_GLOBAL|VAR_INST|VAR_STAT|END_VAR)\b/i.test(trimmed)) return true;
+    if (/^(CONSTANT|INTERNAL|PUBLIC|PRIVATE|PROTECTED|FINAL|ABSTRACT|RETAIN|PERSISTENT)(\s+(CONSTANT|INTERNAL|PUBLIC|PRIVATE|PROTECTED|FINAL|ABSTRACT|RETAIN|PERSISTENT))*\s*$/i.test(trimmed)) return true;
     if (/^(IF\b.*\bTHEN|ELSIF\b.*\bTHEN|CASE\b.*\bOF|FOR\b.*\bDO|WHILE\b.*\bDO|REPEAT\b)\s*$/i.test(trimmed)) return true;
     if (/^(IF\b.*\bTHEN[\s\S]*\bEND_IF|FOR\b.*\bDO[\s\S]*\bEND_FOR|WHILE\b.*\bDO[\s\S]*\bEND_WHILE|REPEAT\b[\s\S]*\bEND_REPEAT|CASE\b.*\bOF[\s\S]*\bEND_CASE)\s*;?$/i.test(trimmed)) return true;
     if (/^(THEN|ELSE|ELSIF|OF|DO|UNTIL|END_IF|END_FOR|END_WHILE|END_REPEAT|END_CASE|END_STRUCT|END_INTERFACE|END_METHOD|END_PROPERTY|END_ACTION|END_TRANSITION)\b/i.test(trimmed)) return true;

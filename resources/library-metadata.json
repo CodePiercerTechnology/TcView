@@ -479,6 +479,21 @@
           "name": "F_BYTE_TO_CRC16_CCITT",
           "returnType": "UINT",
           "documentation": "Calculates CRC16-CCITT for one byte."
+        },
+        {
+          "name": "F_DWORD",
+          "returnType": "DWORD",
+          "documentation": "Converts a numeric input value to DWORD."
+        },
+        {
+          "name": "F_REAL",
+          "returnType": "REAL",
+          "documentation": "Converts a numeric input value to REAL."
+        },
+        {
+          "name": "F_UDINT",
+          "returnType": "UDINT",
+          "documentation": "Converts a numeric input value to UDINT."
         }
       ],
       "dataTypes": [

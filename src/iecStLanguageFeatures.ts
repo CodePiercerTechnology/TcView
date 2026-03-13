@@ -1,7 +1,9 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import * as xml2js from 'xml2js';
 import { getProjectAnalyzer, initializeProjectAnalyzer, onProjectAnalyzerCreated } from './tcViewProjectAnalyzer';
 import { buildAstAnalysis } from './iecStAst';
+import { TwinCATFileSystemProvider } from './tcViewFileSystemProvider';
 import {
     iecBuiltinFunctions,
     iecBuiltinNamespaces,
@@ -1256,6 +1258,12 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         const severityTypeMismatch = getConfiguredSeverity('twincat.diagnostics.typeMismatch', vscode.DiagnosticSeverity.Error);
         const text = document.getText();
         const lines = text.split('\n');
+        const originalPath = document.uri.scheme === 'twincat'
+            ? TwinCATFileSystemProvider.getOriginalPath(document.uri)
+            : document.uri.scheme === 'file'
+                ? document.uri.fsPath
+                : undefined;
+        const isGlobalListDocument = !!originalPath && path.extname(originalPath).toLowerCase() === '.tcgvl';
 
         // AST-based diagnostics path
         {
@@ -1443,17 +1451,19 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
             ? await getWholePouUsageSet(document)
             : undefined;
 
-        astLocalsForUnusedCheck.forEach(local => {
-            const usedInBody = astUsedIdentifiers.has(local.upper) || isIdentifierUsedInBody(text, local.name);
-            const usedInWholePou = wholePouUsageSet ? wholePouUsageSet.has(local.upper) : false;
-            if (!(usedInBody || usedInWholePou)) {
-                diagnostics.push(new vscode.Diagnostic(
-                    new vscode.Range(local.line, local.startCol, local.line, local.endCol),
-                    `Declaration '${local.name}' is declared but never used.`,
-                    severityUnused
-                ));
-            }
-        });
+        if (!isGlobalListDocument) {
+            astLocalsForUnusedCheck.forEach(local => {
+                const usedInBody = astUsedIdentifiers.has(local.upper) || isIdentifierUsedInBody(text, local.name);
+                const usedInWholePou = wholePouUsageSet ? wholePouUsageSet.has(local.upper) : false;
+                if (!(usedInBody || usedInWholePou)) {
+                    diagnostics.push(new vscode.Diagnostic(
+                        new vscode.Range(local.line, local.startCol, local.line, local.endCol),
+                        `Declaration '${local.name}' is declared but never used.`,
+                        severityUnused
+                    ));
+                }
+            });
+        }
 
         diagnosticCollection.set(document.uri, diagnostics);
         return;
