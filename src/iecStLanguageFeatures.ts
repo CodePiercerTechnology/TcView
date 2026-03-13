@@ -400,12 +400,15 @@ const noSemicolonPatterns = [
     // Interface declarations/accessors at line start
     /^\s*(INTERFACE|END_INTERFACE|GET|SET)\b/i,
     // Modifier-only declaration lines such as "CONSTANT INTERNAL"
-    /^\s*(CONSTANT|INTERNAL|PUBLIC|PRIVATE|PROTECTED|FINAL|ABSTRACT)(\s+(CONSTANT|INTERNAL|PUBLIC|PRIVATE|PROTECTED|FINAL|ABSTRACT))*\s*$/i,
+    /^\s*(CONSTANT|INTERNAL|PUBLIC|PRIVATE|PROTECTED|FINAL|ABSTRACT|RETAIN|PERSISTENT)(\s+(CONSTANT|INTERNAL|PUBLIC|PRIVATE|PROTECTED|FINAL|ABSTRACT|RETAIN|PERSISTENT))*\s*$/i,
     // Import/using statements at line start
     /^\s*(IMPORT|USING|FROM)\b/i,
     // Pragma/directive lines (curly braces)
     /^\s*\{.*\}\s*$/
 ];
+
+const globalListFileExtensions = new Set(['.tcgvl', '.tcgcl']);
+const globalListModifierOnlyLinePattern = /^\s*(CONSTANT|INTERNAL|PUBLIC|PRIVATE|PROTECTED|FINAL|ABSTRACT|RETAIN|PERSISTENT)(\s+(CONSTANT|INTERNAL|PUBLIC|PRIVATE|PROTECTED|FINAL|ABSTRACT|RETAIN|PERSISTENT))*\s*$/i;
 
 const PROJECT_SCAN_PATTERN = '**/*.{st,TcPOU,TcPRG,TcAPP,TcCOM,TcGVL,TcDUT,TcVAR,TcIO,TcITF,tcpou,tcprg,tcapp,tccom,tcgvl,tcdut,tcvar,tcio,tcitf}';
 const stringTokenRegex = /'([^']|'')*'|"([^"]|"")*"/g;
@@ -1263,13 +1266,20 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
             : document.uri.scheme === 'file'
                 ? document.uri.fsPath
                 : undefined;
-        const isGlobalListDocument = !!originalPath && path.extname(originalPath).toLowerCase() === '.tcgvl';
+        const sourceExtension = originalPath ? path.extname(originalPath).toLowerCase() : '';
+        const isGlobalListDocument =
+            globalListFileExtensions.has(sourceExtension) ||
+            (/^\s*VAR_GLOBAL\b/im.test(text) && !/^\s*(FUNCTION|FUNCTION_BLOCK|PROGRAM|METHOD|PROPERTY|ACTION|TRANSITION)\b/im.test(text));
 
         // AST-based diagnostics path
         {
         const ast = buildAstAnalysis(text);
 
         ast.missingSemicolons.forEach(item => {
+            const lineText = lines[item.line] ?? '';
+            if (isGlobalListDocument && globalListModifierOnlyLinePattern.test(lineText)) {
+                return;
+            }
             diagnostics.push(new vscode.Diagnostic(
                 new vscode.Range(item.line, item.startCol, item.line, item.endCol),
                 item.message,
@@ -1396,6 +1406,29 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
                     ));
                 }
             }
+        });
+
+        extractCallableReturnTypes(lines).forEach(callable => {
+            const typeStatus = getDeclarationTypeStatus(callable.typeName);
+            if (typeStatus === 'known') {
+                return;
+            }
+
+            const typeRange = findCallableReturnTypeRange(lines[callable.line] ?? '', callable.line);
+            if (typeStatus === 'metadata_only') {
+                diagnostics.push(new vscode.Diagnostic(
+                    typeRange,
+                    `Return type '${callable.typeName}' for ${callable.kind} '${callable.name}' is referenced from metadata-only library context and is not fully verified.`,
+                    vscode.DiagnosticSeverity.Warning
+                ));
+                return;
+            }
+
+            diagnostics.push(new vscode.Diagnostic(
+                typeRange,
+                `Unknown or unresolved return type '${callable.typeName}' for ${callable.kind} '${callable.name}'.`,
+                severityUndefined
+            ));
         });
 
         // Add inferred type names to reduce false undefined-variable errors
@@ -1903,6 +1936,50 @@ function findDeclarationTypeRange(lineText: string, lineNumber: number): vscode.
     const start = Math.max(0, Math.min(typeStart, line.length));
     const end = Math.max(start + 1, Math.min(typeEnd, line.length));
     return new vscode.Range(lineNumber, start, lineNumber, end);
+}
+
+function findCallableReturnTypeRange(lineText: string, lineNumber: number): vscode.Range {
+    const line = lineText.replace(/\r/g, '');
+    const colon = line.indexOf(':');
+    if (colon < 0) {
+        const end = Math.max(1, line.length);
+        return new vscode.Range(lineNumber, 0, lineNumber, end);
+    }
+
+    let start = colon + 1;
+    while (start < line.length && /\s/.test(line[start])) {
+        start += 1;
+    }
+
+    let end = start;
+    while (end < line.length && /[A-Za-z0-9_.]/.test(line[end])) {
+        end += 1;
+    }
+
+    const safeStart = Math.max(0, Math.min(start, line.length));
+    const safeEnd = Math.max(safeStart + 1, Math.min(end, line.length));
+    return new vscode.Range(lineNumber, safeStart, lineNumber, safeEnd);
+}
+
+function extractCallableReturnTypes(lines: string[]): Array<{ kind: string; name: string; typeName: string; line: number }> {
+    const results: Array<{ kind: string; name: string; typeName: string; line: number }> = [];
+    const callableHeaderPattern = /^\s*(FUNCTION|METHOD|PROPERTY)\b(?:\s+(?:PUBLIC|PRIVATE|PROTECTED|INTERNAL|FINAL|ABSTRACT))*\s+([A-Za-z_]\w*)\s*:\s*([A-Za-z_][A-Za-z0-9_.]*)/i;
+
+    lines.forEach((lineText, line) => {
+        const match = lineText.match(callableHeaderPattern);
+        if (!match) {
+            return;
+        }
+
+        results.push({
+            kind: match[1].toUpperCase(),
+            name: match[2],
+            typeName: match[3],
+            line
+        });
+    });
+
+    return results;
 }
 
 function getKnownFbMembers(typeName: string): string[] {
