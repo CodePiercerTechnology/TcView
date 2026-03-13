@@ -125,6 +125,16 @@ export class TwinCATProjectAnalyzer {
     private converter: TwinCATXmlConverter;
     private scanTimer: NodeJS.Timeout | undefined;
     private libraryRefreshTimer: NodeJS.Timeout | undefined;
+    private libraryRefreshCycle:
+        | {
+            promise: Promise<void>;
+            resolve: () => void;
+            reject: (reason?: unknown) => void;
+        }
+        | undefined;
+    private libraryRefreshExecuting = false;
+    private libraryRefreshDueAt = 0;
+    private lastLibraryRefreshCompletedAt = 0;
     private scanInProgress = false;
     private pendingRescan = false;
     private fileUpdateTimer: NodeJS.Timeout | undefined;
@@ -294,14 +304,7 @@ export class TwinCATProjectAnalyzer {
     }
 
     private scheduleLibraryRefresh(delayMs = 250): void {
-        if (this.libraryRefreshTimer) {
-            clearTimeout(this.libraryRefreshTimer);
-        }
-
-        this.libraryRefreshTimer = setTimeout(() => {
-            this.libraryRefreshTimer = undefined;
-            void this.refreshLibraryMetadataOnly();
-        }, delayMs);
+        void this.queueLibraryRefresh(delayMs);
     }
 
     private scheduleFileUpdate(filePath: string, kind: 'change' | 'delete', delayMs = 250): void {
@@ -651,8 +654,88 @@ export class TwinCATProjectAnalyzer {
             this.indexRevision++;
             this.indexRefreshedEmitter.fire();
         });
+        this.lastLibraryRefreshCompletedAt = Date.now();
         if (this.isPerfLoggingEnabled()) {
             console.log(`[TcView Perf] Library metadata refresh: ${Date.now() - start} ms`);
+        }
+    }
+
+    private queueLibraryRefresh(delayMs = 0): Promise<void> {
+        if (!this.projectRoot) {
+            return Promise.resolve();
+        }
+
+        const now = Date.now();
+        if (
+            !this.libraryRefreshExecuting &&
+            !this.libraryRefreshTimer &&
+            this.lastLibraryRefreshCompletedAt > 0 &&
+            now - this.lastLibraryRefreshCompletedAt < delayMs
+        ) {
+            return Promise.resolve();
+        }
+
+        if (!this.libraryRefreshCycle) {
+            let resolve!: () => void;
+            let reject!: (reason?: unknown) => void;
+            const promise = new Promise<void>((res, rej) => {
+                resolve = res;
+                reject = rej;
+            });
+            this.libraryRefreshCycle = { promise, resolve, reject };
+        }
+
+        const requestedDueAt = now + delayMs;
+        this.libraryRefreshDueAt = this.libraryRefreshDueAt === 0
+            ? requestedDueAt
+            : Math.min(this.libraryRefreshDueAt, requestedDueAt);
+
+        if (!this.libraryRefreshExecuting) {
+            this.armLibraryRefreshTimer();
+        }
+
+        return this.libraryRefreshCycle.promise;
+    }
+
+    private armLibraryRefreshTimer(): void {
+        if (this.libraryRefreshExecuting || !this.libraryRefreshCycle || this.libraryRefreshDueAt === 0) {
+            return;
+        }
+
+        if (this.libraryRefreshTimer) {
+            clearTimeout(this.libraryRefreshTimer);
+        }
+
+        const delayMs = Math.max(0, this.libraryRefreshDueAt - Date.now());
+        this.libraryRefreshTimer = setTimeout(() => {
+            this.libraryRefreshTimer = undefined;
+            void this.flushQueuedLibraryRefresh();
+        }, delayMs);
+    }
+
+    private async flushQueuedLibraryRefresh(): Promise<void> {
+        if (!this.libraryRefreshCycle) {
+            return;
+        }
+
+        const activeCycle = this.libraryRefreshCycle;
+        this.libraryRefreshExecuting = true;
+        this.libraryRefreshDueAt = 0;
+
+        try {
+            await this.refreshLibraryMetadataOnly();
+            activeCycle.resolve();
+        } catch (error) {
+            activeCycle.reject(error);
+            throw error;
+        } finally {
+            this.libraryRefreshExecuting = false;
+            if (this.libraryRefreshCycle === activeCycle) {
+                this.libraryRefreshCycle = undefined;
+            }
+            if (this.libraryRefreshCycle) {
+                this.armLibraryRefreshTimer();
+            }
         }
     }
 
@@ -1861,7 +1944,7 @@ export class TwinCATProjectAnalyzer {
             return;
         }
 
-        await this.refreshLibraryMetadataOnly();
+        await this.queueLibraryRefresh();
     }
 
     public getTypeResolutionStatus(typeName: string): 'known' | 'metadata_only' | 'unknown' {
@@ -1960,6 +2043,9 @@ export class TwinCATProjectAnalyzer {
             clearTimeout(this.libraryRefreshTimer);
             this.libraryRefreshTimer = undefined;
         }
+        this.libraryRefreshCycle = undefined;
+        this.libraryRefreshExecuting = false;
+        this.libraryRefreshDueAt = 0;
         if (this.fileUpdateTimer) {
             clearTimeout(this.fileUpdateTimer);
             this.fileUpdateTimer = undefined;
@@ -2024,4 +2110,3 @@ export function disposeProjectAnalyzer(): void {
     analyzer.dispose();
     analyzer = undefined;
 }
-
