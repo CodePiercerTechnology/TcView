@@ -481,9 +481,74 @@
           "documentation": "Calculates CRC16-CCITT for one byte."
         },
         {
+          "name": "F_ARGCMP",
+          "documentation": "Performs an argument comparison helper operation."
+        },
+        {
+          "name": "F_ARGCPY",
+          "documentation": "Performs an argument copy helper operation."
+        },
+        {
+          "name": "F_ARGISZERO",
+          "returnType": "BOOL",
+          "documentation": "Checks whether the supplied argument value is zero."
+        },
+        {
+          "name": "F_BIGTYPE",
+          "documentation": "Converts an input value to BIGTYPE."
+        },
+        {
+          "name": "F_BOOL",
+          "returnType": "BOOL",
+          "documentation": "Converts an input value to BOOL."
+        },
+        {
+          "name": "F_BYTE",
+          "returnType": "BYTE",
+          "documentation": "Converts an input value to BYTE."
+        },
+        {
+          "name": "F_DINT",
+          "returnType": "DINT",
+          "documentation": "Converts an input value to DINT."
+        },
+        {
           "name": "F_DWORD",
           "returnType": "DWORD",
           "documentation": "Converts a numeric input value to DWORD."
+        },
+        {
+          "name": "F_HUGE",
+          "documentation": "Converts an input value to HUGE."
+        },
+        {
+          "name": "F_INT",
+          "returnType": "INT",
+          "documentation": "Converts an input value to INT."
+        },
+        {
+          "name": "F_LARGE",
+          "documentation": "Converts an input value to LARGE."
+        },
+        {
+          "name": "F_LINT",
+          "returnType": "LINT",
+          "documentation": "Converts an input value to LINT."
+        },
+        {
+          "name": "F_LREAL",
+          "returnType": "LREAL",
+          "documentation": "Converts an input value to LREAL."
+        },
+        {
+          "name": "F_LWORD",
+          "returnType": "LWORD",
+          "documentation": "Converts an input value to LWORD."
+        },
+        {
+          "name": "F_PVOID",
+          "returnType": "PVOID",
+          "documentation": "Converts an input value to PVOID."
         },
         {
           "name": "F_REAL",
@@ -491,9 +556,52 @@
           "documentation": "Converts a numeric input value to REAL."
         },
         {
+          "name": "F_SINT",
+          "returnType": "SINT",
+          "documentation": "Converts an input value to SINT."
+        },
+        {
+          "name": "F_STRING",
+          "returnType": "STRING",
+          "documentation": "Converts an input value to STRING."
+        },
+        {
+          "name": "F_STRINGEx",
+          "returnType": "STRINGEx",
+          "documentation": "Converts an input value to STRINGEx."
+        },
+        {
           "name": "F_UDINT",
           "returnType": "UDINT",
           "documentation": "Converts a numeric input value to UDINT."
+        },
+        {
+          "name": "F_UHUGE",
+          "documentation": "Converts an input value to UHUGE."
+        },
+        {
+          "name": "F_UINT",
+          "returnType": "UINT",
+          "documentation": "Converts an input value to UINT."
+        },
+        {
+          "name": "F_ULARGE",
+          "documentation": "Converts an input value to ULARGE."
+        },
+        {
+          "name": "F_ULINT",
+          "returnType": "ULINT",
+          "documentation": "Converts an input value to ULINT."
+        },
+        {
+          "name": "F_USINT",
+          "returnType": "USINT",
+          "documentation": "Converts an input value to USINT."
+        },
+        {
+          "name": "F_WORD",
+          "returnType": "WORD",
+          "documentation": "Converts an input value to WORD."
         }
       ],
       "dataTypes": [
