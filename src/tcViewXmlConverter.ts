@@ -350,27 +350,25 @@ export class TwinCATXmlConverter {
     }
 
     private generateGVLStructure(gvlData: any): string {
+        if (gvlData.Declaration) {
+            const declaration = this.getTextContent(gvlData.Declaration).trim();
+            if (declaration) {
+                return declaration.endsWith('\n') ? declaration : `${declaration}\n`;
+            }
+        }
+
         let stCode = '';
-        
         let name = 'GlobalVars';
         if (gvlData.Name) {
             name = this.getTextContent(gvlData.Name) || 'GlobalVars';
         } else if (gvlData.$ && gvlData.$.Name) {
             name = gvlData.$.Name;
         }
-        
+
         stCode += `// Global Variable List: ${name}\n\n`;
         stCode += `VAR_GLOBAL\n`;
-        
-        if (gvlData.Declaration) {
-            const decl = this.getTextContent(gvlData.Declaration);
-            const match = decl.match(/VAR_GLOBAL([\s\S]*?)END_VAR/);
-            if (match) {
-                stCode += match[1].trim() + '\n';
-            } else {
-                stCode += decl + '\n';
-            }
-        } else if (gvlData.Variables && gvlData.Variables.Variable) {
+
+        if (gvlData.Variables && gvlData.Variables.Variable) {
             const vars = this.ensureArray(gvlData.Variables.Variable);
             for (const variable of vars) {
                 const varName = variable.Name ? this.getTextContent(variable.Name) : (variable.$?.Name || 'unnamed');

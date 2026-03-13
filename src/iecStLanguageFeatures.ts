@@ -391,6 +391,8 @@ const noSemicolonPatterns = [
     /^\s*(TYPE|END_TYPE|STRUCT|END_STRUCT|UNION|END_UNION)\s*$/i,
     // TYPE declarations like "TYPE MyType :"
     /^\s*TYPE\s+[a-zA-Z_]\w*\s*:\s*$/i,
+    // VAR blocks with inline modifiers, e.g. "VAR_GLOBAL CONSTANT INTERNAL"
+    /^\s*(VAR|VAR_INPUT|VAR_OUTPUT|VAR_IN_OUT|VAR_TEMP|VAR_GLOBAL|VAR_INST|VAR_STAT)(\s+(CONSTANT|INTERNAL|PUBLIC|PRIVATE|PROTECTED|FINAL|ABSTRACT|RETAIN|PERSISTENT))*\s*$/i,
     // Method/property declarations at line start
     /^\s*(METHOD|END_METHOD|PROPERTY|END_PROPERTY)\b/i,
     // Action/transition declarations at line start
