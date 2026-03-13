@@ -849,6 +849,11 @@ export class TwinCATFileExplorerProvider
         folderPath: string,
         depth = 2
     ): Promise<{ folderPath: string; identifiers: { hasTwinCATFiles: boolean; tsprojPath?: string; slnPath?: string; plcprojPath?: string } } | undefined> {
+        const markerResolved = await this.resolveTwinCATRootFromWorkspaceMarkers(folderPath, depth);
+        if (markerResolved) {
+            return markerResolved;
+        }
+
         const identifiers = await this.findTwinCATIdentifiers(folderPath);
         if (identifiers.hasTwinCATFiles) {
             return { folderPath, identifiers };
@@ -876,6 +881,74 @@ export class TwinCATFileExplorerProvider
         }
 
         return undefined;
+    }
+
+    private async resolveTwinCATRootFromWorkspaceMarkers(
+        folderPath: string,
+        depth: number
+    ): Promise<{ folderPath: string; identifiers: { hasTwinCATFiles: boolean; tsprojPath?: string; slnPath?: string; plcprojPath?: string } } | undefined> {
+        const workspaceRoot = this.workspaceRoot;
+        if (!workspaceRoot || path.normalize(folderPath) !== path.normalize(workspaceRoot)) {
+            return undefined;
+        }
+
+        try {
+            const markerUris = await vscode.workspace.findFiles('**/*.{sln,tsproj,tspproj,plcproj}', '**/{node_modules,.git}/**', 400);
+            const rootLower = workspaceRoot.toLowerCase();
+            const byFolder = new Map<string, { slnPath?: string; tsprojPath?: string; plcprojPath?: string }>();
+
+            for (const uri of markerUris) {
+                const markerPath = uri.fsPath;
+                if (!markerPath.toLowerCase().startsWith(rootLower)) {
+                    continue;
+                }
+
+                const relativeFolder = path.relative(workspaceRoot, path.dirname(markerPath));
+                const segmentDepth = relativeFolder ? relativeFolder.split(path.sep).length : 0;
+                if (segmentDepth > depth) {
+                    continue;
+                }
+
+                const folderKey = path.normalize(path.dirname(markerPath));
+                const entry = byFolder.get(folderKey) ?? {};
+                const lowerExt = path.extname(markerPath).toLowerCase();
+                if (lowerExt === '.sln') {
+                    entry.slnPath = markerPath;
+                } else if (lowerExt === '.tsproj' || lowerExt === '.tspproj') {
+                    entry.tsprojPath = markerPath;
+                } else if (lowerExt === '.plcproj') {
+                    entry.plcprojPath = markerPath;
+                }
+                byFolder.set(folderKey, entry);
+            }
+
+            const candidates = [...byFolder.entries()]
+                .map(([candidateFolder, markers]) => ({
+                    folderPath: candidateFolder,
+                    depth: path.relative(workspaceRoot, candidateFolder).split(path.sep).filter(Boolean).length,
+                    identifiers: {
+                        hasTwinCATFiles: !!((markers.slnPath && markers.tsprojPath) || markers.plcprojPath),
+                        slnPath: markers.slnPath,
+                        tsprojPath: markers.tsprojPath,
+                        plcprojPath: markers.plcprojPath
+                    }
+                }))
+                .filter(candidate => candidate.identifiers.hasTwinCATFiles)
+                .sort((a, b) => {
+                    const byDepth = a.depth - b.depth;
+                    if (byDepth !== 0) {
+                        return byDepth;
+                    }
+                    return a.folderPath.localeCompare(b.folderPath);
+                });
+
+            const best = candidates[0];
+            return best
+                ? { folderPath: best.folderPath, identifiers: best.identifiers }
+                : undefined;
+        } catch {
+            return undefined;
+        }
     }
 
     private async findTwinCATIdentifiers(folderPath: string): Promise<{ hasTwinCATFiles: boolean; tsprojPath?: string; slnPath?: string; plcprojPath?: string }> {
@@ -1057,7 +1130,7 @@ export class TwinCATFileExplorerProvider
         return summary;
     }
 
-    private async createTreeItemFromEntry(folderPath: string, entry: fs.Dirent): Promise<TwinCATFileTreeItem | undefined> {
+    private async createTreeItemFromEntry(folderPath: string, entry: fs.Dirent, knownHasPlcProject?: boolean): Promise<TwinCATFileTreeItem | undefined> {
         if (this.isHiddenOrExcluded(entry.name)) {
             return undefined;
         }
@@ -1065,7 +1138,7 @@ export class TwinCATFileExplorerProvider
         const fullPath = path.join(folderPath, entry.name);
 
         if (entry.isDirectory()) {
-            const hasPlcProject = await this.directoryContainsPlcProj(fullPath);
+            const hasPlcProject = knownHasPlcProject ?? await this.directoryContainsPlcProj(fullPath);
             const item = new TwinCATFileTreeItem(
                 vscode.Uri.file(fullPath),
                 vscode.TreeItemCollapsibleState.Collapsed,
@@ -1124,7 +1197,7 @@ export class TwinCATFileExplorerProvider
                     await this.directoryContainsPlcProj(fullPath)
                 );
                 const isIoEntry = this.tsprojStructure?.ioFolderPaths.has(normalizedFullPath) || this.isIoLikeEntry(entry.name);
-                const item = await this.createTreeItemFromEntry(this.contentRoot!, entry);
+                const item = await this.createTreeItemFromEntry(this.contentRoot!, entry, hasPlcProject);
                 if (!item) {
                     return;
                 }

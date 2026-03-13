@@ -359,7 +359,7 @@ const blockPairs: { [key: string]: string } = {
 
 // All blocks that close with END_VAR
 const varBlocks = ['VAR', 'VAR_INPUT', 'VAR_OUTPUT', 'VAR_IN_OUT', 'VAR_TEMP', 'VAR_GLOBAL', 'VAR_INST', 'VAR_STAT'];
-const unusedDeclarationScopes = new Set(['VAR', 'VAR_INPUT', 'VAR_OUTPUT', 'VAR_IN_OUT', 'VAR_TEMP', 'VAR_GLOBAL', 'VAR_INST', 'VAR_STAT']);
+const unusedDeclarationScopes = new Set(['VAR', 'VAR_INPUT', 'VAR_OUTPUT', 'VAR_IN_OUT', 'VAR_TEMP', 'VAR_INST', 'VAR_STAT']);
 
 
 
@@ -397,6 +397,8 @@ const noSemicolonPatterns = [
     /^\s*(CONFIGURATION|END_CONFIGURATION|RESOURCE|END_RESOURCE|TASK|END_TASK)\b/i,
     // Interface declarations/accessors at line start
     /^\s*(INTERFACE|END_INTERFACE|GET|SET)\b/i,
+    // Modifier-only declaration lines such as "CONSTANT INTERNAL"
+    /^\s*(CONSTANT|INTERNAL|PUBLIC|PRIVATE|PROTECTED|FINAL|ABSTRACT)(\s+(CONSTANT|INTERNAL|PUBLIC|PRIVATE|PROTECTED|FINAL|ABSTRACT))*\s*$/i,
     // Import/using statements at line start
     /^\s*(IMPORT|USING|FROM)\b/i,
     // Pragma/directive lines (curly braces)
@@ -2866,4 +2868,3 @@ function applyCreateVariableDeclarationEdit(
     const block = `\nVAR\n    ${name} : BOOL;\nEND_VAR\n`;
     edit.insert(document.uri, new vscode.Position(insertLine, 0), block);
 }
-
