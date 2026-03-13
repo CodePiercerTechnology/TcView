@@ -898,36 +898,53 @@ export class TwinCATFileExplorerProvider
         }
 
         try {
-            const markerUris = await vscode.workspace.findFiles('**/*.{sln,tsproj,tspproj,plcproj}', '**/{node_modules,.git}/**', 400);
             const rootLower = workspaceRoot.toLowerCase();
             const byFolder = new Map<string, { slnPath?: string; tsprojPath?: string; plcprojPath?: string }>();
             const slnPaths: string[] = [];
 
-            for (const uri of markerUris) {
-                const markerPath = uri.fsPath;
-                if (!markerPath.toLowerCase().startsWith(rootLower)) {
-                    continue;
+            const collectMarkers = async (scanFolder: string, remainingDepth: number): Promise<void> => {
+                const entries = await this.getDirectoryEntries(scanFolder);
+                if (!entries) {
+                    return;
                 }
 
-                const relativeFolder = path.relative(workspaceRoot, path.dirname(markerPath));
-                const segmentDepth = relativeFolder ? relativeFolder.split(path.sep).length : 0;
-                if (segmentDepth > depth) {
-                    continue;
+                const folderKey = path.normalize(scanFolder);
+                const markerEntry = byFolder.get(folderKey) ?? {};
+
+                for (const entry of entries) {
+                    if (entry.isFile()) {
+                        const markerPath = path.join(scanFolder, entry.name);
+                        const lowerExt = path.extname(markerPath).toLowerCase();
+                        if (lowerExt === '.sln') {
+                            markerEntry.slnPath = markerPath;
+                            slnPaths.push(markerPath);
+                        } else if (lowerExt === '.tsproj' || lowerExt === '.tspproj') {
+                            markerEntry.tsprojPath = markerPath;
+                        } else if (lowerExt === '.plcproj') {
+                            markerEntry.plcprojPath = markerPath;
+                        }
+                    }
                 }
 
-                const folderKey = path.normalize(path.dirname(markerPath));
-                const entry = byFolder.get(folderKey) ?? {};
-                const lowerExt = path.extname(markerPath).toLowerCase();
-                if (lowerExt === '.sln') {
-                    entry.slnPath = markerPath;
-                    slnPaths.push(markerPath);
-                } else if (lowerExt === '.tsproj' || lowerExt === '.tspproj') {
-                    entry.tsprojPath = markerPath;
-                } else if (lowerExt === '.plcproj') {
-                    entry.plcprojPath = markerPath;
+                if (markerEntry.slnPath || markerEntry.tsprojPath || markerEntry.plcprojPath) {
+                    byFolder.set(folderKey, markerEntry);
                 }
-                byFolder.set(folderKey, entry);
-            }
+
+                if (remainingDepth <= 0) {
+                    return;
+                }
+
+                const childDirs = entries
+                    .filter(entry => entry.isDirectory() && !this.isHiddenOrExcluded(entry.name))
+                    .map(entry => path.join(scanFolder, entry.name))
+                    .sort((a, b) => a.localeCompare(b));
+
+                for (const childDir of childDirs) {
+                    await collectMarkers(childDir, remainingDepth - 1);
+                }
+            };
+
+            await collectMarkers(workspaceRoot, depth);
 
             for (const slnPath of slnPaths) {
                 const referencedTsprojPath = await this.readTwinCatProjectPathFromSolution(slnPath);
