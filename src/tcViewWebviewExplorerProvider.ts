@@ -253,6 +253,10 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
                 return;
             }
             case 'action': {
+                if (message.action === 'openSolution') {
+                    await vscode.commands.executeCommand('tcview.openSolution');
+                    return;
+                }
                 const item = this.itemById.get(message.id);
                 if (!item) {
                     return;
@@ -1155,6 +1159,21 @@ ${this.renderScript()}
         .empty {
             padding: 10px 6px;
             color: var(--muted);
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 8px;
+        }
+        .empty-action {
+            border: 1px solid var(--vscode-button-border, transparent);
+            background: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+            font: inherit;
+            padding: 4px 10px;
+            cursor: pointer;
+        }
+        .empty-action:hover {
+            background: var(--vscode-button-hoverBackground);
         }
         @media (prefers-reduced-motion: reduce) {
             *, *::before, *::after {
@@ -1192,7 +1211,17 @@ ${this.renderScript()}
             if (!nodes.length) {
                 const empty = document.createElement('div');
                 empty.className = 'empty';
-                empty.textContent = 'No TwinCAT content loaded.';
+                const message = document.createElement('div');
+                message.textContent = 'No TwinCAT content loaded.';
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'empty-action';
+                button.textContent = 'Open TwinCAT Solution';
+                button.addEventListener('click', () => {
+                    vscode.postMessage({ type: 'action', id: '', action: 'openSolution' });
+                });
+                empty.appendChild(message);
+                empty.appendChild(button);
                 container.appendChild(empty);
                 return;
             }

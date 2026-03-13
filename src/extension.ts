@@ -495,11 +495,20 @@ export function activate(context: vscode.ExtensionContext) {
                 solutionProjectExtensions.some(extension => name.toLowerCase().endsWith(extension))
             );
             const plcproj = files.find(name => name.toLowerCase().endsWith('.plcproj'));
-            const isTwinCATSolution = !!(solution && tsproj);
+            let resolvedTsprojPath = tsproj ? path.join(folderPath, tsproj) : undefined;
+            if (solution && !resolvedTsprojPath) {
+                const slnText = await fs.promises.readFile(path.join(folderPath, solution), 'utf8');
+                const projectRegex = /Project\([^)]*\)\s*=\s*"[^"]+",\s*"([^"]+\.(?:tsproj|tspproj))"/i;
+                const match = slnText.match(projectRegex)?.[1];
+                if (match) {
+                    resolvedTsprojPath = path.normalize(path.join(folderPath, match));
+                }
+            }
+            const isTwinCATSolution = !!(solution && resolvedTsprojPath);
             const isStandalonePlcProject = !!plcproj;
             const markers = {
                 solutionPath: isTwinCATSolution && solution ? path.join(folderPath, solution) : undefined,
-                tsprojPath: tsproj ? path.join(folderPath, tsproj) : undefined,
+                tsprojPath: resolvedTsprojPath,
                 plcprojPath: plcproj ? path.join(folderPath, plcproj) : undefined,
                 isTwinCATSolution,
                 isStandalonePlcProject,

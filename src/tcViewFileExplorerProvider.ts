@@ -490,6 +490,9 @@ export class TwinCATFileExplorerProvider
     private folderChildrenCache = new Map<string, TwinCATFileTreeItem[]>();
     private plcReferencesCache = new Map<string, TwinCATFileTreeItem[]>();
     private topLevelGroupsCache: { system: TwinCATFileTreeItem[]; plc: TwinCATFileTreeItem[]; io: TwinCATFileTreeItem[] } | undefined;
+    private topLevelGroupsCachePromise:
+        Promise<{ system: TwinCATFileTreeItem[]; plc: TwinCATFileTreeItem[]; io: TwinCATFileTreeItem[] }>
+        | undefined;
     private discoveryState: 'booting' | 'loading' | 'ready' | 'empty' = 'booting';
     private rootIdentifiers: { hasTwinCATFiles: boolean; tsprojPath?: string; slnPath?: string; plcprojPath?: string } | undefined;
     private tsprojStructure: { plcFolderPaths: Set<string>; hasSystem: boolean; ioFolderPaths: Set<string> } | undefined;
@@ -542,6 +545,7 @@ export class TwinCATFileExplorerProvider
         this.folderChildrenCache.clear();
         this.plcReferencesCache.clear();
         this.topLevelGroupsCache = undefined;
+        this.topLevelGroupsCachePromise = undefined;
         this._onDidChangeTreeData.fire(undefined);
     }
 
@@ -813,6 +817,7 @@ export class TwinCATFileExplorerProvider
         this.folderChildrenCache.clear();
         this.plcReferencesCache.clear();
         this.topLevelGroupsCache = undefined;
+        this.topLevelGroupsCachePromise = undefined;
         this.clearDiagnosticSummaryCaches();
         this.rootIdentifiers = undefined;
         this.tsprojStructure = undefined;
@@ -1271,7 +1276,9 @@ export class TwinCATFileExplorerProvider
 
     private async getTopLevelGroupContents(group: 'system' | 'plc' | 'io') {
         if (!this.topLevelGroupsCache) {
-            this.topLevelGroupsCache = await this.buildTopLevelGroups();
+            this.topLevelGroupsCachePromise ??= this.buildTopLevelGroups();
+            this.topLevelGroupsCache = await this.topLevelGroupsCachePromise;
+            this.topLevelGroupsCachePromise = undefined;
         }
 
         return this.topLevelGroupsCache[group];
