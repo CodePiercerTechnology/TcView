@@ -277,14 +277,7 @@ export class TwinCATXmlConverter {
     private buildInterfaceDeclaration(itfData: any): string {
         const declaration = this.getTextContent(itfData?.Declaration).trim();
         if (declaration) {
-            const firstLine = declaration
-                .replace(/\r/g, '\n')
-                .split('\n')
-                .map(line => line.trim())
-                .find(Boolean);
-            if (firstLine) {
-                return firstLine;
-            }
+            return declaration;
         }
 
         const name = itfData?.Name
@@ -298,8 +291,17 @@ export class TwinCATXmlConverter {
     }
 
     private generatePOUStructure(pouData: any, type: string): string {
+        const declaration = this.getTextContent(pouData.Declaration).trim();
+        const implementation = pouData.Implementation
+            ? this.generateImplementation(pouData.Implementation).trim()
+            : '';
+
+        if (declaration) {
+            return [declaration, implementation].filter(Boolean).join('\n\n').trim() + '\n';
+        }
+
         let stCode = '';
-        
+
         // Get name - can be child element or attribute
         let name = 'Main';
         if (pouData.Name) {
@@ -307,7 +309,7 @@ export class TwinCATXmlConverter {
         } else if (pouData.$ && pouData.$.Name) {
             name = pouData.$.Name;
         }
-        
+
         // Get type (PROGRAM, FUNCTION_BLOCK, FUNCTION)
         let pouType = 'PROGRAM';
         if (pouData.Type) {
@@ -315,26 +317,26 @@ export class TwinCATXmlConverter {
         } else if (pouData.$ && pouData.$.Type) {
             pouType = pouData.$.Type;
         }
-        
+
         // Get comment
         let comment = '';
         if (pouData.Comment) {
             comment = this.getTextContent(pouData.Comment);
         }
-        
+
         const commentStr = comment ? ` // ${comment}` : '';
         stCode += `${pouType} ${name}${commentStr}\n\n`;
-        
+
         // Generate variable sections from Interface
         if (pouData.Interface) {
             stCode += this.generateInterface(pouData.Interface);
         }
-        
+
         // Generate implementation
         if (pouData.Implementation) {
             stCode += this.generateImplementation(pouData.Implementation);
         }
-        
+
         return stCode;
     }
 
@@ -385,7 +387,8 @@ export class TwinCATXmlConverter {
     }
 
     private generateInterfaceObjectStructure(itfData: any): string {
-        return `${this.buildInterfaceDeclaration(itfData)}\n`;
+        const declaration = this.buildInterfaceDeclaration(itfData).trim();
+        return declaration ? `${declaration}\n` : '';
     }
 
     private generateInterface(interfaceData: any): string {
