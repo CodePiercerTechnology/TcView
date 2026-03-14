@@ -33,6 +33,7 @@ Use TwinCAT XAE for device engineering, configuration activation, runtime contro
   - hover
   - rename/references
   - symbols/folding/code actions
+- Suppress selected TcView lint rules with `tcview` pragmas and supported Beckhoff analysis pragmas
 - Recognize libraries from layered metadata:
   - current PLC `.tmc`
   - installed Managed Libraries metadata
@@ -135,6 +136,7 @@ For details, see [Library Metadata](docs/library-metadata.md).
 
 - [Architecture](docs/architecture.md)
 - [Library Metadata](docs/library-metadata.md)
+- [Lint Pragmas](docs/lint-pragmas.md)
 - [Development](docs/development.md)
 - [Production Readiness](docs/production-readiness.md)
 - [GitFlow](docs/gitflow.md)

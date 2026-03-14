@@ -129,6 +129,42 @@ export async function runLanguageFeatureUtilityTests(): Promise<void> {
     const foreignLintPragmas = parseTcviewLintPragmas(foreignLintSample);
     assert.ok(!foreignLintPragmas.inlineIgnoresByLine.get(0)?.has('unused-instance'));
 
+    const multiRuleSample = [
+        "{tcview lint-disable undefined-variable, duplicate-declaration}",
+        "fbMyTest : FB_MyTcUnitTest;",
+        "{tcview lint-enable duplicate-declaration}",
+        "fbOther : FB_MyTcUnitTest;"
+    ].join('\n');
+    const multiRulePragmas = parseTcviewLintPragmas(multiRuleSample);
+    assert.ok(multiRulePragmas.disabledByLine.get(1)?.has('undefined-variable'));
+    assert.ok(multiRulePragmas.disabledByLine.get(1)?.has('duplicate-declaration'));
+    assert.ok(multiRulePragmas.disabledByLine.get(3)?.has('undefined-variable'));
+    assert.ok(!multiRulePragmas.disabledByLine.get(3)?.has('duplicate-declaration'));
+
+    const beckhoffAnalysisSample = [
+        "{analysis -33}",
+        "fbMyTest : FB_MyTcUnitTest;",
+        "{analysis +33}",
+        "fbOther : FB_MyTcUnitTest;"
+    ].join('\n');
+    const beckhoffAnalysisPragmas = parseTcviewLintPragmas(beckhoffAnalysisSample);
+    assert.ok(beckhoffAnalysisPragmas.disabledByLine.get(1)?.has('unused-instance'));
+    assert.ok(!beckhoffAnalysisPragmas.disabledByLine.get(3)?.has('unused-instance'));
+
+    const beckhoffAttributeSample = [
+        "{attribute 'analysis' := '-33'}",
+        "fbMyTest : FB_MyTcUnitTest;"
+    ].join('\n');
+    const beckhoffAttributePragmas = parseTcviewLintPragmas(beckhoffAttributeSample);
+    assert.ok(beckhoffAttributePragmas.disabledByLine.get(1)?.has('unused-instance'));
+
+    const noAnalysisSample = [
+        "{attribute 'no-analysis'}",
+        "fbMyTest : FB_MyTcUnitTest;"
+    ].join('\n');
+    const noAnalysisPragmas = parseTcviewLintPragmas(noAnalysisSample);
+    assert.ok(noAnalysisPragmas.disabledByLine.get(1)?.has('*'));
+
     assert.ok(isKnownIecBuiltinType('ANY'));
     assert.ok(isKnownIecBuiltinIdentifier('_SYSTEM'));
     assert.ok(isKnownIecBuiltinIdentifier('__SYSTEM'));

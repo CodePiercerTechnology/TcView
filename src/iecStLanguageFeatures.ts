@@ -1265,6 +1265,12 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         const text = document.getText();
         const lines = text.split('\n');
         const tcviewLintPragmas = parseTcviewLintPragmas(text);
+        const pushLintDiagnostic = (rule: string, line: number, diagnostic: vscode.Diagnostic) => {
+            if (isTcviewLintRuleSuppressed(tcviewLintPragmas, line, rule)) {
+                return;
+            }
+            diagnostics.push(diagnostic);
+        };
         const originalPath = document.uri.scheme === 'twincat'
             ? TwinCATFileSystemProvider.getOriginalPath(document.uri)
             : document.uri.scheme === 'file'
@@ -1312,7 +1318,7 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
             ));
         });
         ast.duplicates.forEach(dup => {
-            diagnostics.push(new vscode.Diagnostic(
+            pushLintDiagnostic('duplicate-declaration', dup.line, new vscode.Diagnostic(
                 new vscode.Range(dup.line, dup.startCol, dup.line, dup.endCol),
                 `Duplicate declaration '${dup.name}' in the same scope.`,
                 severityDuplicate
@@ -1373,7 +1379,7 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
             const typeStatus = getDeclarationTypeStatus(typeInfo.baseType);
             if (typeStatus === 'unknown') {
                 const typeRange = findDeclarationTypeRange(lines[decl.line] ?? '', decl.line);
-                diagnostics.push(new vscode.Diagnostic(
+                pushLintDiagnostic('unknown-type', decl.line, new vscode.Diagnostic(
                     typeRange,
                     `Unknown or unresolved type '${typeInfo.baseType}' for declaration '${decl.name}'.`,
                     severityUndefined
@@ -1382,7 +1388,7 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
             }
             if (typeStatus === 'metadata_only') {
                 const typeRange = findDeclarationTypeRange(lines[decl.line] ?? '', decl.line);
-                diagnostics.push(new vscode.Diagnostic(
+                pushLintDiagnostic('unknown-type', decl.line, new vscode.Diagnostic(
                     typeRange,
                     `Type '${typeInfo.baseType}' is referenced from metadata-only library context and is not fully verified.`,
                     vscode.DiagnosticSeverity.Warning
@@ -1403,7 +1409,7 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
                 const exprType = inferExpressionPrimitiveType(typeInfo.initializer);
                 if (exprType !== 'UNKNOWN' && !isTypeCompatible(typeInfo.baseType, exprType)) {
                     const typeRange = findDeclarationTypeRange(lines[decl.line] ?? '', decl.line);
-                    diagnostics.push(new vscode.Diagnostic(
+                    pushLintDiagnostic('type-mismatch', decl.line, new vscode.Diagnostic(
                         typeRange,
                         `Type mismatch in declaration '${decl.name}': cannot assign ${exprType} to ${typeInfo.baseType}.`,
                         severityTypeMismatch
@@ -1420,7 +1426,7 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
 
             const typeRange = findCallableReturnTypeRange(lines[callable.line] ?? '', callable.line);
             if (typeStatus === 'metadata_only') {
-                diagnostics.push(new vscode.Diagnostic(
+                pushLintDiagnostic('unknown-type', callable.line, new vscode.Diagnostic(
                     typeRange,
                     `Return type '${callable.typeName}' for ${callable.kind} '${callable.name}' is referenced from metadata-only library context and is not fully verified.`,
                     vscode.DiagnosticSeverity.Warning
@@ -1428,7 +1434,7 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
                 return;
             }
 
-            diagnostics.push(new vscode.Diagnostic(
+            pushLintDiagnostic('unknown-type', callable.line, new vscode.Diagnostic(
                 typeRange,
                 `Unknown or unresolved return type '${callable.typeName}' for ${callable.kind} '${callable.name}'.`,
                 severityUndefined
@@ -1459,7 +1465,7 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
             }
             const suggestion = findClosestMatch(u.name, [...allKnownVars]);
             const suggestionText = suggestion ? ` Did you mean '${suggestion}'?` : '';
-            diagnostics.push(new vscode.Diagnostic(
+            pushLintDiagnostic('undefined-variable', u.line, new vscode.Diagnostic(
                 new vscode.Range(u.line, u.startCol, u.line, u.endCol),
                 `'${u.name}' is undeclared in local scope and project symbols.${suggestionText}`,
                 severityUndefined
@@ -1472,7 +1478,7 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
             const exprType = inferExpressionPrimitiveType(a.expr);
             if (exprType === 'UNKNOWN') return;
             if (!isTypeCompatible(targetType, exprType)) {
-                diagnostics.push(new vscode.Diagnostic(
+                pushLintDiagnostic('type-mismatch', a.line, new vscode.Diagnostic(
                     new vscode.Range(a.line, a.startCol, a.line, a.startCol + a.target.length),
                     `Type mismatch: cannot assign ${exprType} to ${targetType}.`,
                     severityTypeMismatch
