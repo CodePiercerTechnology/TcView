@@ -4,6 +4,7 @@ import * as xml2js from 'xml2js';
 import { getProjectAnalyzer, initializeProjectAnalyzer, onProjectAnalyzerCreated } from './tcViewProjectAnalyzer';
 import { buildAstAnalysis } from './iecStAst';
 import { TwinCATFileSystemProvider } from './tcViewFileSystemProvider';
+import { isTcviewLintRuleSuppressed, parseTcviewLintPragmas } from './tcviewLintPragmas';
 import {
     iecBuiltinFunctions,
     iecBuiltinNamespaces,
@@ -1263,6 +1264,7 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         const severityTypeMismatch = getConfiguredSeverity('twincat.diagnostics.typeMismatch', vscode.DiagnosticSeverity.Error);
         const text = document.getText();
         const lines = text.split('\n');
+        const tcviewLintPragmas = parseTcviewLintPragmas(text);
         const originalPath = document.uri.scheme === 'twincat'
             ? TwinCATFileSystemProvider.getOriginalPath(document.uri)
             : document.uri.scheme === 'file'
@@ -1488,6 +1490,9 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
 
         if (!isGlobalListDocument) {
             astLocalsForUnusedCheck.forEach(local => {
+                if (isTcviewLintRuleSuppressed(tcviewLintPragmas, local.line, 'unused-instance')) {
+                    return;
+                }
                 const usedInBody = astUsedIdentifiers.has(local.upper) || isIdentifierUsedInBody(text, local.name);
                 const usedInWholePou = wholePouUsageSet ? wholePouUsageSet.has(local.upper) : false;
                 if (!(usedInBody || usedInWholePou)) {

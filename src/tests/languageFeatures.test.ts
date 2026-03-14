@@ -4,6 +4,7 @@ import * as path from 'path';
 import { buildAstAnalysis } from '../iecStAst';
 import { isKnownIecBuiltinIdentifier, isKnownIecBuiltinType } from '../iecStBuiltins';
 import { iecStKeywordSet } from '../iecStKeywords';
+import { parseTcviewLintPragmas } from '../tcviewLintPragmas';
 import { applyFragmentSTToXml, extractFragmentSTFromXml } from '../tcViewFragmentCodec';
 import { TwinCATXmlConverter } from '../tcViewXmlConverter';
 
@@ -108,6 +109,25 @@ export async function runLanguageFeatureUtilityTests(): Promise<void> {
     const pragmaAst = buildAstAnalysis(pragmaSample);
     assert.strictEqual(pragmaAst.missingSemicolons.length, 0, 'Pragma lines must not produce semicolon diagnostics');
     assert.ok(!pragmaAst.usages.some(u => u.upper === 'WARNING' || u.upper === 'DISABLE' || u.upper === 'C0371'));
+
+    const tcviewLintBlockSample = [
+        "{tcview lint-disable unused-instance}",
+        "fbMyTest : FB_MyTcUnitTest;",
+        "{tcview lint-enable unused-instance}",
+        "fbOther : FB_MyTcUnitTest;"
+    ].join('\n');
+    const tcviewBlockPragmas = parseTcviewLintPragmas(tcviewLintBlockSample);
+    assert.ok(tcviewBlockPragmas.disabledByLine.get(1)?.has('unused-instance'));
+    assert.ok(!tcviewBlockPragmas.disabledByLine.get(0)?.has('unused-instance'));
+    assert.ok(!tcviewBlockPragmas.disabledByLine.get(3)?.has('unused-instance'));
+
+    const tcviewLintInlineSample = "fbMyTest : FB_MyTcUnitTest; // tcview lint-ignore unused-instance";
+    const tcviewInlinePragmas = parseTcviewLintPragmas(tcviewLintInlineSample);
+    assert.ok(tcviewInlinePragmas.inlineIgnoresByLine.get(0)?.has('unused-instance'));
+
+    const foreignLintSample = "fbMyTest : FB_MyTcUnitTest; // lint-ignore unused-instance";
+    const foreignLintPragmas = parseTcviewLintPragmas(foreignLintSample);
+    assert.ok(!foreignLintPragmas.inlineIgnoresByLine.get(0)?.has('unused-instance'));
 
     assert.ok(isKnownIecBuiltinType('ANY'));
     assert.ok(isKnownIecBuiltinIdentifier('_SYSTEM'));
