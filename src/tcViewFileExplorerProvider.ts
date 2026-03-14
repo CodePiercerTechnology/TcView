@@ -495,7 +495,7 @@ export class TwinCATFileExplorerProvider
         | undefined;
     private discoveryState: 'booting' | 'loading' | 'ready' | 'empty' = 'booting';
     private rootIdentifiers: { hasTwinCATFiles: boolean; tsprojPath?: string; slnPath?: string; plcprojPath?: string } | undefined;
-    private tsprojStructure: { plcFolderPaths: Set<string>; hasSystem: boolean; ioFolderPaths: Set<string> } | undefined;
+    private tsprojStructure: { plcFolderPaths: Set<string>; plcProjectPaths: Map<string, string>; hasSystem: boolean; ioFolderPaths: Set<string> } | undefined;
     private contentRoot?: string;
     private fileWatcher?: vscode.FileSystemWatcher;
     private refreshTimer: NodeJS.Timeout | undefined;
@@ -504,6 +504,7 @@ export class TwinCATFileExplorerProvider
     private discoveryStarted = false;
     private diagnosticSummaryCache = new Map<string, DiagnosticBreadcrumb>();
     private diagnosticFileSummaryCache: Map<string, DiagnosticBreadcrumb> | undefined;
+    private diagnosticFragmentSummaryCache: Map<string, DiagnosticBreadcrumb> | undefined;
 
     constructor(
         private workspaceRoot?: string,
@@ -549,6 +550,15 @@ export class TwinCATFileExplorerProvider
         this._onDidChangeTreeData.fire(undefined);
     }
 
+    markFileChanged(filePath: string) {
+        this.parsedPOUCache.delete(filePath);
+        this.invalidateMetadataCaches(filePath);
+        this.invalidateDirectoryCachesForPath(filePath);
+        const ext = path.extname(filePath).toLowerCase();
+        const requiresStructuralRefresh = ext === '.plcproj' || ext === '.tsproj' || ext === '.tspproj' || ext === '.sln';
+        this.scheduleRefresh(requiresStructuralRefresh);
+    }
+
     private notifyContentRefresh() {
         this._onDidChangeTreeData.fire(undefined);
     }
@@ -556,6 +566,7 @@ export class TwinCATFileExplorerProvider
     private clearDiagnosticSummaryCaches() {
         this.diagnosticSummaryCache.clear();
         this.diagnosticFileSummaryCache = undefined;
+        this.diagnosticFragmentSummaryCache = undefined;
     }
 
     private scheduleRefresh(structural = true, delayMs = 150) {
@@ -1032,12 +1043,79 @@ export class TwinCATFileExplorerProvider
         };
     }
 
-    private async parseTsprojStructure(tsprojPath: string): Promise<{ plcFolderPaths: Set<string>; hasSystem: boolean; ioFolderPaths: Set<string> }> {
+    private resolveProjectPathValue(basePath: string, rawPath: string | undefined): string | undefined {
+        const trimmed = rawPath?.trim();
+        if (!trimmed) {
+            return undefined;
+        }
+        return path.normalize(path.isAbsolute(trimmed) ? trimmed : path.join(path.dirname(basePath), trimmed));
+    }
+
+    private async resolvePlcProjectReference(rawProjectPath: string): Promise<{ folderPath: string; projectPath: string } | undefined> {
+        const normalizedProjectPath = path.normalize(rawProjectPath);
+        const ext = path.extname(normalizedProjectPath).toLowerCase();
+
+        if (ext === '.plcproj') {
+            return {
+                folderPath: path.normalize(path.dirname(normalizedProjectPath)),
+                projectPath: normalizedProjectPath
+            };
+        }
+
+        if (ext === '.xti') {
+            const siblingProjectFolder = path.join(
+                path.dirname(normalizedProjectPath),
+                path.basename(normalizedProjectPath, ext)
+            );
+
+            try {
+                const siblingEntries = await this.getDirectoryEntries(siblingProjectFolder);
+                const nestedPlcproj = siblingEntries
+                    ?.filter(entry => entry.isFile() && entry.name.toLowerCase().endsWith('.plcproj'))
+                    .map(entry => path.join(siblingProjectFolder, entry.name))
+                    .sort((a, b) => a.localeCompare(b))[0];
+
+                return {
+                    folderPath: path.normalize(siblingProjectFolder),
+                    projectPath: path.normalize(nestedPlcproj ?? normalizedProjectPath)
+                };
+            } catch {
+                return {
+                    folderPath: path.normalize(siblingProjectFolder),
+                    projectPath: normalizedProjectPath
+                };
+            }
+        }
+
+        return {
+            folderPath: path.normalize(path.dirname(normalizedProjectPath)),
+            projectPath: normalizedProjectPath
+        };
+    }
+
+    private extractPlcProjectPath(plcProject: any, tsprojPath: string): string | undefined {
+        const attrFilePath = typeof plcProject?.PrjFilePath === 'string' ? plcProject.PrjFilePath : undefined;
+        const elementFilePath = Array.isArray(plcProject?.PrjFilePath)
+            ? plcProject.PrjFilePath[0]?.toString?.()
+            : (!attrFilePath && plcProject?.PrjFilePath ? plcProject.PrjFilePath?.toString?.() : undefined);
+        const fileAttributePath = typeof plcProject?.File === 'string' ? plcProject.File : undefined;
+        const elementFileAttributePath = Array.isArray(plcProject?.File)
+            ? plcProject.File[0]?.toString?.()
+            : (!fileAttributePath && plcProject?.File ? plcProject.File?.toString?.() : undefined);
+
+        return this.resolveProjectPathValue(
+            tsprojPath,
+            attrFilePath ?? elementFilePath ?? fileAttributePath ?? elementFileAttributePath
+        );
+    }
+
+    private async parseTsprojStructure(tsprojPath: string): Promise<{ plcFolderPaths: Set<string>; plcProjectPaths: Map<string, string>; hasSystem: boolean; ioFolderPaths: Set<string> }> {
         try {
             const xml = await this.getProjectMetadataXml(tsprojPath);
             if (!xml) {
                 return {
                     plcFolderPaths: new Set<string>(),
+                    plcProjectPaths: new Map<string, string>(),
                     hasSystem: false,
                     ioFolderPaths: new Set<string>()
                 };
@@ -1045,10 +1123,18 @@ export class TwinCATFileExplorerProvider
             const projectRoot = xml.TcSmProject?.Project?.[0];
             const plcProjects = toArray(projectRoot?.Plc?.[0]?.Project);
             const plcFolderPaths = new Set<string>();
+            const plcProjectPaths = new Map<string, string>();
             for (const plcProject of plcProjects) {
-                const prjFilePath = plcProject?.PrjFilePath?.toString();
+                const prjFilePath = this.extractPlcProjectPath(plcProject, tsprojPath);
                 if (!prjFilePath) continue;
-                plcFolderPaths.add(path.normalize(path.join(path.dirname(tsprojPath), path.dirname(prjFilePath))));
+                const resolvedReference = await this.resolvePlcProjectReference(prjFilePath);
+                if (!resolvedReference) {
+                    continue;
+                }
+                const normalizedProjectPath = resolvedReference.projectPath;
+                const normalizedFolderPath = resolvedReference.folderPath;
+                plcFolderPaths.add(normalizedFolderPath);
+                plcProjectPaths.set(normalizedFolderPath.toLowerCase(), normalizedProjectPath);
             }
 
             const ioFolderPaths = new Set<string>();
@@ -1065,12 +1151,14 @@ export class TwinCATFileExplorerProvider
 
             return {
                 plcFolderPaths,
+                plcProjectPaths,
                 hasSystem: !!projectRoot?.System,
                 ioFolderPaths
             };
         } catch {
             return {
                 plcFolderPaths: new Set<string>(),
+                plcProjectPaths: new Map<string, string>(),
                 hasSystem: false,
                 ioFolderPaths: new Set<string>()
             };
@@ -1083,6 +1171,10 @@ export class TwinCATFileExplorerProvider
     }
 
     private applyDiagnosticState(item: TwinCATFileTreeItem) {
+        item.applyDiagnosticState(this.getDiagnosticSummaryForItem(item));
+    }
+
+    public getDiagnosticSummaryForItem(item: TwinCATFileTreeItem): DiagnosticBreadcrumb | undefined {
         switch (item.itemType) {
             case TwinCATItemType.File:
             case TwinCATItemType.Folder:
@@ -1090,10 +1182,19 @@ export class TwinCATFileExplorerProvider
             case TwinCATItemType.SystemRoot:
             case TwinCATItemType.PlcRoot:
             case TwinCATItemType.IoRoot:
-                item.applyDiagnosticState(this.getDiagnosticBreadcrumb(item.itemType, item.targetUri.fsPath));
-                return;
+                return this.getDiagnosticBreadcrumb(item.itemType, item.targetUri.fsPath);
+            case TwinCATItemType.Method:
+            case TwinCATItemType.Action:
+            case TwinCATItemType.Transition:
+            case TwinCATItemType.PropertyGet:
+            case TwinCATItemType.PropertySet:
+                return this.getDiagnosticBreadcrumbForStructuredItem(item);
+            case TwinCATItemType.Property:
+                return this.getDiagnosticBreadcrumbForProperty(item);
+            case TwinCATItemType.POUFolder:
+                return this.getDiagnosticBreadcrumbForStructuredFolder(item);
             default:
-                item.applyDiagnosticState(undefined);
+                return undefined;
         }
     }
 
@@ -1129,17 +1230,20 @@ export class TwinCATFileExplorerProvider
     }
 
     private getDiagnosticFileSummaryMap(): Map<string, DiagnosticBreadcrumb> {
-        if (this.diagnosticFileSummaryCache) {
+        if (this.diagnosticFileSummaryCache && this.diagnosticFragmentSummaryCache) {
             return this.diagnosticFileSummaryCache;
         }
 
         const fileSummaryMap = new Map<string, DiagnosticBreadcrumb>();
+        const fragmentSummaryMap = new Map<string, DiagnosticBreadcrumb>();
         for (const [uri, diagnostics] of vscode.languages.getDiagnostics()) {
             let targetPath: string | undefined;
+            let fragment = '';
             if (uri.scheme === 'file') {
                 targetPath = uri.fsPath;
             } else if (uri.scheme === TwinCATFileSystemProvider.scheme) {
                 targetPath = TwinCATFileSystemProvider.getOriginalPath(uri);
+                fragment = (uri.fragment || '').toLowerCase();
             }
             if (!targetPath) {
                 continue;
@@ -1153,14 +1257,81 @@ export class TwinCATFileExplorerProvider
             const key = this.getMetadataCacheKey(targetPath);
             const existing = fileSummaryMap.get(key) || EMPTY_DIAGNOSTIC_BREADCRUMB;
             fileSummaryMap.set(key, combineDiagnosticBreadcrumb(existing, summary));
+            if (fragment) {
+                const fragmentKey = `${key}#${fragment}`;
+                const existingFragment = fragmentSummaryMap.get(fragmentKey) || EMPTY_DIAGNOSTIC_BREADCRUMB;
+                fragmentSummaryMap.set(fragmentKey, combineDiagnosticBreadcrumb(existingFragment, summary));
+            }
         }
 
         this.diagnosticFileSummaryCache = fileSummaryMap;
+        this.diagnosticFragmentSummaryCache = fragmentSummaryMap;
         return fileSummaryMap;
     }
 
     private getDiagnosticBreadcrumbForFile(filePath: string): DiagnosticBreadcrumb {
         return this.getDiagnosticFileSummaryMap().get(this.getMetadataCacheKey(filePath)) || EMPTY_DIAGNOSTIC_BREADCRUMB;
+    }
+
+    private getDiagnosticBreadcrumbForFragment(filePath: string, fragment: string | undefined): DiagnosticBreadcrumb {
+        this.getDiagnosticFileSummaryMap();
+        if (!fragment || !this.diagnosticFragmentSummaryCache) {
+            return EMPTY_DIAGNOSTIC_BREADCRUMB;
+        }
+        const key = `${this.getMetadataCacheKey(filePath)}#${fragment.toLowerCase()}`;
+        return this.diagnosticFragmentSummaryCache.get(key) || EMPTY_DIAGNOSTIC_BREADCRUMB;
+    }
+
+    private getDiagnosticBreadcrumbForStructuredItem(item: TwinCATFileTreeItem): DiagnosticBreadcrumb {
+        const filePath = item.parentPath ?? item.targetUri.fsPath;
+        const fragmentSummary = this.getDiagnosticBreadcrumbForFragment(filePath, item.targetUri.fragment);
+        if (fragmentSummary.errors > 0 || fragmentSummary.warnings > 0) {
+            return fragmentSummary;
+        }
+        return this.getDiagnosticBreadcrumbForFile(filePath);
+    }
+
+    private getDiagnosticBreadcrumbForProperty(item: TwinCATFileTreeItem): DiagnosticBreadcrumb {
+        const filePath = item.parentPath ?? item.targetUri.fsPath;
+        const propertyName = item.label?.toString() || '';
+        let summary = this.getDiagnosticBreadcrumbForFragment(filePath, item.targetUri.fragment);
+        summary = combineDiagnosticBreadcrumb(summary, this.getDiagnosticBreadcrumbForFragment(filePath, `propertyget:${propertyName}`));
+        summary = combineDiagnosticBreadcrumb(summary, this.getDiagnosticBreadcrumbForFragment(filePath, `propertyset:${propertyName}`));
+        if (summary.errors === 0 && summary.warnings === 0) {
+            return this.getDiagnosticBreadcrumbForFile(filePath);
+        }
+        return summary;
+    }
+
+    private getDiagnosticBreadcrumbForStructuredFolder(item: TwinCATFileTreeItem): DiagnosticBreadcrumb {
+        const children = Array.isArray(item.xmlContent) ? item.xmlContent as TwinCATFileTreeItem[] : [];
+        let summary = EMPTY_DIAGNOSTIC_BREADCRUMB;
+        for (const child of children) {
+            switch (child.itemType) {
+                case TwinCATItemType.POUFolder:
+                    summary = combineDiagnosticBreadcrumb(summary, this.getDiagnosticBreadcrumbForStructuredFolder(child));
+                    break;
+                case TwinCATItemType.Property:
+                    summary = combineDiagnosticBreadcrumb(summary, this.getDiagnosticBreadcrumbForProperty(child));
+                    break;
+                case TwinCATItemType.Method:
+                case TwinCATItemType.Action:
+                case TwinCATItemType.Transition:
+                case TwinCATItemType.PropertyGet:
+                case TwinCATItemType.PropertySet:
+                    summary = combineDiagnosticBreadcrumb(
+                        summary,
+                        this.getDiagnosticBreadcrumbForStructuredItem(child)
+                    );
+                    break;
+                default:
+                    break;
+            }
+        }
+        if (summary.errors === 0 && summary.warnings === 0) {
+            return this.getDiagnosticBreadcrumbForFile(item.parentPath ?? item.targetUri.fsPath);
+        }
+        return summary;
     }
 
     private getDiagnosticBreadcrumbForFolder(folderPath: string): DiagnosticBreadcrumb {
@@ -1242,6 +1413,10 @@ export class TwinCATFileExplorerProvider
             const systemEntries: TwinCATFileTreeItem[] = [];
             const plcEntries: TwinCATFileTreeItem[] = [];
             const ioEntries: TwinCATFileTreeItem[] = [];
+            const directEntryPaths = new Set<string>();
+            const tsprojContainerPath = this.rootIdentifiers?.tsprojPath
+                ? path.normalize(path.dirname(this.rootIdentifiers.tsprojPath))
+                : undefined;
 
             await Promise.all(entries.map(async entry => {
                 if (this.isHiddenOrExcluded(entry.name)) {
@@ -1250,6 +1425,16 @@ export class TwinCATFileExplorerProvider
 
                 const fullPath = path.join(this.contentRoot!, entry.name);
                 const normalizedFullPath = path.normalize(fullPath);
+                directEntryPaths.add(normalizedFullPath.toLowerCase());
+                if (
+                    entry.isDirectory()
+                    && tsprojContainerPath
+                    && normalizedFullPath === tsprojContainerPath
+                    && normalizedFullPath !== path.normalize(this.contentRoot!)
+                    && !!this.rootIdentifiers?.slnPath
+                ) {
+                    return;
+                }
                 const hasPlcProject = entry.isDirectory() && (
                     this.tsprojStructure?.plcFolderPaths.has(normalizedFullPath) ||
                     await this.directoryContainsPlcProj(fullPath)
@@ -1268,6 +1453,26 @@ export class TwinCATFileExplorerProvider
                     systemEntries.push(item);
                 }
             }));
+
+            if (this.tsprojStructure?.plcProjectPaths) {
+                for (const [folderKey, plcprojPath] of this.tsprojStructure.plcProjectPaths.entries()) {
+                    if (directEntryPaths.has(folderKey)) {
+                        continue;
+                    }
+
+                    const folderPath = path.dirname(plcprojPath) || path.normalize(folderKey);
+                    const projectFolderItem = new TwinCATFileTreeItem(
+                        vscode.Uri.file(folderPath),
+                        vscode.TreeItemCollapsibleState.Collapsed,
+                        TwinCATItemType.PlcProjectFolder,
+                        plcprojPath,
+                        undefined,
+                        path.basename(plcprojPath, '.plcproj')
+                    );
+                    projectFolderItem.setDescriptionText('PLC project');
+                    plcEntries.push(projectFolderItem);
+                }
+            }
 
             const isStandalonePlcRoot = !!(!this.rootIdentifiers?.slnPath && !this.rootIdentifiers?.tsprojPath && this.rootIdentifiers?.plcprojPath);
             if (isStandalonePlcRoot && plcEntries.length === 0) {

@@ -1899,22 +1899,32 @@ export class TwinCATProjectAnalyzer {
         return [...this.libraryRefs];
     }
 
-    public getLibraryApi(libraryName: string): {
+    public getLibraryApi(libraryName: string, aliases: string[] = []): {
         reference?: TwinCATLibraryRef;
         symbols: TwinCATSymbol[];
         dataTypes: TwinCATDataType[];
     } {
-        const reference = this.libraryRefs.find(lib => lib.name.localeCompare(libraryName, undefined, { sensitivity: 'accent' }) === 0);
-        const normalizedLibrary = this.normalizeLookupName(libraryName);
+        const candidateNames = [...new Set([libraryName, ...aliases].map(value => value?.trim()).filter((value): value is string => !!value))];
+        const normalizedCandidates = new Set(candidateNames.map(value => this.normalizeLookupName(value)));
+        const reference =
+            this.libraryRefs.find(lib =>
+                candidateNames.some(candidate => lib.name.localeCompare(candidate, undefined, { sensitivity: 'accent' }) === 0)
+            )
+            ?? this.libraryRefs.find(lib => normalizedCandidates.has(this.normalizeLookupName(lib.name)));
+
+        if (reference) {
+            normalizedCandidates.add(this.normalizeLookupName(reference.name));
+        }
+
         const symbols = [...this.librarySymbols.values()]
-            .filter(symbol => symbol.library && this.normalizeLookupName(symbol.library) === normalizedLibrary)
+            .filter(symbol => symbol.library && normalizedCandidates.has(this.normalizeLookupName(symbol.library)))
             .sort((a, b) => {
                 const byKind = a.kind.localeCompare(b.kind);
                 if (byKind !== 0) return byKind;
                 return a.name.localeCompare(b.name);
             });
         const dataTypes = [...this.libraryDataTypes.values()]
-            .filter(typeInfo => typeInfo.library && this.normalizeLookupName(typeInfo.library) === normalizedLibrary)
+            .filter(typeInfo => typeInfo.library && normalizedCandidates.has(this.normalizeLookupName(typeInfo.library)))
             .sort((a, b) => {
                 const byKind = a.kind.localeCompare(b.kind);
                 if (byKind !== 0) return byKind;

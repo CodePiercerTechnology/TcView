@@ -119,6 +119,7 @@ TcView should not drift into:
 2. Improve Outline/document symbol experience for XAE-like code navigation
 3. Expand known system/global type/member modeling where TwinCAT compiler behavior is predictable
 4. Add more regression tests for user-reported diagnostics and save issues
+5. Proactively scan project files for diagnostics on initial load and subsequent file changes so warnings/errors appear in TcView without requiring the file to be opened first
 
 ### Tree View UX
 
@@ -159,3 +160,4 @@ TcView should not drift into:
 2. Add clearer project header/status UX in the TcView sidebar
 3. Add more XAE-like naming/icon polish without expanding into runtime/configuration scope
 4. Revisit broader XAE-adjacent workflows only after an explicit scope/design pass
+5. Surface `.tmc` files directly in TcView with an inspection-first UI for symbols and data types, and only consider editing through a structured interface rather than raw source editing

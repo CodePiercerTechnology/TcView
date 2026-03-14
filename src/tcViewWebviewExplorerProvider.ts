@@ -55,9 +55,10 @@ type WebviewMessage =
     | { type: 'action'; id: string; action: string; value?: string };
 
 export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvider, vscode.Disposable {
-    public static readonly viewType = 'twincat.webExplorer';
+    public static readonly viewType = 'twincat.files';
 
     private view?: vscode.WebviewView;
+    private webviewReady = false;
     private readonly disposables: vscode.Disposable[] = [];
     private readonly itemById = new Map<string, TwinCATFileTreeItem>();
     private readonly scmByPath = new Map<string, ScmEntry>();
@@ -87,6 +88,7 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
 
     resolveWebviewView(webviewView: vscode.WebviewView) {
         this.view = webviewView;
+        this.webviewReady = false;
         void vscode.commands.executeCommand('setContext', 'tcview.webExplorerFocus', false);
         webviewView.webview.options = {
             enableScripts: true,
@@ -98,17 +100,25 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
         this.disposables.push(webviewView.webview.onDidReceiveMessage(message => {
             void this.handleMessage(message as WebviewMessage);
         }));
+        this.disposables.push(webviewView.onDidChangeVisibility(() => {
+            if (!webviewView.visible) {
+                return;
+            }
+            this.lastVisibleStructureKey = '';
+            this.lastVisibleStateKey = '';
+            this.scheduleRefresh(20);
+        }));
         this.disposables.push(webviewView.onDidDispose(() => {
             if (this.view === webviewView) {
                 this.view = undefined;
+                this.webviewReady = false;
                 void vscode.commands.executeCommand('setContext', 'tcview.webExplorerFocus', false);
             }
         }));
-        void this.refresh();
     }
 
     async refresh() {
-        if (!this.view) {
+        if (!this.view || !this.webviewReady) {
             return;
         }
 
@@ -222,6 +232,12 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
     private async handleMessage(message: WebviewMessage) {
         switch (message.type) {
             case 'ready':
+                this.webviewReady = true;
+                this.lastVisibleStructureKey = '';
+                this.lastVisibleStateKey = '';
+                this.itemById.clear();
+                await this.refresh();
+                return;
             case 'refresh':
                 await this.refresh();
                 return;
@@ -271,10 +287,16 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
         return Promise.all(items.map(async item => {
             const treeItem = this.fileExplorerProvider.getTreeItem(item);
             const id = this.getItemId(item);
-            const diagnostics = this.getDiagnosticCounts(treeItem);
+            const diagnostics = this.fileExplorerProvider.getDiagnosticSummaryForItem(item) ?? this.getDiagnosticCounts(treeItem);
             const scm = await this.getScmEntry(item);
             this.itemById.set(id, item);
-            const children = this.expandedNodeIds.has(id)
+            const shouldIncludeChildren =
+                this.expandedNodeIds.has(id)
+                || item.collapsibleState === vscode.TreeItemCollapsibleState.Expanded;
+            if (item.collapsibleState === vscode.TreeItemCollapsibleState.Expanded) {
+                this.expandedNodeIds.add(id);
+            }
+            const children = shouldIncludeChildren
                 ? await this.fileExplorerProvider.getChildren(item)
                 : [];
             const fileKind = this.getFileKind(item, treeItem);
@@ -744,7 +766,7 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
 ${this.renderStyles()}
     </style>
 </head>
-<body data-vscode-context='{"preventDefaultContextMenuItems": true}'>
+<body>
 ${this.renderMarkup()}
     <script nonce="${nonce}">
 ${this.renderScript()}
@@ -1187,7 +1209,7 @@ ${this.renderScript()}
 
     private renderMarkup(): string {
         return `    <div class="shell">
-        <div class="tree-viewport" id="tree-viewport" tabindex="0" role="tree" aria-label="TcView Explorer Preview" data-vscode-context='{"preventDefaultContextMenuItems": true}'>
+        <div class="tree-viewport" id="tree-viewport" tabindex="0" role="tree" aria-label="TcView Explorer Preview">
             <div class="tree" id="tree">
                 <div class="empty">Loading TcView explorer...</div>
             </div>
@@ -1325,12 +1347,13 @@ ${this.renderScript()}
             row.dataset.collapsible = String(node.collapsible);
             row.dataset.openable = String(node.openable);
             row.dataset.itemType = node.itemType;
-            row.dataset.vscodeContext = JSON.stringify({
+            const vscodeContext = JSON.stringify({
                 webviewSection: 'tcview.node',
                 preventDefaultContextMenuItems: true,
                 tcviewItemType: node.itemType,
                 tcviewFileKind: node.fileKind
             });
+            row.setAttribute('data-vscode-context', vscodeContext);
             row.tabIndex = -1;
             row.id = 'treeitem-' + node.id;
             row.setAttribute('role', 'treeitem');
@@ -1815,6 +1838,7 @@ ${this.renderScript()}
             const currentNode = tree.querySelector('.node[data-id="' + CSS.escape(currentId) + '"]');
             const isExpanded = currentNode?.classList.contains('expanded');
             const isCollapsible = current.dataset.collapsible === 'true';
+            const isCommandModifier = event.ctrlKey || event.metaKey;
 
             if (event.key === 'ArrowDown' && index < rows.length - 1) {
                 event.preventDefault();
@@ -1889,14 +1913,6 @@ ${this.renderScript()}
         };
 
         treeViewport.addEventListener('keydown', handleTreeKeyDown);
-        window.addEventListener('keydown', (event) => {
-            if (draftEditor && event.target instanceof HTMLElement && event.target.closest('.inline-name')) {
-                return;
-            }
-            if (document.activeElement === treeViewport || tree.contains(document.activeElement)) {
-                handleTreeKeyDown(event);
-            }
-        }, true);
 
         treeViewport.addEventListener('click', (event) => {
             if (event.target instanceof HTMLElement && event.target.closest('.inline-name')) {
@@ -1907,6 +1923,21 @@ ${this.renderScript()}
                 setSelected(row.dataset.id, true);
             }
         });
+
+        treeViewport.addEventListener('pointerdown', (event) => {
+            if (!(event.target instanceof HTMLElement) || event.target.closest('.inline-name')) {
+                return;
+            }
+            const row = event.target.closest('.row');
+            if (!row?.dataset.id) {
+                return;
+            }
+            setSelected(row.dataset.id, false);
+            if (event.button !== 0) {
+                treeViewport.focus();
+            }
+            vscode.postMessage({ type: 'context', id: row.dataset.id });
+        }, true);
 
         treeViewport.addEventListener('focus', () => {
             vscode.postMessage({ type: 'focus' });
