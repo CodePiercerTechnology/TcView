@@ -5,6 +5,8 @@ import { getProjectAnalyzer, initializeProjectAnalyzer, onProjectAnalyzerCreated
 import { buildAstAnalysis } from './iecStAst';
 import { TwinCATFileSystemProvider } from './tcViewFileSystemProvider';
 import { isTcviewLintRuleSuppressed, parseTcviewLintPragmas } from './tcviewLintPragmas';
+import { extractQualifiedOnlyUsageInfo, mergeQualifiedOnlyUsageInfo } from './twinCATQualifiedOnly';
+import { parseTwinCATTypeDeclarations } from './twinCATTypeParser';
 import {
     iecBuiltinFunctions,
     iecBuiltinNamespaces,
@@ -1348,6 +1350,9 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         astProjectAnalyzer.forEachDataType((_type, name) => {
             astProjectTypes.set(name, _type);
             allKnownVars.add(name);
+            if (_type.kind === 'enum') {
+                _type.members.forEach((_memberType, memberName) => allKnownVars.add(memberName.toUpperCase()));
+            }
         });
         Object.keys(standardIecDefinitions).forEach(name => allKnownVars.add(name.toUpperCase()));
         const astProjectSymbolTypes = new Map<string, string>();
@@ -1355,6 +1360,14 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
             if (!symbol) return;
             astProjectSymbolTypes.set(symbol.name.toUpperCase(), normalizeTypeName(symbol.type));
         });
+        const qualifiedOnlyInfo = mergeQualifiedOnlyUsageInfo(
+            {
+                globals: new Map<string, Set<string>>(),
+                enums: new Map<string, Set<string>>()
+            },
+            extractQualifiedOnlyUsageInfo(text, originalPath)
+        );
+        mergeQualifiedOnlyUsageInfo(qualifiedOnlyInfo, astProjectAnalyzer.getQualifiedOnlyUsageInfo());
 
         const getDeclarationTypeStatus = (typeName: string): 'known' | 'metadata_only' | 'unknown' => {
             if (!typeName) return 'known';
@@ -1455,10 +1468,40 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
                 allKnownVars.add(normalized.toUpperCase());
             }
         });
+        parseTwinCATTypeDeclarations(text).forEach(typeInfo => {
+            if (typeInfo.kind !== 'enum') {
+                return;
+            }
+            typeInfo.members.forEach((_memberType, memberName) => {
+                allKnownVars.add(memberName.toUpperCase());
+            });
+        });
 
         const astUsedIdentifiers = new Set<string>();
         ast.usages.forEach(u => {
             if (isKnownIecBuiltinIdentifier(u.upper)) return;
+            if (!allDeclared.has(u.upper)) {
+                const qualifiedGlobalOwners = [...(qualifiedOnlyInfo.globals.get(u.upper) ?? [])];
+                const qualifiedEnumOwners = [...(qualifiedOnlyInfo.enums.get(u.upper) ?? [])];
+                if (qualifiedGlobalOwners.length > 0 || qualifiedEnumOwners.length > 0) {
+                    const ownerParts: string[] = [];
+                    if (qualifiedGlobalOwners.length > 0) {
+                        ownerParts.push(`GVL ${qualifiedGlobalOwners.map(owner => `'${owner}'`).join(', ')}`);
+                    }
+                    if (qualifiedEnumOwners.length > 0) {
+                        ownerParts.push(`enum ${qualifiedEnumOwners.map(owner => `'${owner}'`).join(', ')}`);
+                    }
+                    const qualificationHint = qualifiedGlobalOwners.length > 0
+                        ? `${qualifiedGlobalOwners[0]}.${u.name}`
+                        : `${qualifiedEnumOwners[0]}.${u.name}`;
+                    pushLintDiagnostic('qualified-only', u.line, new vscode.Diagnostic(
+                        new vscode.Range(u.line, u.startCol, u.line, u.endCol),
+                        `'${u.name}' must be qualified because it belongs to ${ownerParts.join(' and ')} marked with {attribute 'qualified_only'}. Use '${qualificationHint}'.`,
+                        severityUndefined
+                    ));
+                    return;
+                }
+            }
             if (allKnownVars.has(u.upper)) {
                 astUsedIdentifiers.add(u.upper);
                 return;

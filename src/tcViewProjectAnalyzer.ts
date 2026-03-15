@@ -5,6 +5,8 @@ import * as xml2js from 'xml2js';
 import { TwinCATXmlConverter } from './tcViewXmlConverter';
 import { TwinCATLibraryRef } from './tcViewTypes';
 import { withPerfMetric } from './tcViewTelemetry';
+import { extractQualifiedOnlyUsageInfo, type QualifiedOnlyUsageInfo } from './twinCATQualifiedOnly';
+import { parseTwinCATTypeDeclarations } from './twinCATTypeParser';
 
 /**
  * Represents a symbol in the TwinCAT project (variable, type, FB, etc.)
@@ -119,6 +121,8 @@ export class TwinCATProjectAnalyzer {
     private symbols: Map<string, TwinCATSymbol> = new Map();
     private dataTypes: Map<string, TwinCATDataType> = new Map();
     private globalVars: Map<string, TwinCATSymbol> = new Map();
+    private qualifiedOnlyGlobalMembers = new Map<string, Set<string>>();
+    private qualifiedOnlyEnumMembers = new Map<string, Set<string>>();
     private fileWatcher: vscode.FileSystemWatcher | undefined;
     private libraryMetadataWatcher: vscode.FileSystemWatcher | undefined;
     private globalLibraryMetadataWatcher: vscode.FileSystemWatcher | undefined;
@@ -145,6 +149,8 @@ export class TwinCATProjectAnalyzer {
         symbolKeys: Set<string>;
         dataTypeKeys: Set<string>;
         globalVarKeys: Set<string>;
+        qualifiedGlobalEntries: Array<{ memberKey: string; ownerName: string }>;
+        qualifiedEnumEntries: Array<{ memberKey: string; ownerName: string }>;
     }>();
     private libraryRefs: TwinCATLibraryRef[] = [];
     private libraryPlaceholderSymbolKeys = new Set<string>();
@@ -465,7 +471,9 @@ export class TwinCATProjectAnalyzer {
             const contribution = {
                 symbolKeys: new Set<string>(),
                 dataTypeKeys: new Set<string>(),
-                globalVarKeys: new Set<string>()
+                globalVarKeys: new Set<string>(),
+                qualifiedGlobalEntries: [] as Array<{ memberKey: string; ownerName: string }>,
+                qualifiedEnumEntries: [] as Array<{ memberKey: string; ownerName: string }>
             };
 
             this.removeFileContributions(filePath);
@@ -499,7 +507,13 @@ export class TwinCATProjectAnalyzer {
     /**
      * Parse GVL (Global Variable List) file
      */
-    private async parseGVLFile(filePath: string, content: string, contribution: { symbolKeys: Set<string>; dataTypeKeys: Set<string>; globalVarKeys: Set<string> }): Promise<void> {
+    private async parseGVLFile(filePath: string, content: string, contribution: {
+        symbolKeys: Set<string>;
+        dataTypeKeys: Set<string>;
+        globalVarKeys: Set<string>;
+        qualifiedGlobalEntries: Array<{ memberKey: string; ownerName: string }>;
+        qualifiedEnumEntries: Array<{ memberKey: string; ownerName: string }>;
+    }): Promise<void> {
         try {
             // Convert XML to ST to extract variable declarations
             const stContent = await this.converter.convertXmlToST(content);
@@ -524,6 +538,16 @@ export class TwinCATProjectAnalyzer {
                 const varSection = varGlobalMatch[1];
                 this.extractVariables(varSection, filePath, 'global', contribution);
             }
+
+            const qualifiedOnlyInfo = extractQualifiedOnlyUsageInfo(stContent, filePath);
+            qualifiedOnlyInfo.globals.forEach((owners, memberKey) => {
+                owners.forEach(ownerName => {
+                    const existing = this.qualifiedOnlyGlobalMembers.get(memberKey) ?? new Set<string>();
+                    existing.add(ownerName);
+                    this.qualifiedOnlyGlobalMembers.set(memberKey, existing);
+                    contribution.qualifiedGlobalEntries.push({ memberKey, ownerName });
+                });
+            });
         } catch (error) {
             console.error(`Error parsing GVL file ${filePath}:`, error);
         }
@@ -532,68 +556,49 @@ export class TwinCATProjectAnalyzer {
     /**
      * Parse DUT (Data Type Unit) file for STRUCT/ENUM definitions
      */
-    private async parseDUTFile(filePath: string, content: string, contribution: { symbolKeys: Set<string>; dataTypeKeys: Set<string>; globalVarKeys: Set<string> }): Promise<void> {
+    private async parseDUTFile(filePath: string, content: string, contribution: {
+        symbolKeys: Set<string>;
+        dataTypeKeys: Set<string>;
+        globalVarKeys: Set<string>;
+        qualifiedGlobalEntries: Array<{ memberKey: string; ownerName: string }>;
+        qualifiedEnumEntries: Array<{ memberKey: string; ownerName: string }>;
+    }): Promise<void> {
         try {
             const stContent = await this.converter.convertXmlToST(content);
-            
-            // Extract STRUCT definition
-            const structMatch = stContent.match(/TYPE\s+(\w+)\s*:\s*STRUCT\s*([\s\S]*?)\s*END_STRUCT\s*;/i);
-            if (structMatch) {
-                const typeName = structMatch[1];
-                const structBody = structMatch[2];
-                
-                const members = new Map<string, string>();
-                const memberRegex = /(\w+)\s*:\s*(\w+);/g;
-                let match;
-                while ((match = memberRegex.exec(structBody)) !== null) {
-                    members.set(match[1], match[2]);
-                }
+            for (const declaration of parseTwinCATTypeDeclarations(stContent)) {
+                const upperName = declaration.name.toUpperCase();
+                const symbolType = declaration.kind === 'struct'
+                    ? 'STRUCT'
+                    : declaration.kind === 'enum'
+                        ? 'ENUM'
+                        : declaration.aliasTarget ?? 'ALIAS';
 
-                this.dataTypes.set(typeName.toUpperCase(), {
-                    name: typeName,
-                    kind: 'struct',
-                    members,
+                this.dataTypes.set(upperName, {
+                    name: declaration.name,
+                    kind: declaration.kind,
+                    members: declaration.members,
                     source: filePath
                 });
-                contribution.dataTypeKeys.add(typeName.toUpperCase());
+                contribution.dataTypeKeys.add(upperName);
 
-                // Also add as a symbol
-                this.symbols.set(typeName.toUpperCase(), {
-                    name: typeName,
-                    type: 'STRUCT',
+                this.symbols.set(upperName, {
+                    name: declaration.name,
+                    type: symbolType,
                     kind: 'type',
                     source: filePath
                 });
-                contribution.symbolKeys.add(typeName.toUpperCase());
+                contribution.symbolKeys.add(upperName);
             }
 
-            // Extract ENUM definition
-            const enumMatch = stContent.match(/TYPE\s+(\w+)\s*:\s*\(([\s\S]*?)\)\s*;/i);
-            if (enumMatch) {
-                const typeName = enumMatch[1];
-                const enumValues = enumMatch[2].split(',').map((v: string) => v.trim());
-
-                const members = new Map<string, string>();
-                enumValues.forEach((val: string, idx: number) => {
-                    members.set(val, 'INT');
+            const qualifiedOnlyInfo = extractQualifiedOnlyUsageInfo(stContent, filePath);
+            qualifiedOnlyInfo.enums.forEach((owners, memberKey) => {
+                owners.forEach(ownerName => {
+                    const existing = this.qualifiedOnlyEnumMembers.get(memberKey) ?? new Set<string>();
+                    existing.add(ownerName);
+                    this.qualifiedOnlyEnumMembers.set(memberKey, existing);
+                    contribution.qualifiedEnumEntries.push({ memberKey, ownerName });
                 });
-
-                this.dataTypes.set(typeName.toUpperCase(), {
-                    name: typeName,
-                    kind: 'enum',
-                    members,
-                    source: filePath
-                });
-                contribution.dataTypeKeys.add(typeName.toUpperCase());
-
-                this.symbols.set(typeName.toUpperCase(), {
-                    name: typeName,
-                    type: 'ENUM',
-                    kind: 'type',
-                    source: filePath
-                });
-                contribution.symbolKeys.add(typeName.toUpperCase());
-            }
+            });
         } catch (error) {
             console.error(`Error parsing DUT file ${filePath}:`, error);
         }
@@ -602,7 +607,13 @@ export class TwinCATProjectAnalyzer {
     /**
      * Parse POU (Program/Function/FB) file
      */
-    private async parsePOUFile(filePath: string, content: string, contribution: { symbolKeys: Set<string>; dataTypeKeys: Set<string>; globalVarKeys: Set<string> }): Promise<void> {
+    private async parsePOUFile(filePath: string, content: string, contribution: {
+        symbolKeys: Set<string>;
+        dataTypeKeys: Set<string>;
+        globalVarKeys: Set<string>;
+        qualifiedGlobalEntries: Array<{ memberKey: string; ownerName: string }>;
+        qualifiedEnumEntries: Array<{ memberKey: string; ownerName: string }>;
+    }): Promise<void> {
         try {
             const stContent = await this.converter.convertXmlToST(content);
             
@@ -739,7 +750,13 @@ export class TwinCATProjectAnalyzer {
         }
     }
 
-    private indexPouMembersFromXmlText(filePath: string, content: string, contribution: { symbolKeys: Set<string>; dataTypeKeys: Set<string>; globalVarKeys: Set<string> }): void {
+    private indexPouMembersFromXmlText(filePath: string, content: string, contribution: {
+        symbolKeys: Set<string>;
+        dataTypeKeys: Set<string>;
+        globalVarKeys: Set<string>;
+        qualifiedGlobalEntries: Array<{ memberKey: string; ownerName: string }>;
+        qualifiedEnumEntries: Array<{ memberKey: string; ownerName: string }>;
+    }): void {
         const registerMember = (name: string, type: string, kind: TwinCATSymbol['kind']) => {
             const clean = name.trim();
             if (!clean) return;
@@ -779,7 +796,13 @@ export class TwinCATProjectAnalyzer {
     /**
      * Extract variable declarations from a VAR section
      */
-    private extractVariables(varSection: string, source: string, kind: TwinCATSymbol['kind'], contribution: { symbolKeys: Set<string>; dataTypeKeys: Set<string>; globalVarKeys: Set<string> }): void {
+    private extractVariables(varSection: string, source: string, kind: TwinCATSymbol['kind'], contribution: {
+        symbolKeys: Set<string>;
+        dataTypeKeys: Set<string>;
+        globalVarKeys: Set<string>;
+        qualifiedGlobalEntries: Array<{ memberKey: string; ownerName: string }>;
+        qualifiedEnumEntries: Array<{ memberKey: string; ownerName: string }>;
+    }): void {
         // Match variable declarations: name : type;
         const varRegex = /(\w+)\s*:\s*(\w+)(?:\s*\(.*?\))?\s*(?::=.*?)?;/g;
         let match;
@@ -827,6 +850,28 @@ export class TwinCATProjectAnalyzer {
             const globalVar = this.globalVars.get(key);
             if (globalVar?.source === filePath) {
                 this.globalVars.delete(key);
+            }
+        }
+
+        for (const entry of previous.qualifiedGlobalEntries) {
+            const owners = this.qualifiedOnlyGlobalMembers.get(entry.memberKey);
+            if (!owners) {
+                continue;
+            }
+            owners.delete(entry.ownerName);
+            if (owners.size === 0) {
+                this.qualifiedOnlyGlobalMembers.delete(entry.memberKey);
+            }
+        }
+
+        for (const entry of previous.qualifiedEnumEntries) {
+            const owners = this.qualifiedOnlyEnumMembers.get(entry.memberKey);
+            if (!owners) {
+                continue;
+            }
+            owners.delete(entry.ownerName);
+            if (owners.size === 0) {
+                this.qualifiedOnlyEnumMembers.delete(entry.memberKey);
             }
         }
 
@@ -1849,6 +1894,29 @@ export class TwinCATProjectAnalyzer {
      */
     public getDataType(name: string): TwinCATDataType | undefined {
         return this.dataTypes.get(name.toUpperCase()) || this.libraryDataTypes.get(name.toUpperCase());
+    }
+
+    public getQualifiedOnlyOwners(name: string): { globals: string[]; enums: string[] } {
+        const key = name.toUpperCase();
+        return {
+            globals: [...(this.qualifiedOnlyGlobalMembers.get(key) ?? [])].sort((a, b) => a.localeCompare(b)),
+            enums: [...(this.qualifiedOnlyEnumMembers.get(key) ?? [])].sort((a, b) => a.localeCompare(b))
+        };
+    }
+
+    public getQualifiedOnlyUsageInfo(): QualifiedOnlyUsageInfo {
+        const cloneMap = (source: Map<string, Set<string>>): Map<string, Set<string>> => {
+            const result = new Map<string, Set<string>>();
+            source.forEach((owners, memberName) => {
+                result.set(memberName, new Set(owners));
+            });
+            return result;
+        };
+
+        return {
+            globals: cloneMap(this.qualifiedOnlyGlobalMembers),
+            enums: cloneMap(this.qualifiedOnlyEnumMembers)
+        };
     }
 
     /**

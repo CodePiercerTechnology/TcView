@@ -7,6 +7,8 @@ import { iecStKeywordSet } from '../iecStKeywords';
 import { parseTcviewLintPragmas } from '../tcviewLintPragmas';
 import { applyFragmentSTToXml, extractFragmentSTFromXml } from '../tcViewFragmentCodec';
 import { TwinCATXmlConverter } from '../tcViewXmlConverter';
+import { extractQualifiedOnlyUsageInfo } from '../twinCATQualifiedOnly';
+import { parseTwinCATTypeDeclarations } from '../twinCATTypeParser';
 
 function isCaseLabel(line: string): boolean {
     return /^\s*([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*|\d+)(\s*\.\.\s*([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*|\d+))?(\s*,\s*([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*|\d+)(\s*\.\.\s*([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*|\d+))?)*\s*:\s*(\/\/.*)?$/i.test(line);
@@ -164,6 +166,137 @@ export async function runLanguageFeatureUtilityTests(): Promise<void> {
     ].join('\n');
     const noAnalysisPragmas = parseTcviewLintPragmas(noAnalysisSample);
     assert.ok(noAnalysisPragmas.disabledByLine.get(1)?.has('*'));
+
+    const qualifiedOnlyGlobalInfo = extractQualifiedOnlyUsageInfo([
+        "{attribute 'qualified_only'}",
+        'VAR_GLOBAL CONSTANT INTERNAL',
+        '    bReady : BOOL;',
+        '    nCount : INT;',
+        'END_VAR'
+    ].join('\n'), 'GVL_Test.TcGVL');
+    assert.deepStrictEqual(
+        [...(qualifiedOnlyGlobalInfo.globals.get('BREADY') ?? [])],
+        ['GVL_Test']
+    );
+    assert.deepStrictEqual(
+        [...(qualifiedOnlyGlobalInfo.globals.get('NCOUNT') ?? [])],
+        ['GVL_Test']
+    );
+
+    const qualifiedOnlyEnumInfo = extractQualifiedOnlyUsageInfo([
+        "TYPE E_DeviceMode : {attribute 'qualified_only'}",
+        '(',
+        '    Auto := 0,',
+        '    Manual := 1',
+        ');'
+    ].join('\n'));
+    assert.deepStrictEqual(
+        [...(qualifiedOnlyEnumInfo.enums.get('AUTO') ?? [])],
+        ['E_DeviceMode']
+    );
+    assert.deepStrictEqual(
+        [...(qualifiedOnlyEnumInfo.enums.get('MANUAL') ?? [])],
+        ['E_DeviceMode']
+    );
+
+    const qualifiedOnlyHeaderEnumInfo = extractQualifiedOnlyUsageInfo([
+        "{attribute 'qualified_only'}",
+        "{attribute 'strict'}",
+        'TYPE E_TimeUnit :',
+        '(',
+        '    milliSeconds,',
+        '    seconds',
+        ');',
+        'END_TYPE'
+    ].join('\n'));
+    assert.deepStrictEqual(
+        [...(qualifiedOnlyHeaderEnumInfo.enums.get('MILLISECONDS') ?? [])],
+        ['E_TimeUnit']
+    );
+    assert.deepStrictEqual(
+        [...(qualifiedOnlyHeaderEnumInfo.enums.get('SECONDS') ?? [])],
+        ['E_TimeUnit']
+    );
+
+    const commentedQualifiedOnlyEnumInfo = extractQualifiedOnlyUsageInfo([
+        '// tag::adoc[]',
+        "{attribute 'qualified_only'}",
+        "{attribute 'strict'}",
+        'TYPE E_IsoLikeDateTimeFormat :',
+        '(',
+        '\t// Date formats',
+        '    DATE_ONLY,',
+        '    DATE_TIME,',
+        '',
+        '\t// Time formats',
+        '    TIME_ONLY',
+        ');',
+        'END_TYPE',
+        '// end::adoc[]'
+    ].join('\n'));
+    assert.deepStrictEqual(
+        [...(commentedQualifiedOnlyEnumInfo.enums.get('DATE_ONLY') ?? [])],
+        ['E_IsoLikeDateTimeFormat']
+    );
+    assert.deepStrictEqual(
+        [...(commentedQualifiedOnlyEnumInfo.enums.get('TIME_ONLY') ?? [])],
+        ['E_IsoLikeDateTimeFormat']
+    );
+
+    const disabledQualifiedOnlyEnumInfo = extractQualifiedOnlyUsageInfo([
+        "// {attribute 'qualified_only'}",
+        'TYPE E_IsoLikeDateTimeFormat :',
+        '(',
+        '    DATE_ONLY,',
+        '    DATE_TIME',
+        ');',
+        'END_TYPE'
+    ].join('\n'));
+    assert.ok(!disabledQualifiedOnlyEnumInfo.enums.has('DATE_ONLY'));
+    assert.ok(!disabledQualifiedOnlyEnumInfo.enums.has('DATE_TIME'));
+
+    const parsedTypeDeclarations = parseTwinCATTypeDeclarations([
+        'TYPE ST_AnalogChannelStatus :',
+        'STRUCT',
+        '    bUnderrange : BOOL;',
+        '    bOverrange : BOOL;',
+        'END_STRUCT',
+        'END_TYPE',
+        '',
+        "{attribute 'qualified_only'}",
+        "{attribute 'strict'}",
+        'TYPE E_TimeUnit :',
+        '(',
+        '    milliSeconds,',
+        '    seconds',
+        ');',
+        'END_TYPE'
+    ].join('\n'));
+    assert.strictEqual(parsedTypeDeclarations.length, 2);
+    assert.strictEqual(parsedTypeDeclarations[0].name, 'ST_AnalogChannelStatus');
+    assert.strictEqual(parsedTypeDeclarations[0].kind, 'struct');
+    assert.strictEqual(parsedTypeDeclarations[0].members.get('bUnderrange'), 'BOOL');
+    assert.strictEqual(parsedTypeDeclarations[0].members.get('bOverrange'), 'BOOL');
+    assert.strictEqual(parsedTypeDeclarations[1].name, 'E_TimeUnit');
+    assert.strictEqual(parsedTypeDeclarations[1].kind, 'enum');
+    assert.ok(parsedTypeDeclarations[1].members.has('milliSeconds'));
+    assert.ok(parsedTypeDeclarations[1].members.has('seconds'));
+
+    const commentedEnumDeclarations = parseTwinCATTypeDeclarations([
+        'TYPE E_IsoLikeDateTimeFormat :',
+        '(',
+        '    // Date formats',
+        '    DATE_ONLY,',
+        '    DATE_TIME,',
+        '    // Time formats',
+        '    TIME_ONLY',
+        ');',
+        'END_TYPE'
+    ].join('\n'));
+    assert.strictEqual(commentedEnumDeclarations.length, 1);
+    assert.ok(commentedEnumDeclarations[0].members.has('DATE_ONLY'));
+    assert.ok(commentedEnumDeclarations[0].members.has('DATE_TIME'));
+    assert.ok(commentedEnumDeclarations[0].members.has('TIME_ONLY'));
 
     assert.ok(isKnownIecBuiltinType('ANY'));
     assert.ok(isKnownIecBuiltinIdentifier('_SYSTEM'));

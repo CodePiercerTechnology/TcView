@@ -120,6 +120,8 @@ TcView should not drift into:
 3. Expand known system/global type/member modeling where TwinCAT compiler behavior is predictable
 4. Add more regression tests for user-reported diagnostics and save issues
 5. Proactively scan project files for diagnostics on initial load and subsequent file changes so warnings/errors appear in TcView without requiring the file to be opened first
+6. Improve workspace Problems integration so TcView diagnostics behave more like project-wide TwinCAT issues, including Beckhoff pragma-aware suppression and rule shaping
+7. Add Beckhoff pragma-aware diagnostics for semantically important attributes such as `qualified_only` and `strict`, rather than limiting pragma support to comment-style suppression
 
 ### Tree View UX
 

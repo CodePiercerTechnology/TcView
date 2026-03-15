@@ -26,6 +26,7 @@ fbMyTest : FB_MyTcUnitTest; // tcview lint-ignore unused-instance
 ### Supported TcView Rule Names
 
 - `unused-instance`
+- `qualified-only`
 - `undefined-variable`
 - `duplicate-declaration`
 - `type-mismatch`
@@ -86,3 +87,22 @@ These are recognized and treated as pragma lines, but they do not currently supp
 - `{attribute 'suppress_wrn_C0410'}`
 
 That means they remain parse-safe in TcView, but only gain suppression behavior when there is an explicit TcView rule mapping for the corresponding warning family.
+
+## Planned Beckhoff-Semantic Lint Support
+
+Some Beckhoff attributes are more than warning switches and should eventually shape TcView diagnostics directly.
+
+Implemented:
+
+- `qualified_only`
+  - TcView now reports unqualified access to GVL variables and enum members that belong to declarations marked with `{attribute 'qualified_only'}`
+  - this applies to Beckhoff-semantic linting, not just suppression pragmas
+
+Still planned:
+
+- `{attribute 'strict'}`
+  - `strict`
+  - tighten enum-related typing rules to better match TwinCAT expectations
+  - reduce false negatives where TcView currently allows code TwinCAT would reject
+
+These are intentionally tracked separately from the current suppression-oriented pragma support because they change diagnostic semantics, not just visibility.

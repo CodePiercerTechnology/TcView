@@ -22,6 +22,8 @@ const tcviewRuleAliases = new Map<string, string>([
     ['unused-instance', 'unused-instance'],
     ['undefined-variable', 'undefined-variable'],
     ['undefined-symbol', 'undefined-variable'],
+    ['qualified-only', 'qualified-only'],
+    ['qualified-only-access', 'qualified-only'],
     ['duplicate-declaration', 'duplicate-declaration'],
     ['type-mismatch', 'type-mismatch'],
     ['unknown-type', 'unknown-type'],
