@@ -711,6 +711,7 @@
     "test:regression": "npm run compile && node out/tests/run-tests.js --suite regression",
     "test:regression:update": "npm run compile && node out/tests/run-tests.js --suite regression --update",
     "test:perf:guardrails": "node scripts/check-perf-guardrails.js",
+    "test:perf:runtime": "node scripts/check-runtime-baseline.js",
     "test:perf:archive": "node scripts/archive-perf-report.js",
     "test:perf:update-budget": "node scripts/update-perf-budget.js",
     "test:packaging:backend": "node scripts/check-bundled-backend.js",
