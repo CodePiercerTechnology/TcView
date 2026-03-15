@@ -66,7 +66,9 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
     private gitApi: any;
     private scmPollTimer?: NodeJS.Timeout;
     private refreshTimer?: NodeJS.Timeout;
+    private groupRootWarmupTimer?: NodeJS.Timeout;
     private pendingForcedRootsRefresh = false;
+    private groupRootStateReady = false;
     private readonly expandedNodeIds = new Set<string>();
     private lastVisibleStructureKey = '';
     private lastVisibleStateKey = '';
@@ -81,6 +83,7 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
     ) {
         this.disposables.push(this.fileExplorerProvider.onDidChangeTreeData(() => {
             this.pendingForcedRootsRefresh = true;
+            this.groupRootStateReady = false;
             this.scheduleRefresh(140);
         }));
         void this.attachGitApi();
@@ -126,6 +129,7 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
             this.lastVisibleStructureKey = '';
             this.lastVisibleStateKey = '';
             this.pendingForcedRootsRefresh = false;
+            this.groupRootStateReady = false;
         }
 
         await withPerfMetric('tree.webview.refresh', async () => {
@@ -143,12 +147,13 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
             if (structureKey !== this.lastVisibleStructureKey) {
                 this.lastVisibleStructureKey = structureKey;
                 this.lastVisibleStateKey = stateKey;
-                await withPerfMetric('tree.webview.refresh.postMessage.roots', () => this.view!.webview.postMessage({ type: 'roots', nodes: payload }));
+                await withPerfMetric('tree.webview.refresh.postMessage.roots', () => this.view!.webview.postMessage({ type: 'roots', nodes: this.createStructurePayload(payload) }));
+                this.scheduleGroupRootWarmup();
                 return;
             }
 
             this.lastVisibleStateKey = stateKey;
-            await withPerfMetric('tree.webview.refresh.postMessage.state', () => this.view!.webview.postMessage({ type: 'state', nodes: payload }));
+            await withPerfMetric('tree.webview.refresh.postMessage.state', () => this.view!.webview.postMessage({ type: 'state', nodes: this.createStatePayload(payload) }));
         });
     }
 
@@ -156,6 +161,10 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
         if (this.refreshTimer) {
             clearTimeout(this.refreshTimer);
             this.refreshTimer = undefined;
+        }
+        if (this.groupRootWarmupTimer) {
+            clearTimeout(this.groupRootWarmupTimer);
+            this.groupRootWarmupTimer = undefined;
         }
         if (this.scmPollTimer) {
             clearInterval(this.scmPollTimer);
@@ -378,7 +387,6 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
             id: node.id,
             label: node.label,
             description: node.description,
-            tooltip: node.tooltip,
             itemType: node.itemType,
             collapsible: node.collapsible,
             openable: node.openable,
@@ -389,21 +397,94 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
         return JSON.stringify(encode(nodes));
     }
 
-    private createStateKey(nodes: WebviewNode[]) {
-        const encode = (entries: WebviewNode[]): unknown[] => entries.map(node => ({
+    private createStructurePayload(nodes: WebviewNode[]): WebviewNode[] {
+        return nodes.map(node => ({
             id: node.id,
             label: node.label,
             description: node.description,
             tooltip: node.tooltip,
+            itemType: node.itemType,
+            collapsible: node.collapsible,
+            openable: node.openable,
             severity: node.severity,
+            iconClass: node.iconClass,
+            iconColorClass: node.iconColorClass,
             errorCount: node.errorCount,
             warningCount: node.warningCount,
             scmBadge: node.scmBadge,
             scmTooltip: node.scmTooltip,
             isCut: node.isCut,
-            children: node.children ? encode(node.children) : []
+            fileKind: node.fileKind,
+            children: node.children ? this.createStructurePayload(node.children) : undefined
         }));
-        return JSON.stringify(encode(nodes));
+    }
+
+    private createStateKey(nodes: WebviewNode[]) {
+        const flat: unknown[] = [];
+        const append = (entries: WebviewNode[]) => {
+            for (const node of entries) {
+                flat.push({
+                    id: node.id,
+                    label: node.label,
+                    description: node.description,
+                    severity: node.severity,
+                    errorCount: node.errorCount,
+                    warningCount: node.warningCount,
+                    scmBadge: node.scmBadge,
+                    scmTooltip: node.scmTooltip,
+                    isCut: node.isCut
+                });
+                if (node.children?.length) {
+                    append(node.children);
+                }
+            }
+        };
+        append(nodes);
+        return JSON.stringify(flat);
+    }
+
+    private createStatePayload(nodes: WebviewNode[]): Array<{
+        id: string;
+        label: string;
+        description?: string;
+        severity: 'error' | 'warning' | 'none';
+        errorCount: number;
+        warningCount: number;
+        scmBadge?: string;
+        scmTooltip?: string;
+        isCut?: boolean;
+    }> {
+        const stateNodes: Array<{
+            id: string;
+            label: string;
+            description?: string;
+            severity: 'error' | 'warning' | 'none';
+            errorCount: number;
+            warningCount: number;
+            scmBadge?: string;
+            scmTooltip?: string;
+            isCut?: boolean;
+        }> = [];
+        const append = (entries: WebviewNode[]) => {
+            for (const node of entries) {
+                stateNodes.push({
+                    id: node.id,
+                    label: node.label,
+                    description: node.description,
+                    severity: node.severity,
+                    errorCount: node.errorCount,
+                    warningCount: node.warningCount,
+                    scmBadge: node.scmBadge,
+                    scmTooltip: node.scmTooltip,
+                    isCut: node.isCut
+                });
+                if (node.children?.length) {
+                    append(node.children);
+                }
+            }
+        };
+        append(nodes);
+        return stateNodes;
     }
 
     private async attachGitApi() {
@@ -457,6 +538,38 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
             this.refreshTimer = undefined;
             void this.refresh();
         }, delayMs);
+    }
+
+    private scheduleGroupRootWarmup(delayMs = 120) {
+        if (this.groupRootStateReady) {
+            return;
+        }
+        if (this.groupRootWarmupTimer) {
+            clearTimeout(this.groupRootWarmupTimer);
+        }
+        this.groupRootWarmupTimer = setTimeout(() => {
+            this.groupRootWarmupTimer = undefined;
+            void this.warmGroupRootState();
+        }, delayMs);
+    }
+
+    private async warmGroupRootState() {
+        if (!this.view || !this.webviewReady || this.groupRootStateReady) {
+            return;
+        }
+        const roots = await this.fileExplorerProvider.getChildren();
+        const groupRoots = roots.filter((item: TwinCATFileTreeItem) =>
+            item.itemType === TwinCATItemType.SystemRoot
+            || item.itemType === TwinCATItemType.PlcRoot
+            || item.itemType === TwinCATItemType.IoRoot
+        );
+        if (groupRoots.length === 0) {
+            this.groupRootStateReady = true;
+            return;
+        }
+        await Promise.all(groupRoots.map((item: TwinCATFileTreeItem) => this.fileExplorerProvider.getChildren(item)));
+        this.groupRootStateReady = true;
+        this.scheduleRefresh(20);
     }
 
     private async rebuildScmIndex(repositories: readonly any[]) {
@@ -585,8 +698,14 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
 
     private async getScmEntry(item: TwinCATFileTreeItem): Promise<ScmEntry | undefined> {
         const exact = this.scmByPath.get(this.normalizePath(item.targetUri.fsPath));
+        const isExpanded =
+            this.expandedNodeIds.has(this.getItemId(item))
+            || item.collapsibleState === vscode.TreeItemCollapsibleState.Expanded;
 
         if (item.itemType === TwinCATItemType.Folder || item.itemType === TwinCATItemType.PlcProjectFolder) {
+            if (!isExpanded) {
+                return exact;
+            }
             return this.getStrongestScmEntry([
                 exact,
                 this.getScmEntryForPrefix(item.targetUri.fsPath)
@@ -598,6 +717,9 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
             item.itemType === TwinCATItemType.SystemRoot ||
             item.itemType === TwinCATItemType.IoRoot
         ) {
+            if (!isExpanded && !this.groupRootStateReady) {
+                return exact;
+            }
             const children = await this.fileExplorerProvider.getChildren(item);
             return this.getStrongestScmEntry(
                 [
@@ -1286,7 +1408,6 @@ ${this.renderScript()}
                 return;
             }
 
-            row.title = node.tooltip || node.label;
             row.classList.remove('error', 'warning', 'none', 'cut');
             if (node.severity && node.severity !== 'none') {
                 row.classList.add(node.severity);
@@ -1316,12 +1437,6 @@ ${this.renderScript()}
             const diagnostics = row.querySelector(':scope > .diagnostics');
             if (diagnostics) {
                 renderDiagnostics(diagnostics, node);
-            }
-
-            if (Array.isArray(node.children)) {
-                for (const child of node.children) {
-                    applyNodeState(child);
-                }
             }
         };
 

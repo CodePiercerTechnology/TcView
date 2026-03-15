@@ -118,6 +118,7 @@ interface LibraryCatalogFile {
  */
 export class TwinCATProjectAnalyzer {
     private projectRoot: string | undefined;
+    private solutionProjectPath: string | undefined;
     private symbols: Map<string, TwinCATSymbol> = new Map();
     private dataTypes: Map<string, TwinCATDataType> = new Map();
     private globalVars: Map<string, TwinCATSymbol> = new Map();
@@ -163,6 +164,14 @@ export class TwinCATProjectAnalyzer {
     private tmcParseCache = new Map<string, { mtimeMs: number; symbols: TwinCATSymbol[]; dataTypes: TwinCATDataType[] }>();
     private managedLibraryIndex: Map<string, ManagedLibraryMetadata[]> | undefined;
     private managedLibraryIndexPromise: Promise<Map<string, ManagedLibraryMetadata[]>> | undefined;
+    private referencedProjectCache:
+        | {
+            key: string;
+            plcProjPaths: string[];
+            projectRoots: string[];
+            tmcPaths: string[];
+        }
+        | undefined;
     private readonly indexRefreshedEmitter = new vscode.EventEmitter<void>();
     private indexRevision = 0;
     private initialized = false;
@@ -212,6 +221,7 @@ export class TwinCATProjectAnalyzer {
         for (const folder of workspaceFolders) {
             const tsprojFiles = await this.findTsprojFiles(folder.uri.fsPath);
             if (tsprojFiles.length > 0) {
+                this.solutionProjectPath = tsprojFiles[0];
                 this.projectRoot = path.dirname(tsprojFiles[0]);
                 break;
             }
@@ -236,6 +246,10 @@ export class TwinCATProjectAnalyzer {
         } finally {
             this.initializePromise = undefined;
         }
+    }
+
+    public isInitialized(): boolean {
+        return this.initialized;
     }
 
     /**
@@ -433,22 +447,25 @@ export class TwinCATProjectAnalyzer {
      * Find all PLC files in the project
      */
     private async findPLCFiles(): Promise<string[]> {
-        const files: string[] = [];
         const pattern = '**/*.{TcPOU,TcGVL,TcDUT,TcPRG,TcCOM,TcAPP,TcVAR,TcGDS,TcIO,TcITF,tcpou,tcgvl,tcdut,tcprg,tccom,tcapp,tcvar,tcgds,tcio,tcitf}';
-        
-        
+
         try {
-            const foundFiles = await vscode.workspace.findFiles(pattern, '**/node_modules/**');
-            for (const file of foundFiles) {
-                if (file.fsPath.toLowerCase().startsWith(this.projectRoot!.toLowerCase())) {
-                    files.push(file.fsPath);
+            const searchRoots = await this.getProjectSearchRoots();
+            const foundByPath = new Map<string, string>();
+            await Promise.all(searchRoots.map(async root => {
+                const foundFiles = await vscode.workspace.findFiles(
+                    new vscode.RelativePattern(root, pattern),
+                    '**/node_modules/**'
+                );
+                for (const file of foundFiles) {
+                    foundByPath.set(file.fsPath.toLowerCase(), file.fsPath);
                 }
-            }
+            }));
+            return [...foundByPath.values()].sort((a, b) => a.localeCompare(b));
         } catch (error) {
             console.error('Error finding PLC files:', error);
+            return [];
         }
-
-        return files;
     }
 
     /**
@@ -908,6 +925,9 @@ export class TwinCATProjectAnalyzer {
         const ext = path.extname(filePath).toLowerCase();
         if (ext === '.plcproj' || ext === '.tsproj' || ext === '.tspproj') {
             this.projectMetadataTextCache.delete(this.getMetadataCacheKey(filePath));
+            if (filePath.toLowerCase() === this.solutionProjectPath?.toLowerCase()) {
+                this.referencedProjectCache = undefined;
+            }
         }
     }
 
@@ -948,7 +968,11 @@ export class TwinCATProjectAnalyzer {
             return;
         }
 
-        const plcProjFiles = await this.findProjectFiles('**/*.plcproj');
+        const referencedProjects = await this.getReferencedTwinCATProjects();
+        const plcProjFiles = [...new Set([
+            ...await this.findProjectFiles('**/*.plcproj'),
+            ...referencedProjects.plcProjPaths.filter(filePath => fs.existsSync(filePath))
+        ])].sort((a, b) => a.localeCompare(b));
         const tmcInventory = await this.collectAvailableTmcFiles();
         const managedLibraryIndex = await this.getManagedLibraryIndex();
         const libraryCatalog = await this.loadLibraryCatalogEntries();
@@ -1026,14 +1050,90 @@ export class TwinCATProjectAnalyzer {
         }
 
         try {
-            const foundFiles = await vscode.workspace.findFiles(pattern, '**/node_modules/**');
-            return foundFiles
-                .map(file => file.fsPath)
-                .filter(filePath => filePath.toLowerCase().startsWith(this.projectRoot!.toLowerCase()))
-                .sort((a, b) => a.localeCompare(b));
+            const searchRoots = await this.getProjectSearchRoots();
+            const foundByPath = new Map<string, string>();
+            await Promise.all(searchRoots.map(async root => {
+                const foundFiles = await vscode.workspace.findFiles(
+                    new vscode.RelativePattern(root, pattern),
+                    '**/node_modules/**'
+                );
+                for (const file of foundFiles) {
+                    foundByPath.set(file.fsPath.toLowerCase(), file.fsPath);
+                }
+            }));
+            return [...foundByPath.values()].sort((a, b) => a.localeCompare(b));
         } catch {
             return [];
         }
+    }
+
+    private async getProjectSearchRoots(): Promise<string[]> {
+        const referencedProjects = await this.getReferencedTwinCATProjects();
+        return [...new Set([
+            this.projectRoot,
+            ...referencedProjects.projectRoots
+        ].filter((value): value is string => !!value && fs.existsSync(value)))];
+    }
+
+    private async getReferencedTwinCATProjects(): Promise<{ plcProjPaths: string[]; projectRoots: string[]; tmcPaths: string[] }> {
+        if (!this.solutionProjectPath) {
+            return { plcProjPaths: [], projectRoots: [], tmcPaths: [] };
+        }
+
+        const text = await this.readProjectMetadataText(this.solutionProjectPath);
+        if (!text) {
+            return { plcProjPaths: [], projectRoots: [], tmcPaths: [] };
+        }
+
+        const cacheKey = `${this.solutionProjectPath.toLowerCase()}::${text.length}`;
+        if (this.referencedProjectCache?.key === cacheKey) {
+            return {
+                plcProjPaths: [...this.referencedProjectCache.plcProjPaths],
+                projectRoots: [...this.referencedProjectCache.projectRoots],
+                tmcPaths: [...this.referencedProjectCache.tmcPaths]
+            };
+        }
+
+        const projectDir = path.dirname(this.solutionProjectPath);
+        const plcProjPaths = new Set<string>();
+        const projectRoots = new Set<string>();
+        const tmcPaths = new Set<string>();
+        const projectBlockRegex = /<Project\b[^>]*?(?:\/>|>[\s\S]*?<\/Project>)/gi;
+        let match: RegExpExecArray | null;
+
+        while ((match = projectBlockRegex.exec(text)) !== null) {
+            const block = match[0];
+            const rawPrjPath = block.match(/\bPrjFilePath\s*=\s*"([^"]+)"/i)?.[1]
+                ?? block.match(/<PrjFilePath>\s*([^<]+?)\s*<\/PrjFilePath>/i)?.[1];
+            const rawTmcPath = block.match(/\bTmcFilePath\s*=\s*"([^"]+)"/i)?.[1]
+                ?? block.match(/<TmcFilePath>\s*([^<]+?)\s*<\/TmcFilePath>/i)?.[1]
+                ?? block.match(/\bTmcPath\s*=\s*"([^"]+)"/i)?.[1]
+                ?? block.match(/<TmcPath>\s*([^<]+?)\s*<\/TmcPath>/i)?.[1];
+
+            if (rawPrjPath?.trim()) {
+                const plcProjPath = path.normalize(path.isAbsolute(rawPrjPath) ? rawPrjPath : path.join(projectDir, rawPrjPath.trim()));
+                plcProjPaths.add(plcProjPath);
+                projectRoots.add(path.dirname(plcProjPath));
+            }
+
+            if (rawTmcPath?.trim()) {
+                const tmcPath = path.normalize(path.isAbsolute(rawTmcPath) ? rawTmcPath : path.join(projectDir, rawTmcPath.trim()));
+                tmcPaths.add(tmcPath);
+            }
+        }
+
+        this.referencedProjectCache = {
+            key: cacheKey,
+            plcProjPaths: [...plcProjPaths].sort((a, b) => a.localeCompare(b)),
+            projectRoots: [...projectRoots].sort((a, b) => a.localeCompare(b)),
+            tmcPaths: [...tmcPaths].sort((a, b) => a.localeCompare(b))
+        };
+
+        return {
+            plcProjPaths: [...this.referencedProjectCache.plcProjPaths],
+            projectRoots: [...this.referencedProjectCache.projectRoots],
+            tmcPaths: [...this.referencedProjectCache.tmcPaths]
+        };
     }
 
     private async readProgramBuildFromPlcProj(plcProjPath: string): Promise<number> {
@@ -1056,8 +1156,10 @@ export class TwinCATProjectAnalyzer {
 
     private async collectAvailableTmcFiles(): Promise<{ names: Set<string>; files: string[] }> {
         const configuredRoots = vscode.workspace.getConfiguration('twincat').get<string[]>('backend.tmcRoots', []);
+        const referencedProjects = await this.getReferencedTwinCATProjects();
         const roots = [...new Set([
             this.projectRoot,
+            ...referencedProjects.projectRoots,
             ...configuredRoots
         ].filter((value): value is string => !!value && fs.existsSync(value)))];
         const tmcNames = new Set<string>();
@@ -1065,6 +1167,14 @@ export class TwinCATProjectAnalyzer {
 
         for (const root of roots) {
             await this.collectTmcNamesFromRoot(root, tmcNames, tmcFiles);
+        }
+
+        for (const tmcPath of referencedProjects.tmcPaths) {
+            if (!fs.existsSync(tmcPath)) {
+                continue;
+            }
+            tmcFiles.add(tmcPath);
+            tmcNames.add(this.normalizeLookupName(path.basename(tmcPath, '.tmc')));
         }
 
         return {
@@ -2161,6 +2271,10 @@ export function getProjectAnalyzer(): TwinCATProjectAnalyzer {
         analyzer = new TwinCATProjectAnalyzer();
         analyzerCreatedEmitter.fire(analyzer);
     }
+    return analyzer;
+}
+
+export function peekProjectAnalyzer(): TwinCATProjectAnalyzer | undefined {
     return analyzer;
 }
 

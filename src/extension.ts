@@ -497,15 +497,6 @@ export function activate(context: vscode.ExtensionContext) {
         };
 
         for (const plcProject of plcProjects) {
-            if (!hasActiveSolution) {
-                const solutionWarning = new vscode.Diagnostic(
-                    new vscode.Range(0, 0, 0, 1),
-                    'Not a project solution, view/edit files only. Build features are unavailable until a TwinCAT solution is open.',
-                    vscode.DiagnosticSeverity.Warning
-                );
-                solutionWarning.source = 'TcView';
-                addProjectDiagnostic(plcProject, solutionWarning);
-            }
 
             const plcFolder = path.dirname(plcProject.fsPath);
             const expectedTmcName = await readExpectedPlcTmcName(plcProject.fsPath);

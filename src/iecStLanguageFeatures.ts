@@ -438,6 +438,8 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         revision: -1,
         items: [] as vscode.CompletionItem[]
     };
+    const startupValidationDelayMs = 3000;
+    const languageFeaturesStartedAt = Date.now();
     let applyingAutoKeywordCase = false;
     let analyzerReadyPromise: Promise<void> | undefined;
 
@@ -472,6 +474,9 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         }
         return undefined;
     };
+
+    const isDocumentVisibleInEditor = (document: vscode.TextDocument) =>
+        vscode.window.visibleTextEditors.some(editor => editor.document.uri.toString() === document.uri.toString());
 
     const trackFeature = async <T>(name: string, fn: () => Promise<T> | T): Promise<T> => {
         const start = Date.now();
@@ -536,6 +541,10 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
     const scheduleDocumentValidation = (document: vscode.TextDocument, delayMs = 180) => {
         if (document.languageId !== 'iec-st') {
             return;
+        }
+        const elapsedSinceStartup = Date.now() - languageFeaturesStartedAt;
+        if (elapsedSinceStartup < startupValidationDelayMs) {
+            delayMs = Math.max(delayMs, startupValidationDelayMs - elapsedSinceStartup);
         }
         const key = document.uri.toString();
         const existing = documentValidationTimers.get(key);
@@ -1630,6 +1639,9 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
     };
 
     const openListener = vscode.workspace.onDidOpenTextDocument(doc => {
+        if (!isDocumentVisibleInEditor(doc)) {
+            return;
+        }
         scheduleDocumentValidation(doc, 40);
     });
     const changeListener = vscode.workspace.onDidChangeTextDocument(e => {
@@ -1660,13 +1672,23 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         workspaceSearchTextCache.delete(doc.uri.toString());
     });
     const handleAnalyzerRefresh = () => {
-        const docs = vscode.workspace.textDocuments.filter(doc => doc.languageId === 'iec-st');
+        const docs = vscode.workspace.textDocuments.filter(doc =>
+            doc.languageId === 'iec-st' && isDocumentVisibleInEditor(doc)
+        );
         for (const doc of docs) {
             scheduleDocumentValidation(doc, 80);
             const source = getSourcePathForDocument(doc);
             if (source) scheduleRelatedValidation(source);
         }
     };
+    const visibleEditorsListener = vscode.window.onDidChangeVisibleTextEditors(editors => {
+        for (const editor of editors) {
+            if (editor.document.languageId !== 'iec-st') {
+                continue;
+            }
+            scheduleDocumentValidation(editor.document, 60);
+        }
+    });
     let activeAnalyzerRefreshDisposable: vscode.Disposable | undefined;
     const analyzerRefreshListener = onProjectAnalyzerCreated(analyzer => {
         activeAnalyzerRefreshDisposable?.dispose();
@@ -1812,8 +1834,13 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         }
     );
     
-    // Validate all open documents
-    vscode.workspace.textDocuments.forEach(doc => scheduleDocumentValidation(doc, 40));
+    // Prioritize visible editors on startup and defer background validation of other
+    // restored documents so extension activation stays responsive.
+    const startupVisibleDocs = new Map<string, vscode.TextDocument>();
+    if (vscode.window.activeTextEditor) {
+        startupVisibleDocs.set(vscode.window.activeTextEditor.document.uri.toString(), vscode.window.activeTextEditor.document);
+    }
+    startupVisibleDocs.forEach(doc => scheduleDocumentValidation(doc, startupValidationDelayMs));
 
     const validateSyntaxCommand = vscode.commands.registerCommand('tcview.validateSyntax', async () => {
         const editor = vscode.window.activeTextEditor;
@@ -1880,6 +1907,7 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         saveListener,
         closeListener,
         closeCacheListener,
+        visibleEditorsListener,
         analyzerRefreshListener,
         { dispose: () => activeAnalyzerRefreshDisposable?.dispose() },
         validateSyntaxCommand,
