@@ -4,6 +4,7 @@ import * as xml2js from 'xml2js';
 import { getProjectAnalyzer, initializeProjectAnalyzer, onProjectAnalyzerCreated } from './tcViewProjectAnalyzer';
 import { buildAstAnalysis } from './iecStAst';
 import { TwinCATFileSystemProvider } from './tcViewFileSystemProvider';
+import { TwinCATXmlConverter } from './tcViewXmlConverter';
 import { isTcviewLintRuleSuppressed, parseTcviewLintPragmas } from './tcviewLintPragmas';
 import { extractQualifiedOnlyUsageInfo, mergeQualifiedOnlyUsageInfo } from './twinCATQualifiedOnly';
 import { parseTwinCATTypeDeclarations } from './twinCATTypeParser';
@@ -431,6 +432,7 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
     const localSymbolCache = new Map<string, { version: number; symbols: Map<string, { name: string; type: string }> }>();
     const relatedValidationTimers = new Map<string, NodeJS.Timeout>();
     const documentValidationTimers = new Map<string, NodeJS.Timeout>();
+    const backgroundProjectValidationPaths = new Set<string>();
     const featureStats = new Map<string, { calls: number; totalMs: number }>();
     const workspaceSearchTextCache = new Map<string, { mtime: number; text: string }>();
     const staticCompletionItems: vscode.CompletionItem[] = [];
@@ -439,9 +441,20 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         items: [] as vscode.CompletionItem[]
     };
     const startupValidationDelayMs = 3000;
+    const backgroundProjectValidationStartupDelayMs = 4500;
+    const backgroundProjectValidationPeriodicMs = 180000;
     const languageFeaturesStartedAt = Date.now();
+    const converter = new TwinCATXmlConverter();
+    const backgroundDiagnosticExtensions = new Set([
+        '.st', '.tcpou', '.tcprg', '.tcapp', '.tccom', '.tcgvl', '.tcdut', '.tcvar', '.tcio', '.tcitf'
+    ]);
     let applyingAutoKeywordCase = false;
     let analyzerReadyPromise: Promise<void> | undefined;
+    let projectValidationTimer: NodeJS.Timeout | undefined;
+    let projectValidationInterval: NodeJS.Timeout | undefined;
+    let projectValidationInProgress = false;
+    let projectValidationPending = false;
+    let projectValidationNeedsFullScan = false;
 
     const ensureProjectAnalyzerReady = async () => {
         if (!analyzerReadyPromise) {
@@ -477,6 +490,14 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
 
     const isDocumentVisibleInEditor = (document: vscode.TextDocument) =>
         vscode.window.visibleTextEditors.some(editor => editor.document.uri.toString() === document.uri.toString());
+
+    const isBackgroundDiagnosticSourcePath = (filePath: string) =>
+        backgroundDiagnosticExtensions.has(path.extname(filePath).toLowerCase());
+
+    const clearDiagnosticsForSourcePath = (sourcePath: string) => {
+        diagnosticCollection.delete(vscode.Uri.file(sourcePath));
+        diagnosticCollection.delete(TwinCATFileSystemProvider.createVirtualUri(sourcePath));
+    };
 
     const trackFeature = async <T>(name: string, fn: () => Promise<T> | T): Promise<T> => {
         const start = Date.now();
@@ -556,6 +577,112 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
             void validateDocument(document);
         }, delayMs);
         documentValidationTimers.set(key, timer);
+    };
+
+    const validateSourcePathInBackground = async (sourcePath: string) => {
+        if (!isBackgroundDiagnosticSourcePath(sourcePath)) {
+            return;
+        }
+
+        try {
+            const fileUri = vscode.Uri.file(sourcePath);
+            const bytes = await vscode.workspace.fs.readFile(fileUri);
+            const rawText = Buffer.from(bytes).toString('utf8');
+            const extension = path.extname(sourcePath).toLowerCase();
+            const text = extension === '.st'
+                ? rawText
+                : await converter.convertXmlToST(rawText);
+            const targetUri = extension === '.st'
+                ? fileUri
+                : TwinCATFileSystemProvider.createVirtualUri(sourcePath);
+            const diagnostics = await computeDiagnostics({
+                uri: targetUri,
+                languageId: 'iec-st',
+                text,
+                originalPath: sourcePath
+            });
+            diagnosticCollection.set(targetUri, diagnostics);
+        } catch {
+            clearDiagnosticsForSourcePath(sourcePath);
+        }
+    };
+
+    const getBackgroundDiagnosticFiles = async () => {
+        const found = await vscode.workspace.findFiles(PROJECT_SCAN_PATTERN, '**/node_modules/**');
+        return found
+            .map(uri => uri.fsPath)
+            .filter(isBackgroundDiagnosticSourcePath)
+            .sort((a, b) => a.localeCompare(b));
+    };
+
+    const processBackgroundValidationBatch = async (filePaths: string[]) => {
+        const concurrency = 4;
+        for (let index = 0; index < filePaths.length; index += concurrency) {
+            const chunk = filePaths.slice(index, index + concurrency);
+            await Promise.allSettled(chunk.map(filePath => validateSourcePathInBackground(filePath)));
+        }
+    };
+
+    const runBackgroundProjectValidation = async () => {
+        if (projectValidationInProgress) {
+            projectValidationPending = true;
+            return;
+        }
+
+        projectValidationInProgress = true;
+        try {
+            const targetFiles = projectValidationNeedsFullScan
+                ? await getBackgroundDiagnosticFiles()
+                : [...backgroundProjectValidationPaths].sort((a, b) => a.localeCompare(b));
+
+            projectValidationNeedsFullScan = false;
+            backgroundProjectValidationPaths.clear();
+
+            if (targetFiles.length === 0) {
+                return;
+            }
+
+            await processBackgroundValidationBatch(targetFiles);
+        } finally {
+            projectValidationInProgress = false;
+            if (projectValidationPending) {
+                projectValidationPending = false;
+                projectValidationNeedsFullScan = true;
+                backgroundProjectValidationPaths.clear();
+                const timer = setTimeout(() => {
+                    projectValidationTimer = undefined;
+                    void runBackgroundProjectValidation();
+                }, 500);
+                projectValidationTimer = timer;
+            }
+        }
+    };
+
+    const scheduleBackgroundProjectValidation = (
+        delayMs = 1000,
+        options?: { full?: boolean; paths?: string[] }
+    ) => {
+        if (options?.full) {
+            projectValidationNeedsFullScan = true;
+            backgroundProjectValidationPaths.clear();
+        }
+        for (const filePath of options?.paths ?? []) {
+            if (isBackgroundDiagnosticSourcePath(filePath)) {
+                backgroundProjectValidationPaths.add(filePath);
+            }
+        }
+
+        if (!projectValidationNeedsFullScan && backgroundProjectValidationPaths.size === 0) {
+            return;
+        }
+
+        if (projectValidationTimer) {
+            clearTimeout(projectValidationTimer);
+        }
+        projectValidationTimer = setTimeout(() => {
+            projectValidationTimer = undefined;
+            void runBackgroundProjectValidation();
+        }, delayMs);
     };
 
     const kindMap: Record<string, vscode.CompletionItemKind> = {
@@ -1263,17 +1390,27 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
     
     // Register diagnostics (error checking)
     const diagnosticCollection = vscode.languages.createDiagnosticCollection('iec-st');
-    
-    const validateDocument = async (document: vscode.TextDocument) => {
-        if (document.languageId !== 'iec-st') return;
-        
+
+    type ValidationTarget = {
+        uri: vscode.Uri;
+        languageId: string;
+        text: string;
+        originalPath?: string;
+        documentForWholePouUsage?: vscode.TextDocument;
+    };
+
+    const computeDiagnostics = async (target: ValidationTarget): Promise<vscode.Diagnostic[]> => {
+        if (target.languageId !== 'iec-st') {
+            return [];
+        }
+
         const diagnostics: vscode.Diagnostic[] = [];
         await ensureProjectAnalyzerReady();
         const severityUndefined = getConfiguredSeverity('twincat.diagnostics.undefinedVariables', vscode.DiagnosticSeverity.Error);
         const severityUnused = getConfiguredSeverity('twincat.diagnostics.unusedVariables', vscode.DiagnosticSeverity.Warning);
         const severityDuplicate = getConfiguredSeverity('twincat.diagnostics.duplicateDeclarations', vscode.DiagnosticSeverity.Error);
         const severityTypeMismatch = getConfiguredSeverity('twincat.diagnostics.typeMismatch', vscode.DiagnosticSeverity.Error);
-        const text = document.getText();
+        const text = target.text;
         const lines = text.split('\n');
         const tcviewLintPragmas = parseTcviewLintPragmas(text);
         const pushLintDiagnostic = (rule: string, line: number, diagnostic: vscode.Diagnostic) => {
@@ -1282,18 +1419,18 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
             }
             diagnostics.push(diagnostic);
         };
-        const originalPath = document.uri.scheme === 'twincat'
-            ? TwinCATFileSystemProvider.getOriginalPath(document.uri)
-            : document.uri.scheme === 'file'
-                ? document.uri.fsPath
-                : undefined;
+        const originalPath = target.originalPath
+            ?? (target.uri.scheme === 'twincat'
+                ? TwinCATFileSystemProvider.getOriginalPath(target.uri)
+                : target.uri.scheme === 'file'
+                    ? target.uri.fsPath
+                    : undefined);
         const sourceExtension = originalPath ? path.extname(originalPath).toLowerCase() : '';
         const isGlobalListDocument =
             globalListFileExtensions.has(sourceExtension) ||
             (/^\s*VAR_GLOBAL\b/im.test(text) && !/^\s*(FUNCTION|FUNCTION_BLOCK|PROGRAM|METHOD|PROPERTY|ACTION|TRANSITION)\b/im.test(text));
 
         // AST-based diagnostics path
-        {
         const ast = buildAstAnalysis(text);
 
         ast.missingSemicolons.forEach(item => {
@@ -1539,11 +1676,11 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         });
 
         const isLikelyPartialPouMainView =
-            document.uri.scheme === 'twincat' &&
+            target.uri.scheme === 'twincat' &&
             /^\s*(FUNCTION_BLOCK|FUNCTION|PROGRAM)\b/im.test(text) &&
             !/^\s*(METHOD|PROPERTY|ACTION|TRANSITION)\b/im.test(text);
-        const wholePouUsageSet = isLikelyPartialPouMainView
-            ? await getWholePouUsageSet(document)
+        const wholePouUsageSet = isLikelyPartialPouMainView && target.documentForWholePouUsage
+            ? await getWholePouUsageSet(target.documentForWholePouUsage)
             : undefined;
 
         if (!isGlobalListDocument) {
@@ -1562,10 +1699,19 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
                 }
             });
         }
+        return diagnostics;
+    };
 
+    const validateDocument = async (document: vscode.TextDocument) => {
+        if (document.languageId !== 'iec-st') return;
+        const diagnostics = await computeDiagnostics({
+            uri: document.uri,
+            languageId: document.languageId,
+            text: document.getText(),
+            originalPath: getSourcePathForDocument(document),
+            documentForWholePouUsage: document
+        });
         diagnosticCollection.set(document.uri, diagnostics);
-        return;
-        }
     };
 
     
@@ -1692,7 +1838,30 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
     let activeAnalyzerRefreshDisposable: vscode.Disposable | undefined;
     const analyzerRefreshListener = onProjectAnalyzerCreated(analyzer => {
         activeAnalyzerRefreshDisposable?.dispose();
-        activeAnalyzerRefreshDisposable = analyzer.onDidRefreshIndex(handleAnalyzerRefresh);
+        activeAnalyzerRefreshDisposable = analyzer.onDidRefreshIndex(() => {
+            handleAnalyzerRefresh();
+            scheduleBackgroundProjectValidation(1200, { full: true });
+        });
+    });
+    const backgroundDiagnosticWatcher = vscode.workspace.createFileSystemWatcher(PROJECT_SCAN_PATTERN);
+    backgroundDiagnosticWatcher.onDidCreate(uri => {
+        scheduleBackgroundProjectValidation(350, { paths: [uri.fsPath] });
+    });
+    backgroundDiagnosticWatcher.onDidChange(uri => {
+        scheduleBackgroundProjectValidation(350, { paths: [uri.fsPath] });
+    });
+    backgroundDiagnosticWatcher.onDidDelete(uri => {
+        clearDiagnosticsForSourcePath(uri.fsPath);
+    });
+    const projectMetadataWatcher = vscode.workspace.createFileSystemWatcher('**/*.{plcproj,tsproj,tspproj,tmc}');
+    projectMetadataWatcher.onDidCreate(() => {
+        scheduleBackgroundProjectValidation(1500, { full: true });
+    });
+    projectMetadataWatcher.onDidChange(() => {
+        scheduleBackgroundProjectValidation(1500, { full: true });
+    });
+    projectMetadataWatcher.onDidDelete(() => {
+        scheduleBackgroundProjectValidation(1500, { full: true });
     });
 
     // Quick fixes for common diagnostics
@@ -1841,6 +2010,10 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         startupVisibleDocs.set(vscode.window.activeTextEditor.document.uri.toString(), vscode.window.activeTextEditor.document);
     }
     startupVisibleDocs.forEach(doc => scheduleDocumentValidation(doc, startupValidationDelayMs));
+    scheduleBackgroundProjectValidation(backgroundProjectValidationStartupDelayMs, { full: true });
+    projectValidationInterval = setInterval(() => {
+        scheduleBackgroundProjectValidation(1000, { full: true });
+    }, backgroundProjectValidationPeriodicMs);
 
     const validateSyntaxCommand = vscode.commands.registerCommand('tcview.validateSyntax', async () => {
         const editor = vscode.window.activeTextEditor;
@@ -1881,6 +2054,15 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         documentValidationTimers.clear();
         relatedValidationTimers.forEach(timer => clearTimeout(timer));
         relatedValidationTimers.clear();
+        if (projectValidationTimer) {
+            clearTimeout(projectValidationTimer);
+            projectValidationTimer = undefined;
+        }
+        if (projectValidationInterval) {
+            clearInterval(projectValidationInterval);
+            projectValidationInterval = undefined;
+        }
+        backgroundProjectValidationPaths.clear();
         workspaceSearchTextCache.clear();
         projectCompletionCache.revision = -1;
         projectCompletionCache.items = [];
@@ -1909,6 +2091,8 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         closeCacheListener,
         visibleEditorsListener,
         analyzerRefreshListener,
+        backgroundDiagnosticWatcher,
+        projectMetadataWatcher,
         { dispose: () => activeAnalyzerRefreshDisposable?.dispose() },
         validateSyntaxCommand,
         indexStatsCommand,
