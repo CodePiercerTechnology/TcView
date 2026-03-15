@@ -592,25 +592,22 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
             const text = extension === '.st'
                 ? rawText
                 : await converter.convertXmlToST(rawText);
-            const targetUri = extension === '.st'
-                ? fileUri
-                : TwinCATFileSystemProvider.createVirtualUri(sourcePath);
             const diagnostics = await computeDiagnostics({
-                uri: targetUri,
+                uri: fileUri,
                 languageId: 'iec-st',
                 text,
                 originalPath: sourcePath
             });
-            diagnosticCollection.set(targetUri, diagnostics);
+            diagnosticCollection.set(fileUri, diagnostics);
         } catch {
             clearDiagnosticsForSourcePath(sourcePath);
         }
     };
 
     const getBackgroundDiagnosticFiles = async () => {
-        const found = await vscode.workspace.findFiles(PROJECT_SCAN_PATTERN, '**/node_modules/**');
-        return found
-            .map(uri => uri.fsPath)
+        await ensureProjectAnalyzerReady();
+        const analyzerFiles = await getProjectAnalyzer().getProjectSourceFiles();
+        return analyzerFiles
             .filter(isBackgroundDiagnosticSourcePath)
             .sort((a, b) => a.localeCompare(b));
     };

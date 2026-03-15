@@ -468,6 +468,10 @@ export class TwinCATProjectAnalyzer {
         }
     }
 
+    public async getProjectSourceFiles(): Promise<string[]> {
+        return this.findPLCFiles();
+    }
+
     /**
      * Parse a single PLC file and extract symbols
      */
