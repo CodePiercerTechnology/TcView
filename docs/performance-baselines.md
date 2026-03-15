@@ -31,7 +31,8 @@ Use the updater utility to suggest a tighter `maxElapsedMs` from recent reports:
 Runtime baselines now have a machine-readable threshold file:
 
 - Runtime thresholds: `.github/perf/runtime-baselines.json`
-- Runtime checker: `npm run test:perf:runtime -- --baseline <path-to-runtime-baseline.json>`
+- Runtime checker: `npm run test:perf:runtime -- --baseline <path-to-runtime-baseline-or-trace.json>`
+- Runtime comparison: `npm run test:perf:runtime:compare -- --baseline <path-a> --baseline <path-b> ...`
 
 The runtime levels mean:
 
@@ -65,10 +66,15 @@ They should be revised only after repeated captures across representative worksp
 
 Use the checker like this:
 
-1. Export a runtime baseline from VS Code:
+1. Export a runtime baseline or trace from VS Code:
    - `Export TcView Performance Baseline`
+   - or `Export TcView Performance Trace`
 2. Classify it:
    - `npm run test:perf:runtime -- --baseline ..\\runtime-baseline.json`
+
+To compare several exported baselines or traces at once:
+
+- `npm run test:perf:runtime:compare -- --baseline .test-results\\perf\\runtime\\FO_Standard\\runtime-baseline.json --baseline .test-results\\perf\\runtime\\LibraryDev\\runtime-baseline.json`
 
 If you want the checker to fail on bad values:
 
@@ -84,8 +90,13 @@ If you want the checker to fail on bad values:
 3. Export runtime baseline from VS Code command palette:
    - `Export TcView Performance Baseline`
 4. Classify the runtime baseline:
-   - `npm run test:perf:runtime -- --baseline <path-to-runtime-baseline.json>`
+   - `npm run test:perf:runtime -- --baseline <path-to-runtime-baseline-or-trace.json>`
 5. Save the exported runtime baseline JSON under a dated folder for the target workspace profile.
+
+Recommended local archive layout:
+
+- `.test-results/perf/runtime/<workspace-profile>/<yyyy-mm-dd>/runtime-baseline.json`
+- `.test-results/perf/runtime/<workspace-profile>/<yyyy-mm-dd>/runtime-trace.json`
 
 ## Alpha Workspace Profiles
 
@@ -94,6 +105,13 @@ Capture and retain baselines for at least these workspace shapes:
 1. standalone PLC project
 2. solution with one PLC project and light library usage
 3. solution with multiple PLC projects and heavy library usage
+
+Current real workspace candidates we should keep using:
+
+1. `FO_Standard`
+   - good representative for solution-backed project loading and startup explorer cost
+2. `LibraryDev`
+   - good representative for external project references and heavier library resolution paths
 
 For each profile, store:
 

@@ -20,6 +20,16 @@ function readJsonFile(filePath, label) {
     }
 }
 
+function normalizeRuntimeSnapshot(document) {
+    if (document && document.metrics && document.generatedAt) {
+        return document;
+    }
+    if (document && document.baseline && document.baseline.metrics) {
+        return document.baseline;
+    }
+    throw new Error('Input JSON is not a runtime baseline and does not contain an embedded baseline payload.');
+}
+
 function parseArgs(argv) {
     const options = {
         baselinePath: DEFAULT_BASELINE_PATH,
@@ -87,7 +97,8 @@ function main() {
     const options = parseArgs(process.argv.slice(2));
     const baselinePath = resolvePath(options.baselinePath);
     const thresholdsPath = resolvePath(options.thresholdsPath);
-    const snapshot = readJsonFile(baselinePath, 'runtime baseline');
+    const snapshotDocument = readJsonFile(baselinePath, 'runtime baseline');
+    const snapshot = normalizeRuntimeSnapshot(snapshotDocument);
     const thresholds = readJsonFile(thresholdsPath, 'runtime thresholds');
 
     const failures = [];

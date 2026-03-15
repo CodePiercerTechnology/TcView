@@ -10,6 +10,7 @@ The format is based on Keep a Changelog and this project uses Semantic Versionin
 - Added repo-local GitFlow helper tooling for bootstrapping `develop` and creating `feature/*`, `release/*`, and `hotfix/*` branches from the correct base branch
 - Added GitHub automation for GitFlow PR target validation and automatic release tag/VSIX/GitHub Release publication from `main`
 - Added tracked GitHub repository settings and protected branch/tag ruleset payloads for `main`, `develop`, optional `support/*` maintenance branches, and immutable `v*` release tags
+- Added a runtime baseline comparison helper for reviewing multiple exported workspace baselines together
 
 ### Changed
 - Expanded CI branch coverage from `main` only to the GitFlow branch families used for day-to-day development and release stabilization
