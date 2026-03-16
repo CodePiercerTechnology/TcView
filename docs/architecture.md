@@ -23,6 +23,7 @@ Key files:
 
 - [extension.ts](c:/Users/TwinCAT/Documents/MyStuff/TcView/src/extension.ts)
 - [tcViewFileExplorerProvider.ts](c:/Users/TwinCAT/Documents/MyStuff/TcView/src/tcViewFileExplorerProvider.ts)
+- [tcViewWebviewExplorerProvider.ts](c:/Users/TwinCAT/Documents/MyStuff/TcView/src/tcViewWebviewExplorerProvider.ts)
 - [tcViewFileSystemProvider.ts](c:/Users/TwinCAT/Documents/MyStuff/TcView/src/tcViewFileSystemProvider.ts)
 - [tcViewProjectAnalyzer.ts](c:/Users/TwinCAT/Documents/MyStuff/TcView/src/tcViewProjectAnalyzer.ts)
 - [iecStLanguageFeatures.ts](c:/Users/TwinCAT/Documents/MyStuff/TcView/src/iecStLanguageFeatures.ts)
@@ -30,7 +31,7 @@ Key files:
 Responsibilities:
 
 - workspace/root detection
-- tree view population
+- tree model population and webview explorer state
 - virtual ST file handling
 - save-back to XML
 - diagnostics, completion, hover, rename, references, folding, semantic tokens
@@ -115,6 +116,13 @@ TcView groups detected TwinCAT content into:
 - `PLC`
 - `I/O`
 
+The current `TcView` sidebar Explorer is a webview-backed tree that renders state provided by the extension host.
+
+In practice:
+
+- `TwinCATFileExplorerProvider` remains the source of truth for structure, file metadata, and aggregated diagnostics
+- `TwinCATWebviewExplorerProvider` handles rendering, expansion state, selection state, and lightweight UI interactions
+
 Rules:
 
 - solution-like roots show all three groups, even when empty
@@ -130,10 +138,11 @@ Each PLC project folder can expose:
 
 - explicit `.plcproj` placeholder references
 - synthetic system-global libraries such as `Tc3_GlobalTypes` family entries
+- extension-host-derived diagnostic and SCM state that is pushed into the webview for rendering
 
 ## Library Recognition Model
 
-TcView treats library knowledge as layered provenance, not a single binary “known/unknown” state.
+TcView treats library knowledge as layered provenance, not a single binary "known/unknown" state.
 
 Important provenance categories:
 
@@ -169,3 +178,4 @@ Extension build/test remains:
 
 - `npm run compile`
 - `npm test`
+

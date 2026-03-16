@@ -74,7 +74,7 @@ Use the checker like this:
 
 To compare several exported baselines or traces at once:
 
-- `npm run test:perf:runtime:compare -- --baseline .test-results\\perf\\runtime\\FO_Standard\\runtime-baseline.json --baseline .test-results\\perf\\runtime\\LibraryDev\\runtime-baseline.json`
+- `npm run test:perf:runtime:compare -- --baseline .tests\\perf\\runtime\\fo_standard_runtime-baseline.json --baseline .tests\\perf\\runtime\\libraryDev_runtime-baseline.json`
 
 If you want the checker to fail on bad values:
 
@@ -92,6 +92,19 @@ If you want the checker to fail on bad values:
 4. Classify the runtime baseline:
    - `npm run test:perf:runtime -- --baseline <path-to-runtime-baseline-or-trace.json>`
 5. Save the exported runtime baseline JSON under a dated folder for the target workspace profile.
+
+## Tracked Curated Baselines
+
+TcView keeps a small set of representative runtime baseline files in Git for recurring comparison on known workspace profiles:
+
+- `.tests/perf/runtime/fo_standard_runtime-baseline.json`
+- `.tests/perf/runtime/libraryDev_runtime-baseline.json`
+
+These are intentionally different from the ad hoc export file:
+
+- `.tests/perf/runtime/runtime-baseline.json`
+
+The generic `runtime-baseline.json` export remains a local scratch artifact. It is useful for one-off captures and investigation, but it is not the curated file we compare across commits.
 
 Recommended local archive layout:
 
@@ -112,6 +125,8 @@ Current real workspace candidates we should keep using:
    - good representative for solution-backed project loading and startup explorer cost
 2. `LibraryDev`
    - good representative for external project references and heavier library resolution paths
+
+When one of these representative workspaces is recaptured and validated, update its matching curated file in `.tests/perf/runtime/` so the repo keeps a current reference point.
 
 For each profile, store:
 

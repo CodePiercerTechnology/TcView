@@ -24,10 +24,10 @@ TcView should not drift into:
 - tree explorer now uses clearer TwinCAT artifact icon differentiation and folder-first ordering in filesystem groups
 - tree explorer file labels now default to extensionless TwinCAT artifact names with concise type badges
 - tree explorer now surfaces warning/error markers from active diagnostics on TwinCAT files and parent tree nodes
+- the default TcView Explorer is now the webview-backed tree and supports rename, create, delete, and copy/cut/paste flows for supported TwinCAT items
+- the Explorer now supports type-specific authoring flows for TwinCAT files and members instead of a single generic create path
 - valid TwinCAT root detection is enforced
 - `References` tree nodes open an API-style library viewer
-- `alpha.2` now includes an alternate webview-based explorer preview so custom tree rendering can be evaluated without replacing the stable native tree
-- webview explorer follow-up should add type-specific TwinCAT file creation flows with per-type options/templates (`POU`, `PRG`, `ITF`, `DUT`, `GVL`, etc.) instead of a single generic create flow
 
 ### Language Features
 
@@ -90,6 +90,8 @@ TcView should not drift into:
 - synthetic large-workspace regression coverage now also includes repeated save-roundtrip transforms so perf guardrails cover save-path churn in addition to open/fragment work
 - perf history tooling now supports archiving current reports and skips incompatible history when workload digests change, including save-path coverage changes
 - webview explorer refresh now records dedicated `tree.webview.*` runtime metrics, and the synthetic large-workspace perf report now includes a webview-tree structure/state benchmark for `alpha.2` explorer tuning
+- startup explorer performance now reuses cached TwinCAT root, `.tsproj`, and top-level directory metadata so first paint and analyzer warmup are substantially faster on representative workspaces
+- background validation now narrows refresh work to changed files, affected projects, and lightweight dependent-file sets instead of repeatedly rescanning the full workspace
 
 ## Next Priorities
 
@@ -135,8 +137,8 @@ TcView should not drift into:
 
 1. Continue refining naming/grouping/icon polish using alpha-workspace feedback while keeping scope narrow
 2. Revisit tree diagnostic presentation with a `resourceUri` or hybrid decoration approach so warning/error markers can get closer to native Explorer behavior without regressing TwinCAT-specific icons
-3. Evaluate a custom webview-based TwinCAT explorer only if native tree constraints keep blocking diagnostics/icon UX goals, and treat it as an explicit architectural tradeoff rather than incremental polish
-4. Drive the webview explorer toward parity in stages: navigation/open, expansion state, diagnostics/reference cues, then decide whether it should replace or complement the native tree
+3. Continue tightening webview explorer parity for drag/drop-style authoring, richer breadcrumbs, and context-sensitive creation flows without expanding scope into full XAE replacement behavior
+4. Keep the native/tree-model and webview-renderer split explicit so future explorer work can stay performance-focused and testable
 
 ### Packaging and Release
 

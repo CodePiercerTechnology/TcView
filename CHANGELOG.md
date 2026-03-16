@@ -15,6 +15,9 @@ The format is based on Keep a Changelog and this project uses Semantic Versionin
 ### Changed
 - Expanded CI branch coverage from `main` only to the GitFlow branch families used for day-to-day development and release stabilization
 - Replaced the previous linear-history `main` ruleset guidance with merge-commit-based protection that matches standard GitFlow
+- Reduced TcView startup and explorer refresh latency through targeted tree-cache reuse, cached TwinCAT root and `.tsproj` resolution, slimmer webview refresh payloads, and narrower validation work
+- Improved project-scoped/background diagnostics refresh behavior so external/add-remove dependency changes clear more reliably without full-workspace rescans
+- Updated README and performance/architecture roadmap docs to reflect the current webview explorer, authoring flows, and tracked runtime baseline workflow
 
 ## [1.0.0-alpha.2] - 2026-03-10
 

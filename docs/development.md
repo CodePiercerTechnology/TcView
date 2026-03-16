@@ -40,6 +40,15 @@ Performance process documents:
 - [performance-trace-triage.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/performance-trace-triage.md)
 - Backend validation helper: `npm run test:backend:validate`
 
+Curated tracked runtime baselines live under:
+
+- `.tests/perf/runtime/fo_standard_runtime-baseline.json`
+- `.tests/perf/runtime/libraryDev_runtime-baseline.json`
+
+Ad hoc local exports can still use:
+
+- `.tests/perf/runtime/runtime-baseline.json`
+
 ## Extension Development Host
 
 Typical workflow:
