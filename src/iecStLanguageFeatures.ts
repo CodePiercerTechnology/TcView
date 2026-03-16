@@ -2023,9 +2023,9 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         activeAnalyzerRefreshDisposable?.dispose();
         activeAnalyzerRefreshDisposable = analyzer.onDidRefreshIndex(() => {
             handleAnalyzerRefresh();
-            const affectedFiles = analyzer.getLastRefreshAffectedFiles();
-            if (affectedFiles.length > 0) {
-                void queueProjectScopedBackgroundValidation(affectedFiles, 250, true);
+            const validationTargets = analyzer.getLastRefreshValidationFiles();
+            if (validationTargets.length > 0) {
+                scheduleBackgroundProjectValidation(250, { paths: validationTargets });
             }
         });
     });

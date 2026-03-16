@@ -200,7 +200,8 @@ export function activate(context: vscode.ExtensionContext) {
 
     const fileExplorerProvider = new TwinCATFileExplorerProvider(
         vscode.workspace.workspaceFolders ? vscode.workspace.workspaceFolders[0].uri.fsPath : undefined,
-        state => { void updateTreeDiscoveryContext(state); }
+        state => { void updateTreeDiscoveryContext(state); },
+        context.workspaceState
     );
     const webviewExplorerProvider = new TwinCATWebviewExplorerProvider(
         context,

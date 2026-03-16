@@ -5,6 +5,8 @@ import * as xml2js from 'xml2js';
 import { TwinCATXmlConverter } from './tcViewXmlConverter';
 import { TwinCATLibraryRef } from './tcViewTypes';
 import { withPerfMetric } from './tcViewTelemetry';
+import { buildAstAnalysis } from './iecStAst';
+import { isKnownIecBuiltinIdentifier, isKnownIecBuiltinType } from './iecStBuiltins';
 import { extractQualifiedOnlyUsageInfo, type QualifiedOnlyUsageInfo } from './twinCATQualifiedOnly';
 import { parseTwinCATTypeDeclarations } from './twinCATTypeParser';
 
@@ -151,9 +153,11 @@ export class TwinCATProjectAnalyzer {
         symbolKeys: Set<string>;
         dataTypeKeys: Set<string>;
         globalVarKeys: Set<string>;
+        referencedSymbolKeys: Set<string>;
         qualifiedGlobalEntries: Array<{ memberKey: string; ownerName: string }>;
         qualifiedEnumEntries: Array<{ memberKey: string; ownerName: string }>;
     }>();
+    private dependentFilesBySymbol = new Map<string, Set<string>>();
     private libraryRefs: TwinCATLibraryRef[] = [];
     private libraryPlaceholderSymbolKeys = new Set<string>();
     private librarySymbols = new Map<string, TwinCATSymbol>();
@@ -175,6 +179,7 @@ export class TwinCATProjectAnalyzer {
         | undefined;
     private readonly indexRefreshedEmitter = new vscode.EventEmitter<void>();
     private lastRefreshAffectedFiles: string[] = [];
+    private lastRefreshAffectedSymbolKeys: string[] = [];
     private indexRevision = 0;
     private initialized = false;
     private initializePromise: Promise<void> | undefined;
@@ -404,6 +409,14 @@ export class TwinCATProjectAnalyzer {
         const start = Date.now();
         let didMutateIndex = false;
         await withPerfMetric('reindex.incremental', async () => {
+            const previousExportsByFile = new Map<string, Set<string>>();
+            for (const filePath of [...deleted, ...changed]) {
+                const previous = this.fileContributions.get(filePath);
+                if (previous) {
+                    previousExportsByFile.set(filePath, this.getContributionExportKeys(previous));
+                }
+            }
+
             for (const filePath of deleted) {
                 didMutateIndex = this.removeFileContributions(filePath) || didMutateIndex;
             }
@@ -417,8 +430,30 @@ export class TwinCATProjectAnalyzer {
             }
 
             if (didMutateIndex) {
+                const dependencySymbolKeys = new Set<string>();
+                for (const filePath of deleted) {
+                    for (const symbolKey of previousExportsByFile.get(filePath) ?? []) {
+                        dependencySymbolKeys.add(symbolKey);
+                    }
+                }
+                for (const filePath of changed) {
+                    const previousExports = previousExportsByFile.get(filePath) ?? new Set<string>();
+                    const currentExports = this.getContributionExportKeys(
+                        this.fileContributions.get(filePath) ?? this.createEmptyContribution()
+                    );
+                    if (!this.areSetsEqual(previousExports, currentExports)) {
+                        for (const symbolKey of previousExports) {
+                            dependencySymbolKeys.add(symbolKey);
+                        }
+                        for (const symbolKey of currentExports) {
+                            dependencySymbolKeys.add(symbolKey);
+                        }
+                    }
+                }
+
                 this.lastRefreshAffectedFiles = [...new Set([...deleted, ...changed])]
                     .sort((a, b) => a.localeCompare(b));
+                this.lastRefreshAffectedSymbolKeys = [...dependencySymbolKeys].sort((a, b) => a.localeCompare(b));
                 this.indexRevision++;
                 this.indexRefreshedEmitter.fire();
             }
@@ -453,6 +488,7 @@ export class TwinCATProjectAnalyzer {
                 this.symbols.clear();
                 this.dataTypes.clear();
                 this.globalVars.clear();
+                this.dependentFilesBySymbol.clear();
                 this.librarySymbols.clear();
                 this.libraryDataTypes.clear();
                 this.libraryContextModes.clear();
@@ -466,6 +502,7 @@ export class TwinCATProjectAnalyzer {
                 await Promise.allSettled(plcFiles.map(file => this.parseFile(file)));
                 await this.refreshLibraryMetadata();
                 this.lastRefreshAffectedFiles = [];
+                this.lastRefreshAffectedSymbolKeys = [];
                 this.indexRevision++;
                 this.indexRefreshedEmitter.fire();
             });
@@ -526,6 +563,96 @@ export class TwinCATProjectAnalyzer {
             .sort((a, b) => a.localeCompare(b));
     }
 
+    private createEmptyContribution() {
+        return {
+            symbolKeys: new Set<string>(),
+            dataTypeKeys: new Set<string>(),
+            globalVarKeys: new Set<string>(),
+            referencedSymbolKeys: new Set<string>(),
+            qualifiedGlobalEntries: [] as Array<{ memberKey: string; ownerName: string }>,
+            qualifiedEnumEntries: [] as Array<{ memberKey: string; ownerName: string }>
+        };
+    }
+
+    private getContributionExportKeys(contribution: {
+        symbolKeys: Set<string>;
+        dataTypeKeys: Set<string>;
+        globalVarKeys: Set<string>;
+    }): Set<string> {
+        return new Set([
+            ...contribution.symbolKeys,
+            ...contribution.dataTypeKeys,
+            ...contribution.globalVarKeys
+        ]);
+    }
+
+    private areSetsEqual(left: Set<string>, right: Set<string>): boolean {
+        if (left.size !== right.size) {
+            return false;
+        }
+        for (const item of left) {
+            if (!right.has(item)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private addContributionDependencies(filePath: string, contribution: {
+        referencedSymbolKeys: Set<string>;
+    }): void {
+        for (const symbolKey of contribution.referencedSymbolKeys) {
+            const existing = this.dependentFilesBySymbol.get(symbolKey) ?? new Set<string>();
+            existing.add(filePath);
+            this.dependentFilesBySymbol.set(symbolKey, existing);
+        }
+    }
+
+    private removeContributionDependencies(filePath: string, contribution: {
+        referencedSymbolKeys: Set<string>;
+    }): void {
+        for (const symbolKey of contribution.referencedSymbolKeys) {
+            const existing = this.dependentFilesBySymbol.get(symbolKey);
+            if (!existing) {
+                continue;
+            }
+            existing.delete(filePath);
+            if (existing.size === 0) {
+                this.dependentFilesBySymbol.delete(symbolKey);
+            }
+        }
+    }
+
+    private addDependencyTypeReference(rawType: string | undefined, target: Set<string>): void {
+        if (!rawType) {
+            return;
+        }
+        const normalizedType = this.normalizeDeclarationType(rawType).toUpperCase();
+        if (!normalizedType || isKnownIecBuiltinType(normalizedType)) {
+            return;
+        }
+        target.add(normalizedType);
+    }
+
+    private collectReferencedSymbolKeys(stContent: string): Set<string> {
+        const ast = buildAstAnalysis(stContent);
+        const localDeclarations = new Set(ast.declarations.map(declaration => declaration.upper));
+        const referenced = new Set<string>();
+
+        for (const declaration of ast.declarations) {
+            this.addDependencyTypeReference(declaration.type, referenced);
+        }
+
+        for (const usage of ast.usages) {
+            if (localDeclarations.has(usage.upper) || isKnownIecBuiltinIdentifier(usage.upper)) {
+                continue;
+            }
+            referenced.add(usage.upper);
+        }
+
+        return referenced;
+    }
+
     /**
      * Parse a single PLC file and extract symbols
      */
@@ -543,13 +670,7 @@ export class TwinCATProjectAnalyzer {
 
             const ext = path.extname(filePath).toLowerCase();
             const content = await fs.promises.readFile(filePath, 'utf-8');
-            const contribution = {
-                symbolKeys: new Set<string>(),
-                dataTypeKeys: new Set<string>(),
-                globalVarKeys: new Set<string>(),
-                qualifiedGlobalEntries: [] as Array<{ memberKey: string; ownerName: string }>,
-                qualifiedEnumEntries: [] as Array<{ memberKey: string; ownerName: string }>
-            };
+            const contribution = this.createEmptyContribution();
 
             this.removeFileContributions(filePath);
 
@@ -569,6 +690,7 @@ export class TwinCATProjectAnalyzer {
             }
 
             this.fileContributions.set(filePath, contribution);
+            this.addContributionDependencies(filePath, contribution);
             if (fingerprint) {
                 this.fileFingerprints.set(filePath, fingerprint);
             }
@@ -586,6 +708,7 @@ export class TwinCATProjectAnalyzer {
         symbolKeys: Set<string>;
         dataTypeKeys: Set<string>;
         globalVarKeys: Set<string>;
+        referencedSymbolKeys: Set<string>;
         qualifiedGlobalEntries: Array<{ memberKey: string; ownerName: string }>;
         qualifiedEnumEntries: Array<{ memberKey: string; ownerName: string }>;
     }): Promise<void> {
@@ -623,6 +746,8 @@ export class TwinCATProjectAnalyzer {
                     contribution.qualifiedGlobalEntries.push({ memberKey, ownerName });
                 });
             });
+
+            contribution.referencedSymbolKeys = this.collectReferencedSymbolKeys(stContent);
         } catch (error) {
             console.error(`Error parsing GVL file ${filePath}:`, error);
         }
@@ -635,6 +760,7 @@ export class TwinCATProjectAnalyzer {
         symbolKeys: Set<string>;
         dataTypeKeys: Set<string>;
         globalVarKeys: Set<string>;
+        referencedSymbolKeys: Set<string>;
         qualifiedGlobalEntries: Array<{ memberKey: string; ownerName: string }>;
         qualifiedEnumEntries: Array<{ memberKey: string; ownerName: string }>;
     }): Promise<void> {
@@ -663,6 +789,13 @@ export class TwinCATProjectAnalyzer {
                     source: filePath
                 });
                 contribution.symbolKeys.add(upperName);
+
+                if (declaration.aliasTarget) {
+                    this.addDependencyTypeReference(declaration.aliasTarget, contribution.referencedSymbolKeys);
+                }
+                for (const memberType of declaration.members.values()) {
+                    this.addDependencyTypeReference(memberType, contribution.referencedSymbolKeys);
+                }
             }
 
             const qualifiedOnlyInfo = extractQualifiedOnlyUsageInfo(stContent, filePath);
@@ -674,6 +807,10 @@ export class TwinCATProjectAnalyzer {
                     contribution.qualifiedEnumEntries.push({ memberKey, ownerName });
                 });
             });
+
+            for (const symbolKey of this.collectReferencedSymbolKeys(stContent)) {
+                contribution.referencedSymbolKeys.add(symbolKey);
+            }
         } catch (error) {
             console.error(`Error parsing DUT file ${filePath}:`, error);
         }
@@ -686,6 +823,7 @@ export class TwinCATProjectAnalyzer {
         symbolKeys: Set<string>;
         dataTypeKeys: Set<string>;
         globalVarKeys: Set<string>;
+        referencedSymbolKeys: Set<string>;
         qualifiedGlobalEntries: Array<{ memberKey: string; ownerName: string }>;
         qualifiedEnumEntries: Array<{ memberKey: string; ownerName: string }>;
     }): Promise<void> {
@@ -719,6 +857,7 @@ export class TwinCATProjectAnalyzer {
 
             // Also index POU members declared in XML (methods/properties/actions/transitions).
             this.indexPouMembersFromXmlText(filePath, content, contribution);
+            contribution.referencedSymbolKeys = this.collectReferencedSymbolKeys(stContent);
         } catch (error) {
             console.error(`Error parsing POU file ${filePath}:`, error);
         }
@@ -737,6 +876,8 @@ export class TwinCATProjectAnalyzer {
         const start = Date.now();
         await withPerfMetric('reindex.libraryMetadata', async () => {
             await this.refreshLibraryMetadata();
+            this.lastRefreshAffectedFiles = [];
+            this.lastRefreshAffectedSymbolKeys = [];
             this.indexRevision++;
             this.indexRefreshedEmitter.fire();
         });
@@ -875,6 +1016,7 @@ export class TwinCATProjectAnalyzer {
         symbolKeys: Set<string>;
         dataTypeKeys: Set<string>;
         globalVarKeys: Set<string>;
+        referencedSymbolKeys: Set<string>;
         qualifiedGlobalEntries: Array<{ memberKey: string; ownerName: string }>;
         qualifiedEnumEntries: Array<{ memberKey: string; ownerName: string }>;
     }): void {
@@ -1007,6 +1149,8 @@ export class TwinCATProjectAnalyzer {
     private removeFileContributions(filePath: string): boolean {
         const previous = this.fileContributions.get(filePath);
         if (!previous) return false;
+
+        this.removeContributionDependencies(filePath, previous);
 
         for (const key of previous.symbolKeys) {
             const symbol = this.symbols.get(key);
@@ -2478,6 +2622,9 @@ export class TwinCATProjectAnalyzer {
         this.libraryPlaceholderSymbolKeys.clear();
         this.tmcParseCache.clear();
         this.projectMetadataTextCache.clear();
+        this.dependentFilesBySymbol.clear();
+        this.lastRefreshAffectedFiles = [];
+        this.lastRefreshAffectedSymbolKeys = [];
         this.managedLibraryIndex = undefined;
         this.managedLibraryIndexPromise = undefined;
         this.indexRefreshedEmitter.dispose();
@@ -2489,6 +2636,20 @@ export class TwinCATProjectAnalyzer {
 
     public getLastRefreshAffectedFiles(): string[] {
         return [...this.lastRefreshAffectedFiles];
+    }
+
+    public getLastRefreshValidationFiles(): string[] {
+        const files = new Set(this.lastRefreshAffectedFiles);
+        for (const symbolKey of this.lastRefreshAffectedSymbolKeys) {
+            const dependents = this.dependentFilesBySymbol.get(symbolKey);
+            if (!dependents) {
+                continue;
+            }
+            for (const filePath of dependents) {
+                files.add(filePath);
+            }
+        }
+        return [...files].sort((a, b) => a.localeCompare(b));
     }
 }
 

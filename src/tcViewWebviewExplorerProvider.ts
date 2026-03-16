@@ -44,14 +44,8 @@ type WebviewStructureNode = {
     itemType: TwinCATItemType;
     collapsible: boolean;
     openable: boolean;
-    severity: 'error' | 'warning' | 'none';
     iconClass: string;
     iconColorClass: string;
-    errorCount: number;
-    warningCount: number;
-    scmBadge?: string;
-    scmTooltip?: string;
-    isCut?: boolean;
     children?: WebviewStructureNode[];
     fileKind?: string;
 };
@@ -136,7 +130,6 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
             if (!webviewView.visible) {
                 return;
             }
-            this.markViewStructureDirty();
             this.scheduleRefresh(20);
         }));
         this.disposables.push(webviewView.onDidDispose(() => {
@@ -185,16 +178,13 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
                 this.lastAppliedViewStructureRevision = this.viewStructureRevision;
             }
 
-            if (needsState) {
+            if (needsStructure || needsState) {
                 await withPerfMetric('tree.webview.refresh.postMessage.state', () => this.view!.webview.postMessage({ type: 'state', nodes: this.createStatePayload(payload) }));
                 this.lastAppliedProviderStateRevision = providerStateRevision;
                 this.lastAppliedScmRevision = this.scmRevision;
                 this.lastAppliedViewStateRevision = this.viewStateRevision;
             }
 
-            if (needsStructure) {
-                this.scheduleGroupRootWarmup(10);
-            }
         });
     }
 
@@ -289,7 +279,6 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
                 this.webviewReady = true;
                 this.groupRootStateReady = false;
                 this.itemById.clear();
-                this.markViewStructureDirty();
                 await this.refresh();
                 return;
             case 'refresh':
@@ -442,19 +431,11 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
         return nodes.map(node => ({
             id: node.id,
             label: node.label,
-            description: node.description,
-            tooltip: node.tooltip,
             itemType: node.itemType,
             collapsible: node.collapsible,
             openable: node.openable,
-            severity: node.severity,
             iconClass: node.iconClass,
             iconColorClass: node.iconColorClass,
-            errorCount: node.errorCount,
-            warningCount: node.warningCount,
-            scmBadge: node.scmBadge,
-            scmTooltip: node.scmTooltip,
-            isCut: node.isCut,
             fileKind: node.fileKind,
             children: node.children ? this.createStructurePayload(node.children) : undefined
         }));
