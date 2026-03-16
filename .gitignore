@@ -36,3 +36,6 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+
+#Test files
+*.test*
