@@ -63,6 +63,12 @@ const EXPANDABLE_POU_EXTENSIONS = new Set([
 ]);
 
 const SOLUTION_PROJECT_EXTENSIONS = ['.tsproj', '.tspproj'];
+const PROJECT_STRUCTURE_EXTENSIONS = new Set([
+    '.plcproj',
+    '.tsproj',
+    '.tspproj',
+    '.sln'
+]);
 
 const toArray = <T>(value: T | T[] | undefined): T[] =>
     Array.isArray(value) ? value : value ? [value] : [];
@@ -526,6 +532,7 @@ export class TwinCATFileExplorerProvider
         this.projectMetadataXmlCache.clear();
         this.tsprojStructureCache.clear();
         this.directoryEntriesCache.clear();
+        this.clearTreeStructureCaches();
         this.discoveryStarted = false;
         this.setDiscoveryState('booting');
         this.fileWatcher?.dispose();
@@ -548,19 +555,14 @@ export class TwinCATFileExplorerProvider
     }
 
     refresh() {
-        this.folderChildrenCache.clear();
-        this.plcReferencesCache.clear();
-        this.topLevelGroupsCache = undefined;
-        this.topLevelGroupsCachePromise = undefined;
         this._onDidChangeTreeData.fire(undefined);
     }
 
     markFileChanged(filePath: string) {
-        this.parsedPOUCache.delete(filePath);
+        this.parsedPOUCache.delete(this.getPathCacheKey(filePath));
         this.invalidateMetadataCaches(filePath);
-        this.invalidateDirectoryCachesForPath(filePath);
-        const ext = path.extname(filePath).toLowerCase();
-        const requiresStructuralRefresh = ext === '.plcproj' || ext === '.tsproj' || ext === '.tspproj' || ext === '.sln';
+        this.invalidateStructureCachesForPath(filePath);
+        const requiresStructuralRefresh = this.isProjectStructureFile(filePath);
         this.scheduleRefresh(requiresStructuralRefresh);
     }
 
@@ -640,6 +642,13 @@ export class TwinCATFileExplorerProvider
 
             if (!this.contentRoot || this.discoveryState === 'empty') {
                 return items;
+            }
+
+            if (!this.topLevelGroupsCache) {
+                this.topLevelGroupsCachePromise ??= this.buildTopLevelGroups();
+                this.topLevelGroupsCache = await this.topLevelGroupsCachePromise;
+                this.topLevelGroupsCachePromise = undefined;
+                this.clearDiagnosticSummaryCaches();
             }
 
             const groupItems: TwinCATFileTreeItem[] = [];
@@ -727,12 +736,92 @@ export class TwinCATFileExplorerProvider
         return name.startsWith('.') || name.startsWith('_');
     }
 
-    private getMetadataCacheKey(filePath: string) {
+    private getPathCacheKey(filePath: string) {
         return path.normalize(filePath).toLowerCase();
     }
 
+    private getMetadataCacheKey(filePath: string) {
+        return this.getPathCacheKey(filePath);
+    }
+
     private getDirectoryCacheKey(folderPath: string) {
-        return path.normalize(folderPath).toLowerCase();
+        return this.getPathCacheKey(folderPath);
+    }
+
+    private getFolderChildrenCacheKey(folderPath: string) {
+        return this.getPathCacheKey(folderPath);
+    }
+
+    private isProjectStructureFile(filePath: string) {
+        return PROJECT_STRUCTURE_EXTENSIONS.has(path.extname(filePath).toLowerCase());
+    }
+
+    private isTwinCATSourceFile(filePath: string) {
+        return TREE_FILE_EXTENSIONS.has(path.extname(filePath).toLowerCase());
+    }
+
+    private isRelevantWatcherPath(filePath: string) {
+        const ext = path.extname(filePath).toLowerCase();
+        return !ext || this.isProjectStructureFile(filePath) || this.isTwinCATSourceFile(filePath);
+    }
+
+    private clearTreeStructureCaches() {
+        this.folderChildrenCache.clear();
+        this.plcReferencesCache.clear();
+        this.topLevelGroupsCache = undefined;
+        this.topLevelGroupsCachePromise = undefined;
+    }
+
+    private invalidateFolderChildrenCache(folderPath: string) {
+        this.folderChildrenCache.delete(this.getFolderChildrenCacheKey(folderPath));
+    }
+
+    private invalidateTopLevelGroupsCache() {
+        this.topLevelGroupsCache = undefined;
+        this.topLevelGroupsCachePromise = undefined;
+    }
+
+    private shouldInvalidateTopLevelGroupsForPath(filePath: string, includeContainerParent = false) {
+        if (!this.contentRoot) {
+            return this.isProjectStructureFile(filePath);
+        }
+
+        const rootKey = this.getDirectoryCacheKey(this.contentRoot);
+        const pathKey = this.getDirectoryCacheKey(filePath);
+        const parentKey = this.getDirectoryCacheKey(path.dirname(filePath));
+        if (pathKey === rootKey || parentKey === rootKey || this.isProjectStructureFile(filePath)) {
+            return true;
+        }
+
+        if (!includeContainerParent) {
+            return false;
+        }
+
+        const containerParent = path.dirname(path.dirname(filePath));
+        return this.getDirectoryCacheKey(containerParent) === rootKey;
+    }
+
+    private invalidateStructureCachesForPath(filePath: string, options?: { includeContainerParent?: boolean }) {
+        const absolutePath = path.isAbsolute(filePath)
+            ? filePath
+            : this.contentRoot
+                ? path.join(this.contentRoot, filePath)
+                : filePath;
+        const parent = path.dirname(absolutePath);
+        this.directoryEntriesCache.delete(this.getDirectoryCacheKey(absolutePath));
+        this.directoryEntriesCache.delete(this.getDirectoryCacheKey(parent));
+        this.invalidateFolderChildrenCache(absolutePath);
+        this.invalidateFolderChildrenCache(parent);
+
+        if (options?.includeContainerParent) {
+            const containerParent = path.dirname(parent);
+            this.directoryEntriesCache.delete(this.getDirectoryCacheKey(containerParent));
+            this.invalidateFolderChildrenCache(containerParent);
+        }
+
+        if (this.shouldInvalidateTopLevelGroupsForPath(absolutePath, options?.includeContainerParent)) {
+            this.invalidateTopLevelGroupsCache();
+        }
     }
 
     private async getDirectoryEntries(folderPath: string): Promise<fs.Dirent[] | undefined> {
@@ -800,6 +889,7 @@ export class TwinCATFileExplorerProvider
                 : filePath;
         const parent = path.dirname(absolutePath);
         this.directoryEntriesCache.delete(this.getDirectoryCacheKey(parent));
+        this.invalidateFolderChildrenCache(parent);
     }
 
     private setDiscoveryState(state: 'booting' | 'loading' | 'ready' | 'empty') {
@@ -812,10 +902,7 @@ export class TwinCATFileExplorerProvider
     }
 
     private async beginDiscovery() {
-        this.folderChildrenCache.clear();
-        this.plcReferencesCache.clear();
-        this.topLevelGroupsCache = undefined;
-        this.topLevelGroupsCachePromise = undefined;
+        this.clearTreeStructureCaches();
         this.clearDiagnosticSummaryCaches();
         this.rootIdentifiers = undefined;
         this.tsprojStructure = undefined;
@@ -849,12 +936,18 @@ export class TwinCATFileExplorerProvider
         folderPath: string,
         depth = 2
     ): Promise<{ folderPath: string; identifiers: { hasTwinCATFiles: boolean; tsprojPath?: string; slnPath?: string; plcprojPath?: string } } | undefined> {
-        const markerResolved = await this.resolveTwinCATRootFromWorkspaceMarkers(folderPath, depth);
+        const markerResolved = await withPerfMetric(
+            'tree.discovery.resolveRoot.markers',
+            () => this.resolveTwinCATRootFromWorkspaceMarkers(folderPath, depth)
+        );
         if (markerResolved) {
             return markerResolved;
         }
 
-        const identifiers = await this.findTwinCATIdentifiers(folderPath);
+        const identifiers = await withPerfMetric(
+            'tree.discovery.resolveRoot.identifiers',
+            () => this.findTwinCATIdentifiers(folderPath)
+        );
         if (identifiers.hasTwinCATFiles) {
             return { folderPath, identifiers };
         }
@@ -863,7 +956,10 @@ export class TwinCATFileExplorerProvider
             return undefined;
         }
 
-        const entries = await this.getDirectoryEntries(folderPath);
+        const entries = await withPerfMetric(
+            'tree.discovery.resolveRoot.entries',
+            () => this.getDirectoryEntries(folderPath)
+        );
         if (!entries) {
             return undefined;
         }
@@ -874,7 +970,10 @@ export class TwinCATFileExplorerProvider
             .sort((a, b) => a.localeCompare(b));
 
         for (const childDir of childDirs) {
-            const resolved = await this.resolveTwinCATRoot(childDir, depth - 1);
+            const resolved = await withPerfMetric(
+                'tree.discovery.resolveRoot.descend',
+                () => this.resolveTwinCATRoot(childDir, depth - 1)
+            );
             if (resolved) {
                 return resolved;
             }
@@ -1116,7 +1215,7 @@ export class TwinCATFileExplorerProvider
     private async parseTsprojStructure(tsprojPath: string): Promise<{ plcFolderPaths: Set<string>; plcProjectPaths: Map<string, string>; hasSystem: boolean; ioFolderPaths: Set<string> }> {
         try {
             const key = this.getMetadataCacheKey(tsprojPath);
-            const stat = await fs.promises.stat(tsprojPath);
+            const stat = await withPerfMetric('tree.discovery.parseTsproj.stat', () => fs.promises.stat(tsprojPath));
             const cached = this.tsprojStructureCache.get(key);
             if (cached && cached.mtimeMs === stat.mtimeMs) {
                 return {
@@ -1126,42 +1225,46 @@ export class TwinCATFileExplorerProvider
                     ioFolderPaths: new Set(cached.structure.ioFolderPaths)
                 };
             }
-            const text = await fs.promises.readFile(tsprojPath, 'utf8');
+            const text = await withPerfMetric('tree.discovery.parseTsproj.read', () => fs.promises.readFile(tsprojPath, 'utf8'));
             const plcFolderPaths = new Set<string>();
             const plcProjectPaths = new Map<string, string>();
-            const plcSection = this.extractXmlSection(text, 'Plc');
-            for (const rawProjectPath of this.extractProjectPathsFromPlcSection(plcSection)) {
-                const prjFilePath = this.resolveProjectPathValue(tsprojPath, rawProjectPath);
-                if (!prjFilePath) continue;
-                const resolvedReference = await this.resolvePlcProjectReference(prjFilePath);
-                if (!resolvedReference) {
-                    continue;
+            await withPerfMetric('tree.discovery.parseTsproj.plcRefs', async () => {
+                const plcSection = this.extractXmlSection(text, 'Plc');
+                for (const rawProjectPath of this.extractProjectPathsFromPlcSection(plcSection)) {
+                    const prjFilePath = this.resolveProjectPathValue(tsprojPath, rawProjectPath);
+                    if (!prjFilePath) continue;
+                    const resolvedReference = await this.resolvePlcProjectReference(prjFilePath);
+                    if (!resolvedReference) {
+                        continue;
+                    }
+                    const normalizedProjectPath = resolvedReference.projectPath;
+                    const normalizedFolderPath = resolvedReference.folderPath;
+                    plcFolderPaths.add(normalizedFolderPath);
+                    plcProjectPaths.set(normalizedFolderPath.toLowerCase(), normalizedProjectPath);
                 }
-                const normalizedProjectPath = resolvedReference.projectPath;
-                const normalizedFolderPath = resolvedReference.folderPath;
-                plcFolderPaths.add(normalizedFolderPath);
-                plcProjectPaths.set(normalizedFolderPath.toLowerCase(), normalizedProjectPath);
-            }
+            });
 
             const ioFolderPaths = new Set<string>();
-            const rawIoPaths = new Set<string>();
-            const attrIoRegex = /<(?:Io|Device|Devices)\b[^>]*\bFilePath\s*=\s*"([^"]+)"[^>]*>/gi;
-            let attrIoMatch: RegExpExecArray | null;
-            while ((attrIoMatch = attrIoRegex.exec(text)) !== null) {
-                if (attrIoMatch[1]?.trim()) {
-                    rawIoPaths.add(attrIoMatch[1].trim());
+            await withPerfMetric('tree.discovery.parseTsproj.ioRefs', async () => {
+                const rawIoPaths = new Set<string>();
+                const attrIoRegex = /<(?:Io|Device|Devices)\b[^>]*\bFilePath\s*=\s*"([^"]+)"[^>]*>/gi;
+                let attrIoMatch: RegExpExecArray | null;
+                while ((attrIoMatch = attrIoRegex.exec(text)) !== null) {
+                    if (attrIoMatch[1]?.trim()) {
+                        rawIoPaths.add(attrIoMatch[1].trim());
+                    }
                 }
-            }
-            const elementIoRegex = /<(?:Io|Device|Devices)\b[^>]*>[\s\S]*?<FilePath>\s*([^<]+?)\s*<\/FilePath>[\s\S]*?<\/(?:Io|Device|Devices)>/gi;
-            let elementIoMatch: RegExpExecArray | null;
-            while ((elementIoMatch = elementIoRegex.exec(text)) !== null) {
-                if (elementIoMatch[1]?.trim()) {
-                    rawIoPaths.add(elementIoMatch[1].trim());
+                const elementIoRegex = /<(?:Io|Device|Devices)\b[^>]*>[\s\S]*?<FilePath>\s*([^<]+?)\s*<\/FilePath>[\s\S]*?<\/(?:Io|Device|Devices)>/gi;
+                let elementIoMatch: RegExpExecArray | null;
+                while ((elementIoMatch = elementIoRegex.exec(text)) !== null) {
+                    if (elementIoMatch[1]?.trim()) {
+                        rawIoPaths.add(elementIoMatch[1].trim());
+                    }
                 }
-            }
-            for (const filePath of rawIoPaths) {
-                ioFolderPaths.add(path.normalize(path.join(path.dirname(tsprojPath), path.dirname(filePath))));
-            }
+                for (const filePath of rawIoPaths) {
+                    ioFolderPaths.add(path.normalize(path.join(path.dirname(tsprojPath), path.dirname(filePath))));
+                }
+            });
 
             const structure = {
                 plcFolderPaths,
@@ -1229,28 +1332,28 @@ export class TwinCATFileExplorerProvider
             return cached;
         }
 
-        let summary = EMPTY_DIAGNOSTIC_BREADCRUMB;
-        switch (itemType) {
-            case TwinCATItemType.File:
-                summary = this.getDiagnosticBreadcrumbForFile(targetPath);
-                break;
-            case TwinCATItemType.Folder:
-            case TwinCATItemType.PlcProjectFolder:
-                summary = this.getDiagnosticBreadcrumbForFolder(targetPath);
-                break;
-            case TwinCATItemType.SystemRoot:
-                summary = this.getDiagnosticBreadcrumbForGroup('system');
-                break;
-            case TwinCATItemType.PlcRoot:
-                summary = this.getDiagnosticBreadcrumbForGroup('plc');
-                break;
-            case TwinCATItemType.IoRoot:
-                summary = this.getDiagnosticBreadcrumbForGroup('io');
-                break;
-        }
+        const summary = this.computeDiagnosticBreadcrumb(itemType, targetPath);
 
         this.diagnosticSummaryCache.set(cacheKey, summary);
         return summary;
+    }
+
+    private computeDiagnosticBreadcrumb(itemType: TwinCATItemType, targetPath: string): DiagnosticBreadcrumb {
+        switch (itemType) {
+            case TwinCATItemType.File:
+                return this.getDiagnosticBreadcrumbForFile(targetPath);
+            case TwinCATItemType.Folder:
+            case TwinCATItemType.PlcProjectFolder:
+                return this.getDiagnosticBreadcrumbForFolder(targetPath);
+            case TwinCATItemType.SystemRoot:
+                return this.getDiagnosticBreadcrumbForGroup('system');
+            case TwinCATItemType.PlcRoot:
+                return this.getDiagnosticBreadcrumbForGroup('plc');
+            case TwinCATItemType.IoRoot:
+                return this.getDiagnosticBreadcrumbForGroup('io');
+            default:
+                return EMPTY_DIAGNOSTIC_BREADCRUMB;
+        }
     }
 
     private getDiagnosticFileSummaryMap(): Map<string, DiagnosticBreadcrumb> {
@@ -1367,7 +1470,7 @@ export class TwinCATFileExplorerProvider
         let summary = EMPTY_DIAGNOSTIC_BREADCRUMB;
 
         for (const item of groupItems) {
-            summary = combineDiagnosticBreadcrumb(summary, this.getDiagnosticBreadcrumb(item.itemType, item.targetUri.fsPath));
+            summary = combineDiagnosticBreadcrumb(summary, this.computeDiagnosticBreadcrumb(item.itemType, item.targetUri.fsPath));
         }
 
         return summary;
@@ -1424,11 +1527,18 @@ export class TwinCATFileExplorerProvider
                 return { system: [], plc: [], io: [] };
             }
 
-            if (!this.tsprojStructure && this.rootIdentifiers?.tsprojPath) {
-                this.tsprojStructure = await this.parseTsprojStructure(this.rootIdentifiers.tsprojPath);
+            const tsprojPath = this.rootIdentifiers?.tsprojPath;
+            if (!this.tsprojStructure && tsprojPath) {
+                this.tsprojStructure = await withPerfMetric(
+                    'tree.refresh.topLevelGroups.parseTsproj',
+                    () => this.parseTsprojStructure(tsprojPath)
+                );
             }
 
-            const entries = await this.getDirectoryEntries(this.contentRoot);
+            const entries = await withPerfMetric(
+                'tree.refresh.topLevelGroups.entries',
+                () => this.getDirectoryEntries(this.contentRoot!)
+            );
             if (!entries) {
                 return { system: [], plc: [], io: [] };
             }
@@ -1441,64 +1551,68 @@ export class TwinCATFileExplorerProvider
                 ? path.normalize(path.dirname(this.rootIdentifiers.tsprojPath))
                 : undefined;
 
-            await Promise.all(entries.map(async entry => {
-                if (this.isHiddenOrExcluded(entry.name)) {
-                    return;
-                }
-
-                const fullPath = path.join(this.contentRoot!, entry.name);
-                const normalizedFullPath = path.normalize(fullPath);
-                directEntryPaths.add(normalizedFullPath.toLowerCase());
-                if (
-                    entry.isDirectory()
-                    && tsprojContainerPath
-                    && normalizedFullPath === tsprojContainerPath
-                    && normalizedFullPath !== path.normalize(this.contentRoot!)
-                    && !!this.rootIdentifiers?.slnPath
-                ) {
-                    return;
-                }
-                const hasPlcProject = entry.isDirectory() && (
-                    this.tsprojStructure
-                        ? this.tsprojStructure.plcFolderPaths.has(normalizedFullPath)
-                        : await this.directoryContainsPlcProj(fullPath)
-                );
-                const isIoEntry = this.tsprojStructure?.ioFolderPaths.has(normalizedFullPath) || this.isIoLikeEntry(entry.name);
-                const item = await this.createTreeItemFromEntry(this.contentRoot!, entry, {
-                    knownHasPlcProject: hasPlcProject,
-                    skipFilePresentationDetails: true
-                });
-                if (!item) {
-                    return;
-                }
-
-                if (hasPlcProject || entry.name.toLowerCase().endsWith('.plcproj')) {
-                    plcEntries.push(item);
-                } else if (isIoEntry) {
-                    ioEntries.push(item);
-                } else {
-                    systemEntries.push(item);
-                }
-            }));
-
-            if (this.tsprojStructure?.plcProjectPaths) {
-                for (const [folderKey, plcprojPath] of this.tsprojStructure.plcProjectPaths.entries()) {
-                    if (directEntryPaths.has(folderKey)) {
-                        continue;
+            await withPerfMetric('tree.refresh.topLevelGroups.classify', async () => {
+                await Promise.all(entries.map(async entry => {
+                    if (this.isHiddenOrExcluded(entry.name)) {
+                        return;
                     }
 
-                    const folderPath = path.dirname(plcprojPath) || path.normalize(folderKey);
-                    const projectFolderItem = new TwinCATFileTreeItem(
-                        vscode.Uri.file(folderPath),
-                        vscode.TreeItemCollapsibleState.Collapsed,
-                        TwinCATItemType.PlcProjectFolder,
-                        plcprojPath,
-                        undefined,
-                        path.basename(plcprojPath, '.plcproj')
+                    const fullPath = path.join(this.contentRoot!, entry.name);
+                    const normalizedFullPath = path.normalize(fullPath);
+                    directEntryPaths.add(normalizedFullPath.toLowerCase());
+                    if (
+                        entry.isDirectory()
+                        && tsprojContainerPath
+                        && normalizedFullPath === tsprojContainerPath
+                        && normalizedFullPath !== path.normalize(this.contentRoot!)
+                        && !!this.rootIdentifiers?.slnPath
+                    ) {
+                        return;
+                    }
+                    const hasPlcProject = entry.isDirectory() && (
+                        this.tsprojStructure
+                            ? this.tsprojStructure.plcFolderPaths.has(normalizedFullPath)
+                            : await this.directoryContainsPlcProj(fullPath)
                     );
-                    projectFolderItem.setDescriptionText('PLC project');
-                    plcEntries.push(projectFolderItem);
-                }
+                    const isIoEntry = this.tsprojStructure?.ioFolderPaths.has(normalizedFullPath) || this.isIoLikeEntry(entry.name);
+                    const item = await this.createTreeItemFromEntry(this.contentRoot!, entry, {
+                        knownHasPlcProject: hasPlcProject,
+                        skipFilePresentationDetails: true
+                    });
+                    if (!item) {
+                        return;
+                    }
+
+                    if (hasPlcProject || entry.name.toLowerCase().endsWith('.plcproj')) {
+                        plcEntries.push(item);
+                    } else if (isIoEntry) {
+                        ioEntries.push(item);
+                    } else {
+                        systemEntries.push(item);
+                    }
+                }));
+            });
+
+            if (this.tsprojStructure?.plcProjectPaths) {
+                await withPerfMetric('tree.refresh.topLevelGroups.syntheticPlc', async () => {
+                    for (const [folderKey, plcprojPath] of this.tsprojStructure!.plcProjectPaths.entries()) {
+                        if (directEntryPaths.has(folderKey)) {
+                            continue;
+                        }
+
+                        const folderPath = path.dirname(plcprojPath) || path.normalize(folderKey);
+                        const projectFolderItem = new TwinCATFileTreeItem(
+                            vscode.Uri.file(folderPath),
+                            vscode.TreeItemCollapsibleState.Collapsed,
+                            TwinCATItemType.PlcProjectFolder,
+                            plcprojPath,
+                            undefined,
+                            path.basename(plcprojPath, '.plcproj')
+                        );
+                        projectFolderItem.setDescriptionText('PLC project');
+                        plcEntries.push(projectFolderItem);
+                    }
+                });
             }
 
             const isStandalonePlcRoot = !!(!this.rootIdentifiers?.slnPath && !this.rootIdentifiers?.tsprojPath && this.rootIdentifiers?.plcprojPath);
@@ -1528,6 +1642,7 @@ export class TwinCATFileExplorerProvider
             this.topLevelGroupsCachePromise ??= this.buildTopLevelGroups();
             this.topLevelGroupsCache = await this.topLevelGroupsCachePromise;
             this.topLevelGroupsCachePromise = undefined;
+            this.clearDiagnosticSummaryCaches();
         }
 
         return this.topLevelGroupsCache[group];
@@ -1558,7 +1673,8 @@ export class TwinCATFileExplorerProvider
     }
 
     private async getFolderContents(folderPath: string) {
-        const cached = this.folderChildrenCache.get(folderPath);
+        const cacheKey = this.getFolderChildrenCacheKey(folderPath);
+        const cached = this.folderChildrenCache.get(cacheKey);
         if (cached) {
             return cached;
         }
@@ -1574,7 +1690,7 @@ export class TwinCATFileExplorerProvider
             const items = itemResults.filter((item): item is TwinCATFileTreeItem => !!item);
 
             const sorted = sortExplorerItems(items);
-            this.folderChildrenCache.set(folderPath, sorted);
+            this.folderChildrenCache.set(cacheKey, sorted);
             return sorted;
         });
     }
@@ -1791,7 +1907,8 @@ export class TwinCATFileExplorerProvider
     // -------------------------------------------------
 
     private async getParsedPOU(uri: vscode.Uri) {
-        const cached = this.parsedPOUCache.get(uri.fsPath);
+        const cacheKey = this.getPathCacheKey(uri.fsPath);
+        const cached = this.parsedPOUCache.get(cacheKey);
         if (cached) return cached;
 
         const content = await fs.promises.readFile(uri.fsPath, 'utf-8');
@@ -1801,7 +1918,7 @@ export class TwinCATFileExplorerProvider
         });
 
         const xml = await parser.parseStringPromise(content);
-        this.parsedPOUCache.set(uri.fsPath, xml);
+        this.parsedPOUCache.set(cacheKey, xml);
         return xml;
     }
 
@@ -1993,36 +2110,34 @@ export class TwinCATFileExplorerProvider
         );
 
         this.fileWatcher.onDidChange(uri => {
-            this.parsedPOUCache.delete(uri.fsPath);
+            if (!this.isProjectStructureFile(uri.fsPath) && !this.isTwinCATSourceFile(uri.fsPath)) {
+                return;
+            }
+            this.parsedPOUCache.delete(this.getPathCacheKey(uri.fsPath));
             this.invalidateMetadataCaches(uri.fsPath);
-            const ext = path.extname(uri.fsPath).toLowerCase();
-            const requiresStructuralRefresh =
-                ext === '.plcproj' ||
-                ext === '.tsproj' ||
-                ext === '.tspproj' ||
-                ext === '.sln' ||
-                ext === '.tcpou' ||
-                ext === '.tcprg' ||
-                ext === '.tcapp' ||
-                ext === '.tccom' ||
-                ext === '.tcgvl' ||
-                ext === '.tcdut' ||
-                ext === '.tcvar' ||
-                ext === '.tcgds' ||
-                ext === '.tcio' ||
-                ext === '.tcitf';
-            this.scheduleRefresh(requiresStructuralRefresh);
+            this.invalidateStructureCachesForPath(uri.fsPath);
+            this.scheduleRefresh(this.isProjectStructureFile(uri.fsPath));
         });
 
         this.fileWatcher.onDidCreate(uri => {
+            if (!this.isRelevantWatcherPath(uri.fsPath)) {
+                return;
+            }
             this.invalidateMetadataCaches(uri.fsPath);
-            this.invalidateDirectoryCachesForPath(uri.fsPath);
+            this.invalidateStructureCachesForPath(uri.fsPath, {
+                includeContainerParent: path.extname(uri.fsPath).toLowerCase() === '.plcproj'
+            });
             this.scheduleRefresh(true);
         });
         this.fileWatcher.onDidDelete(uri => {
-            this.parsedPOUCache.delete(uri.fsPath);
+            if (!this.isRelevantWatcherPath(uri.fsPath)) {
+                return;
+            }
+            this.parsedPOUCache.delete(this.getPathCacheKey(uri.fsPath));
             this.invalidateMetadataCaches(uri.fsPath);
-            this.invalidateDirectoryCachesForPath(uri.fsPath);
+            this.invalidateStructureCachesForPath(uri.fsPath, {
+                includeContainerParent: path.extname(uri.fsPath).toLowerCase() === '.plcproj'
+            });
             this.scheduleRefresh(true);
         });
     }
@@ -2038,6 +2153,7 @@ export class TwinCATFileExplorerProvider
         this.projectMetadataXmlCache.clear();
         this.tsprojStructureCache.clear();
         this.directoryEntriesCache.clear();
+        this.clearTreeStructureCaches();
         this.clearDiagnosticSummaryCaches();
         this._onDidChangeTreeData.dispose();
     }
