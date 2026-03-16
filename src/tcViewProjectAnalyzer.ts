@@ -174,6 +174,7 @@ export class TwinCATProjectAnalyzer {
         }
         | undefined;
     private readonly indexRefreshedEmitter = new vscode.EventEmitter<void>();
+    private lastRefreshAffectedFiles: string[] = [];
     private indexRevision = 0;
     private initialized = false;
     private initializePromise: Promise<void> | undefined;
@@ -416,6 +417,8 @@ export class TwinCATProjectAnalyzer {
             }
 
             if (didMutateIndex) {
+                this.lastRefreshAffectedFiles = [...new Set([...deleted, ...changed])]
+                    .sort((a, b) => a.localeCompare(b));
                 this.indexRevision++;
                 this.indexRefreshedEmitter.fire();
             }
@@ -462,6 +465,7 @@ export class TwinCATProjectAnalyzer {
                 // Parse files in parallel
                 await Promise.allSettled(plcFiles.map(file => this.parseFile(file)));
                 await this.refreshLibraryMetadata();
+                this.lastRefreshAffectedFiles = [];
                 this.indexRevision++;
                 this.indexRefreshedEmitter.fire();
             });
@@ -501,6 +505,25 @@ export class TwinCATProjectAnalyzer {
 
     public async getProjectSourceFiles(): Promise<string[]> {
         return this.findPLCFiles();
+    }
+
+    public getIndexedSourceFiles(projectRoots?: string[]): string[] {
+        const rootKeys = (projectRoots ?? [])
+            .map(root => path.normalize(root).toLowerCase())
+            .sort((a, b) => b.length - a.length);
+        const isWithinRoots = (filePath: string) => {
+            if (rootKeys.length === 0) {
+                return true;
+            }
+            const normalizedFilePath = path.normalize(filePath).toLowerCase();
+            return rootKeys.some(rootKey =>
+                normalizedFilePath === rootKey || normalizedFilePath.startsWith(`${rootKey}${path.sep}`)
+            );
+        };
+
+        return [...this.fileContributions.keys()]
+            .filter(isWithinRoots)
+            .sort((a, b) => a.localeCompare(b));
     }
 
     /**
@@ -1251,7 +1274,7 @@ export class TwinCATProjectAnalyzer {
         return results;
     }
 
-    private async getProjectSearchRoots(): Promise<string[]> {
+    public async getProjectSearchRoots(): Promise<string[]> {
         const referencedProjects = await this.getReferencedTwinCATProjects();
         return [...new Set([
             this.projectRoot,
@@ -2462,6 +2485,10 @@ export class TwinCATProjectAnalyzer {
 
     public onDidRefreshIndex(listener: () => void): vscode.Disposable {
         return this.indexRefreshedEmitter.event(listener);
+    }
+
+    public getLastRefreshAffectedFiles(): string[] {
+        return [...this.lastRefreshAffectedFiles];
     }
 }
 

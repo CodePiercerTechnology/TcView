@@ -68,6 +68,7 @@ interface ParsedLine {
     raw: string;
     code: string;
     semicolonCode: string;
+    declarationCode: string;
     tokens: Token[];
     parenDepthStart: number;
     parenDelta: number;
@@ -113,12 +114,15 @@ export function buildAstAnalysis(text: string): AstAnalysis {
     const assignments: AstAssignment[] = [];
 
     let inBlockComment = false;
+    let inDeclarationComment = false;
     let parenBalance = 0;
 
     for (let i = 0; i < lines.length; i++) {
         const raw = lines[i];
         const lexed = lexLine(raw, inBlockComment);
+        const declarationLexed = stripCommentsPreserveStrings(raw, inDeclarationComment);
         inBlockComment = lexed.inBlockComment;
+        inDeclarationComment = declarationLexed.inBlockComment;
         if (lexed.unclosedString) {
             stringErrors.push({
                 line: i,
@@ -135,6 +139,7 @@ export function buildAstAnalysis(text: string): AstAnalysis {
                 raw,
                 code: lexed.code,
                 semicolonCode: lexed.code,
+                declarationCode: declarationLexed.code,
                 tokens: [],
                 parenDepthStart: parenBalance,
                 parenDelta: 0,
@@ -161,6 +166,7 @@ export function buildAstAnalysis(text: string): AstAnalysis {
             raw,
             code: lexed.code,
             semicolonCode: lexed.code,
+            declarationCode: declarationLexed.code,
             tokens: lexed.tokens,
             parenDepthStart,
             parenDelta,
@@ -345,7 +351,7 @@ function inTypeLikeContext(trimmed: string): boolean {
 }
 
 function parseVarDeclarationLine(pl: ParsedLine): Array<Omit<AstVariableDecl, 'scopeKind'>> {
-    return parseVarDeclarationText(pl.semicolonCode.trim(), pl.line, pl.semicolonCode);
+    return parseVarDeclarationText(pl.declarationCode.trim(), pl.line, pl.raw);
 }
 
 function parseVarDeclarationText(
@@ -403,7 +409,7 @@ function accumulateVarDeclaration(
             text: string;
         };
 } {
-    const trimmed = pl.semicolonCode.trim();
+    const trimmed = pl.declarationCode.trim();
     const declarationText = stripLeadingDeclarationPragmas(trimmed).trim();
     if (!trimmed) {
         return { pending };
@@ -426,7 +432,7 @@ function accumulateVarDeclaration(
 
     const start = {
         line: pl.line,
-        startCode: pl.semicolonCode,
+        startCode: pl.raw,
         text: trimmed
     };
     if (declarationText.includes(';')) {
@@ -639,6 +645,60 @@ function lexLine(line: string, inBlockCommentStart: boolean): { code: string; to
     tokenizeCode(code, tokens);
     const unclosedString = inSingle ? 'single' : inDouble ? 'double' : undefined;
     return { code, tokens, inBlockComment, unclosedString };
+}
+
+function stripCommentsPreserveStrings(line: string, inBlockCommentStart: boolean): { code: string; inBlockComment: boolean } {
+    let code = '';
+    let inBlockComment = inBlockCommentStart;
+    let inSingle = false;
+    let inDouble = false;
+
+    for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        const next = i + 1 < line.length ? line[i + 1] : '';
+
+        if (inBlockComment) {
+            if (ch === '*' && next === ')') {
+                inBlockComment = false;
+                i++;
+            }
+            continue;
+        }
+
+        if (!inSingle && !inDouble && ch === '/' && next === '/') {
+            break;
+        }
+        if (!inSingle && !inDouble && ch === '(' && next === '*') {
+            inBlockComment = true;
+            i++;
+            continue;
+        }
+
+        if (!inDouble && ch === '\'') {
+            if (inSingle && next === '\'') {
+                code += '\'\'';
+                i++;
+                continue;
+            }
+            inSingle = !inSingle;
+            code += ch;
+            continue;
+        }
+        if (!inSingle && ch === '"') {
+            if (inDouble && next === '"') {
+                code += '""';
+                i++;
+                continue;
+            }
+            inDouble = !inDouble;
+            code += ch;
+            continue;
+        }
+
+        code += ch;
+    }
+
+    return { code, inBlockComment };
 }
 
 function tokenizeCode(code: string, out: Token[]): void {

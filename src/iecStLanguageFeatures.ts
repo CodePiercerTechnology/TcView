@@ -505,6 +505,7 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
     const relatedValidationTimers = new Map<string, NodeJS.Timeout>();
     const documentValidationTimers = new Map<string, NodeJS.Timeout>();
     const backgroundProjectValidationPaths = new Set<string>();
+    const backgroundProjectValidationRoots = new Set<string>();
     const featureStats = new Map<string, { calls: number; totalMs: number }>();
     const workspaceSearchTextCache = new Map<string, { mtime: number; text: string }>();
     const staticCompletionItems: vscode.CompletionItem[] = [];
@@ -514,7 +515,6 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
     };
     const startupValidationDelayMs = 3000;
     const backgroundProjectValidationStartupDelayMs = 4500;
-    const backgroundProjectValidationPeriodicMs = 180000;
     const languageFeaturesStartedAt = Date.now();
     const converter = new TwinCATXmlConverter();
     const backgroundDiagnosticExtensions = new Set([
@@ -523,7 +523,6 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
     let applyingAutoKeywordCase = false;
     let analyzerReadyPromise: Promise<void> | undefined;
     let projectValidationTimer: NodeJS.Timeout | undefined;
-    let projectValidationInterval: NodeJS.Timeout | undefined;
     let projectValidationInProgress = false;
     let projectValidationPending = false;
     let projectValidationNeedsFullScan = false;
@@ -571,6 +570,14 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
 
     const isBackgroundDiagnosticSourcePath = (filePath: string) =>
         backgroundDiagnosticExtensions.has(path.extname(filePath).toLowerCase());
+
+    const normalizeLowerPath = (filePath: string) => path.normalize(filePath).toLowerCase();
+
+    const isPathWithinRoot = (filePath: string, rootPath: string) => {
+        const normalizedFilePath = normalizeLowerPath(filePath);
+        const normalizedRootPath = normalizeLowerPath(rootPath);
+        return normalizedFilePath === normalizedRootPath || normalizedFilePath.startsWith(`${normalizedRootPath}${path.sep}`);
+    };
 
     const clearDiagnosticsForSourcePath = (sourcePath: string) => {
         diagnosticCollection.delete(vscode.Uri.file(sourcePath));
@@ -687,12 +694,34 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         }
     };
 
-    const getBackgroundDiagnosticFiles = async () => {
+    const getBackgroundDiagnosticFiles = async (projectRoots?: string[]) => {
         await ensureProjectAnalyzerReady();
-        const analyzerFiles = await getProjectAnalyzer().getProjectSourceFiles();
+        const analyzer = getProjectAnalyzer();
+        let analyzerFiles = analyzer.getIndexedSourceFiles(projectRoots);
+        if (analyzerFiles.length === 0) {
+            analyzerFiles = await analyzer.getProjectSourceFiles();
+        }
+
         return analyzerFiles
-            .filter(isBackgroundDiagnosticSourcePath)
+            .filter(filePath => isBackgroundDiagnosticSourcePath(filePath))
+            .filter(filePath => !projectRoots || projectRoots.length === 0 || projectRoots.some(rootPath => isPathWithinRoot(filePath, rootPath)))
             .sort((a, b) => a.localeCompare(b));
+    };
+
+    const resolveAffectedProjectRoots = async (filePaths: string[]) => {
+        await ensureProjectAnalyzerReady();
+        const searchRoots = await getProjectAnalyzer().getProjectSearchRoots();
+        const sortedRoots = [...searchRoots].sort((a, b) => b.length - a.length);
+        const matchedRoots = new Set<string>();
+
+        for (const filePath of filePaths) {
+            const matchedRoot = sortedRoots.find(rootPath => isPathWithinRoot(filePath, rootPath));
+            if (matchedRoot) {
+                matchedRoots.add(matchedRoot);
+            }
+        }
+
+        return [...matchedRoots].sort((a, b) => a.localeCompare(b));
     };
 
     const processBackgroundValidationBatch = async (filePaths: string[]) => {
@@ -713,10 +742,13 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         try {
             const targetFiles = projectValidationNeedsFullScan
                 ? await getBackgroundDiagnosticFiles()
-                : [...backgroundProjectValidationPaths].sort((a, b) => a.localeCompare(b));
+                : backgroundProjectValidationRoots.size > 0
+                    ? await getBackgroundDiagnosticFiles([...backgroundProjectValidationRoots])
+                    : [...backgroundProjectValidationPaths].sort((a, b) => a.localeCompare(b));
 
             projectValidationNeedsFullScan = false;
             backgroundProjectValidationPaths.clear();
+            backgroundProjectValidationRoots.clear();
 
             if (targetFiles.length === 0) {
                 return;
@@ -729,6 +761,7 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
                 projectValidationPending = false;
                 projectValidationNeedsFullScan = true;
                 backgroundProjectValidationPaths.clear();
+                backgroundProjectValidationRoots.clear();
                 const timer = setTimeout(() => {
                     projectValidationTimer = undefined;
                     void runBackgroundProjectValidation();
@@ -740,19 +773,23 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
 
     const scheduleBackgroundProjectValidation = (
         delayMs = 1000,
-        options?: { full?: boolean; paths?: string[] }
+        options?: { full?: boolean; paths?: string[]; projectRoots?: string[] }
     ) => {
         if (options?.full) {
             projectValidationNeedsFullScan = true;
             backgroundProjectValidationPaths.clear();
+            backgroundProjectValidationRoots.clear();
         }
         for (const filePath of options?.paths ?? []) {
             if (isBackgroundDiagnosticSourcePath(filePath)) {
                 backgroundProjectValidationPaths.add(filePath);
             }
         }
+        for (const rootPath of options?.projectRoots ?? []) {
+            backgroundProjectValidationRoots.add(rootPath);
+        }
 
-        if (!projectValidationNeedsFullScan && backgroundProjectValidationPaths.size === 0) {
+        if (!projectValidationNeedsFullScan && backgroundProjectValidationPaths.size === 0 && backgroundProjectValidationRoots.size === 0) {
             return;
         }
 
@@ -763,6 +800,25 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
             projectValidationTimer = undefined;
             void runBackgroundProjectValidation();
         }, delayMs);
+    };
+
+    const queueProjectScopedBackgroundValidation = async (
+        filePaths: string[],
+        delayMs: number,
+        fallbackToFull = false
+    ) => {
+        const projectRoots = await resolveAffectedProjectRoots(filePaths);
+        if (projectRoots.length > 0) {
+            scheduleBackgroundProjectValidation(delayMs, { projectRoots });
+            return;
+        }
+
+        if (fallbackToFull) {
+            scheduleBackgroundProjectValidation(delayMs, { full: true });
+            return;
+        }
+
+        scheduleBackgroundProjectValidation(delayMs, { paths: filePaths });
     };
 
     const kindMap: Record<string, vscode.CompletionItemKind> = {
@@ -1967,28 +2023,35 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         activeAnalyzerRefreshDisposable?.dispose();
         activeAnalyzerRefreshDisposable = analyzer.onDidRefreshIndex(() => {
             handleAnalyzerRefresh();
-            scheduleBackgroundProjectValidation(250, { full: true });
+            const affectedFiles = analyzer.getLastRefreshAffectedFiles();
+            if (affectedFiles.length > 0) {
+                void queueProjectScopedBackgroundValidation(affectedFiles, 250, true);
+            }
         });
     });
     const backgroundDiagnosticWatcher = vscode.workspace.createFileSystemWatcher(PROJECT_SCAN_PATTERN);
     backgroundDiagnosticWatcher.onDidCreate(uri => {
-        scheduleBackgroundProjectValidation(350, { paths: [uri.fsPath] });
+        void queueProjectScopedBackgroundValidation([uri.fsPath], 350, true);
     });
     backgroundDiagnosticWatcher.onDidChange(uri => {
-        scheduleBackgroundProjectValidation(350, { paths: [uri.fsPath] });
+        if (hasOpenIecStDocumentForSourcePath(uri.fsPath)) {
+            return;
+        }
+        void queueProjectScopedBackgroundValidation([uri.fsPath], 350, false);
     });
     backgroundDiagnosticWatcher.onDidDelete(uri => {
         clearDiagnosticsForSourcePath(uri.fsPath);
+        void queueProjectScopedBackgroundValidation([uri.fsPath], 350, true);
     });
     const projectMetadataWatcher = vscode.workspace.createFileSystemWatcher('**/*.{plcproj,tsproj,tspproj,tmc}');
-    projectMetadataWatcher.onDidCreate(() => {
-        scheduleBackgroundProjectValidation(1500, { full: true });
+    projectMetadataWatcher.onDidCreate(uri => {
+        void queueProjectScopedBackgroundValidation([uri.fsPath], 1500, true);
     });
-    projectMetadataWatcher.onDidChange(() => {
-        scheduleBackgroundProjectValidation(1500, { full: true });
+    projectMetadataWatcher.onDidChange(uri => {
+        void queueProjectScopedBackgroundValidation([uri.fsPath], 1500, true);
     });
-    projectMetadataWatcher.onDidDelete(() => {
-        scheduleBackgroundProjectValidation(1500, { full: true });
+    projectMetadataWatcher.onDidDelete(uri => {
+        void queueProjectScopedBackgroundValidation([uri.fsPath], 1500, true);
     });
 
     // Quick fixes for common diagnostics
@@ -2138,9 +2201,6 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
     }
     startupVisibleDocs.forEach(doc => scheduleDocumentValidation(doc, startupValidationDelayMs));
     scheduleBackgroundProjectValidation(backgroundProjectValidationStartupDelayMs, { full: true });
-    projectValidationInterval = setInterval(() => {
-        scheduleBackgroundProjectValidation(1000, { full: true });
-    }, backgroundProjectValidationPeriodicMs);
 
     const validateSyntaxCommand = vscode.commands.registerCommand('tcview.validateSyntax', async () => {
         const editor = vscode.window.activeTextEditor;
@@ -2185,11 +2245,8 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
             clearTimeout(projectValidationTimer);
             projectValidationTimer = undefined;
         }
-        if (projectValidationInterval) {
-            clearInterval(projectValidationInterval);
-            projectValidationInterval = undefined;
-        }
         backgroundProjectValidationPaths.clear();
+        backgroundProjectValidationRoots.clear();
         workspaceSearchTextCache.clear();
         projectCompletionCache.revision = -1;
         projectCompletionCache.items = [];

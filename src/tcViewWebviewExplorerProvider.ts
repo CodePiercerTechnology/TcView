@@ -86,14 +86,23 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
     private readonly disposables: vscode.Disposable[] = [];
     private readonly itemById = new Map<string, TwinCATFileTreeItem>();
     private readonly scmByPath = new Map<string, ScmEntry>();
+    private readonly optimisticScmByPath = new Map<string, ScmEntry>();
+    private readonly optimisticUntrackedPaths = new Set<string>();
     private scmChangeDisposable?: vscode.Disposable;
+    private repoScmBindings = vscode.Disposable.from();
     private gitApi: any;
     private refreshTimer?: NodeJS.Timeout;
     private groupRootWarmupTimer?: NodeJS.Timeout;
     private groupRootStateReady = false;
     private readonly expandedNodeIds = new Set<string>();
-    private lastVisibleStructureKey = '';
-    private lastVisibleStateKey = '';
+    private scmRevision = 0;
+    private viewStructureRevision = 0;
+    private viewStateRevision = 0;
+    private lastAppliedProviderStructureRevision = -1;
+    private lastAppliedProviderStateRevision = -1;
+    private lastAppliedScmRevision = -1;
+    private lastAppliedViewStructureRevision = -1;
+    private lastAppliedViewStateRevision = -1;
     private currentContextItemId = '';
     private cutNodeId = '';
 
@@ -104,7 +113,6 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
         private readonly runTreeAction: (action: string, item: TwinCATFileTreeItem, value?: string) => Promise<void>
     ) {
         this.disposables.push(this.fileExplorerProvider.onDidChangeTreeData(() => {
-            this.groupRootStateReady = false;
             this.scheduleRefresh(140);
         }));
         void this.attachGitApi();
@@ -128,8 +136,7 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
             if (!webviewView.visible) {
                 return;
             }
-            this.lastVisibleStructureKey = '';
-            this.lastVisibleStateKey = '';
+            this.markViewStructureDirty();
             this.scheduleRefresh(20);
         }));
         this.disposables.push(webviewView.onDidDispose(() => {
@@ -147,6 +154,20 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
         }
 
         await withPerfMetric('tree.webview.refresh', async () => {
+            const providerStructureRevision = this.fileExplorerProvider.getStructureRevision();
+            const providerStateRevision = this.fileExplorerProvider.getStateRevision();
+            const needsStructure =
+                this.lastAppliedProviderStructureRevision !== providerStructureRevision
+                || this.lastAppliedViewStructureRevision !== this.viewStructureRevision;
+            const needsState =
+                needsStructure
+                || this.lastAppliedProviderStateRevision !== providerStateRevision
+                || this.lastAppliedScmRevision !== this.scmRevision
+                || this.lastAppliedViewStateRevision !== this.viewStateRevision;
+            if (!needsStructure && !needsState) {
+                return;
+            }
+
             const roots = await withPerfMetric('tree.webview.refresh.roots', () => this.fileExplorerProvider.getChildren());
             const nextItemById = new Map<string, TwinCATFileTreeItem>();
             const payload = await withPerfMetric(
@@ -157,22 +178,23 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
             for (const [id, item] of nextItemById.entries()) {
                 this.itemById.set(id, item);
             }
-            const structureKey = this.createStructureKey(payload);
-            const stateKey = this.createStateKey(payload);
-            if (structureKey === this.lastVisibleStructureKey && stateKey === this.lastVisibleStateKey) {
-                return;
-            }
-            if (structureKey !== this.lastVisibleStructureKey) {
-                this.lastVisibleStructureKey = structureKey;
-                this.lastVisibleStateKey = stateKey;
+
+            if (needsStructure) {
                 await withPerfMetric('tree.webview.refresh.postMessage.roots', () => this.view!.webview.postMessage({ type: 'roots', nodes: this.createStructurePayload(payload) }));
-                await withPerfMetric('tree.webview.refresh.postMessage.state', () => this.view!.webview.postMessage({ type: 'state', nodes: this.createStatePayload(payload) }));
-                this.scheduleGroupRootWarmup(10);
-                return;
+                this.lastAppliedProviderStructureRevision = providerStructureRevision;
+                this.lastAppliedViewStructureRevision = this.viewStructureRevision;
             }
 
-            this.lastVisibleStateKey = stateKey;
-            await withPerfMetric('tree.webview.refresh.postMessage.state', () => this.view!.webview.postMessage({ type: 'state', nodes: this.createStatePayload(payload) }));
+            if (needsState) {
+                await withPerfMetric('tree.webview.refresh.postMessage.state', () => this.view!.webview.postMessage({ type: 'state', nodes: this.createStatePayload(payload) }));
+                this.lastAppliedProviderStateRevision = providerStateRevision;
+                this.lastAppliedScmRevision = this.scmRevision;
+                this.lastAppliedViewStateRevision = this.viewStateRevision;
+            }
+
+            if (needsStructure) {
+                this.scheduleGroupRootWarmup(10);
+            }
         });
     }
 
@@ -186,6 +208,7 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
             this.groupRootWarmupTimer = undefined;
         }
         this.scmChangeDisposable?.dispose();
+        this.repoScmBindings.dispose();
         while (this.disposables.length > 0) {
             this.disposables.pop()?.dispose();
         }
@@ -204,7 +227,12 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
     }
 
     setCutNodeId(nodeId?: string) {
-        this.cutNodeId = nodeId ?? '';
+        const nextCutNodeId = nodeId ?? '';
+        if (this.cutNodeId === nextCutNodeId) {
+            return;
+        }
+        this.cutNodeId = nextCutNodeId;
+        this.markViewStateDirty();
         this.scheduleRefresh(40);
     }
 
@@ -217,6 +245,7 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
             return;
         }
         this.expandedNodeIds.add(id);
+        this.markViewStructureDirty();
     }
 
     startInlineRenameCurrentSelection() {
@@ -243,6 +272,7 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
         const item = this.itemById.get(this.currentContextItemId);
         if (item?.collapsibleState !== vscode.TreeItemCollapsibleState.None && !this.expandedNodeIds.has(this.currentContextItemId)) {
             this.expandedNodeIds.add(this.currentContextItemId);
+            this.markViewStructureDirty();
             await this.refresh();
         }
 
@@ -257,9 +287,9 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
         switch (message.type) {
             case 'ready':
                 this.webviewReady = true;
-                this.lastVisibleStructureKey = '';
-                this.lastVisibleStateKey = '';
+                this.groupRootStateReady = false;
                 this.itemById.clear();
+                this.markViewStructureDirty();
                 await this.refresh();
                 return;
             case 'refresh':
@@ -276,10 +306,14 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
                 await vscode.commands.executeCommand('setContext', 'tcview.webExplorerFocus', false);
                 return;
             case 'toggle': {
+                const hadNode = this.expandedNodeIds.has(message.id);
                 if (message.expanded) {
                     this.expandedNodeIds.add(message.id);
                 } else {
                     this.expandedNodeIds.delete(message.id);
+                }
+                if (hadNode !== message.expanded) {
+                    this.markViewStructureDirty();
                 }
                 await this.refresh();
                 return;
@@ -404,21 +438,6 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
         }
     }
 
-    private createStructureKey(nodes: WebviewNode[]) {
-        const encode = (entries: WebviewNode[]): unknown[] => entries.map(node => ({
-            id: node.id,
-            label: node.label,
-            description: node.description,
-            itemType: node.itemType,
-            collapsible: node.collapsible,
-            openable: node.openable,
-            iconClass: node.iconClass,
-            iconColorClass: node.iconColorClass,
-            children: node.children ? encode(node.children) : []
-        }));
-        return JSON.stringify(encode(nodes));
-    }
-
     private createStructurePayload(nodes: WebviewNode[]): WebviewStructureNode[] {
         return nodes.map(node => ({
             id: node.id,
@@ -439,30 +458,6 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
             fileKind: node.fileKind,
             children: node.children ? this.createStructurePayload(node.children) : undefined
         }));
-    }
-
-    private createStateKey(nodes: WebviewNode[]) {
-        const flat: unknown[] = [];
-        const append = (entries: WebviewNode[]) => {
-            for (const node of entries) {
-                flat.push({
-                    id: node.id,
-                    label: node.label,
-                    description: node.description,
-                    severity: node.severity,
-                    errorCount: node.errorCount,
-                    warningCount: node.warningCount,
-                    scmBadge: node.scmBadge,
-                    scmTooltip: node.scmTooltip,
-                    isCut: node.isCut
-                });
-                if (node.children?.length) {
-                    append(node.children);
-                }
-            }
-        };
-        append(nodes);
-        return JSON.stringify(flat);
     }
 
     private createStatePayload(nodes: WebviewNode[]): Array<{
@@ -526,25 +521,71 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
         this.gitApi = git;
 
         const refreshScm = async () => {
-            await this.rebuildScmIndex(git.repositories);
-            this.scheduleRefresh();
+            const changed = await this.rebuildScmIndex(git.repositories);
+            if (changed) {
+                this.scheduleRefresh();
+            }
         };
-
-        const repoDisposables = git.repositories.map((repository: any) =>
-            repository.state?.onDidChange?.(() => { void refreshScm(); })
-        ).filter(Boolean) as vscode.Disposable[];
 
         const gitApiDisposables: vscode.Disposable[] = [];
         if (typeof git.onDidOpenRepository === 'function') {
-            gitApiDisposables.push(git.onDidOpenRepository(() => { void refreshScm(); }));
+            gitApiDisposables.push(git.onDidOpenRepository(() => {
+                this.refreshRepoScmBindings(refreshScm);
+                void refreshScm();
+            }));
         }
         if (typeof git.onDidCloseRepository === 'function') {
-            gitApiDisposables.push(git.onDidCloseRepository(() => { void refreshScm(); }));
+            gitApiDisposables.push(git.onDidCloseRepository(() => {
+                this.refreshRepoScmBindings(refreshScm);
+                void refreshScm();
+            }));
         }
 
-        this.scmChangeDisposable = vscode.Disposable.from(...repoDisposables, ...gitApiDisposables);
+        this.refreshRepoScmBindings(refreshScm);
+        this.scmChangeDisposable = vscode.Disposable.from(...gitApiDisposables);
         this.disposables.push(this.scmChangeDisposable);
         await refreshScm();
+    }
+
+    private refreshRepoScmBindings(refreshScm: () => Promise<void>) {
+        this.repoScmBindings.dispose();
+        const bindings: vscode.Disposable[] = [];
+        for (const repository of this.gitApi?.repositories ?? []) {
+            const rootPath = repository.rootUri?.fsPath;
+            if (!rootPath) {
+                continue;
+            }
+
+            const repoStateDisposable = repository.state?.onDidChange?.(() => { void refreshScm(); });
+            if (repoStateDisposable) {
+                bindings.push(repoStateDisposable);
+            }
+
+            const watcher = vscode.workspace.createFileSystemWatcher(
+                new vscode.RelativePattern(rootPath, '**/*')
+            );
+            watcher.onDidCreate(uri => {
+                if (this.markPathAsOptimisticallyUntracked(uri.fsPath, rootPath)) {
+                    this.scheduleRefresh(40);
+                }
+            });
+            watcher.onDidDelete(uri => {
+                if (this.clearOptimisticPath(uri.fsPath)) {
+                    this.scheduleRefresh(40);
+                }
+            });
+            bindings.push(watcher);
+        }
+        this.repoScmBindings = vscode.Disposable.from(...bindings);
+    }
+
+    private markViewStructureDirty() {
+        this.viewStructureRevision += 1;
+        this.viewStateRevision += 1;
+    }
+
+    private markViewStateDirty() {
+        this.viewStateRevision += 1;
     }
 
     private scheduleRefresh(delayMs = 80) {
@@ -586,13 +627,13 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
         }
         await Promise.all(groupRoots.map((item: TwinCATFileTreeItem) => this.fileExplorerProvider.getChildren(item)));
         this.groupRootStateReady = true;
-        this.lastVisibleStructureKey = '';
-        this.lastVisibleStateKey = '';
+        this.markViewStructureDirty();
         this.scheduleRefresh(20);
     }
 
     private async rebuildScmIndex(repositories: readonly any[]) {
-        this.scmByPath.clear();
+        const optimisticChanged = this.pruneOptimisticUntrackedPaths(repositories);
+        const nextScmByPath = new Map<string, ScmEntry>();
         for (const repository of repositories) {
             const rootPath = this.normalizePath(repository.rootUri?.fsPath);
             if (!rootPath) {
@@ -605,7 +646,7 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
                 const badge = status.badge;
                 const tooltip = status.tooltip;
                 const sort = this.getScmPriority(badge);
-                this.upsertScm(filePath, badge, tooltip, sort);
+                this.upsertScm(nextScmByPath, filePath, badge, tooltip, sort);
 
                 let current = filePath;
                 while (current.startsWith(rootPath)) {
@@ -617,13 +658,50 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
                     if (!current || current.length < rootPath.length) {
                         break;
                     }
-                    this.upsertScm(current, badge, tooltip, sort);
+                    this.upsertScm(nextScmByPath, current, badge, tooltip, sort);
                     if (current === rootPath) {
                         break;
                     }
                 }
             }
         }
+
+        if (this.areScmMapsEqual(this.scmByPath, nextScmByPath)) {
+            return optimisticChanged;
+        }
+
+        this.scmByPath.clear();
+        for (const [pathKey, entry] of nextScmByPath.entries()) {
+            this.scmByPath.set(pathKey, entry);
+        }
+        this.scmRevision += 1;
+        return true;
+    }
+
+    private pruneOptimisticUntrackedPaths(repositories: readonly any[]) {
+        if (this.optimisticUntrackedPaths.size === 0) {
+            return false;
+        }
+
+        const repoRoots = repositories
+            .map((repository: any) => this.normalizePath(repository.rootUri?.fsPath))
+            .filter((rootPath: string) => !!rootPath);
+        if (repoRoots.length === 0) {
+            return false;
+        }
+
+        let changed = false;
+        for (const optimisticPath of [...this.optimisticUntrackedPaths]) {
+            if (repoRoots.some(rootPath => optimisticPath === rootPath || optimisticPath.startsWith(`${rootPath}\\`))) {
+                this.optimisticUntrackedPaths.delete(optimisticPath);
+                changed = true;
+            }
+        }
+
+        if (changed) {
+            return this.rebuildOptimisticScmIndex();
+        }
+        return false;
     }
 
     private async readGitStatuses(repositoryRoot: string): Promise<Array<{ path: string; badge: string; tooltip: string }>> {
@@ -654,11 +732,132 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
         }
     }
 
-    private upsertScm(pathKey: string, badge: string, tooltip: string, sort: number) {
-        const existing = this.scmByPath.get(pathKey);
+    private upsertScm(target: Map<string, ScmEntry>, pathKey: string, badge: string, tooltip: string, sort: number) {
+        const existing = target.get(pathKey);
         if (!existing || sort < existing.sort) {
-            this.scmByPath.set(pathKey, { badge, tooltip, sort });
+            target.set(pathKey, { badge, tooltip, sort });
         }
+    }
+
+    private markPathAsOptimisticallyUntracked(filePath: string, repositoryRoot: string) {
+        const normalizedPath = this.normalizePath(filePath);
+        const normalizedRoot = this.normalizePath(repositoryRoot);
+        if (!normalizedPath || !normalizedRoot) {
+            return false;
+        }
+        if (this.isGitInternalPath(normalizedPath, normalizedRoot)) {
+            return false;
+        }
+        if (this.scmByPath.has(normalizedPath) || this.optimisticUntrackedPaths.has(normalizedPath)) {
+            return false;
+        }
+        if (!(normalizedPath === normalizedRoot || normalizedPath.startsWith(`${normalizedRoot}\\`))) {
+            return false;
+        }
+
+        this.optimisticUntrackedPaths.add(normalizedPath);
+        return this.rebuildOptimisticScmIndex();
+    }
+
+    private clearOptimisticPath(filePath: string) {
+        const normalizedPath = this.normalizePath(filePath);
+        if (!normalizedPath || this.optimisticUntrackedPaths.size === 0) {
+            return false;
+        }
+
+        let changed = false;
+        for (const optimisticPath of [...this.optimisticUntrackedPaths]) {
+            if (optimisticPath === normalizedPath || optimisticPath.startsWith(`${normalizedPath}\\`)) {
+                this.optimisticUntrackedPaths.delete(optimisticPath);
+                changed = true;
+            }
+        }
+
+        if (!changed) {
+            return false;
+        }
+
+        return this.rebuildOptimisticScmIndex();
+    }
+
+    private isGitInternalPath(normalizedPath: string, normalizedRoot: string) {
+        const gitRoot = `${normalizedRoot}\\.git`;
+        return normalizedPath === gitRoot || normalizedPath.startsWith(`${gitRoot}\\`);
+    }
+
+    private rebuildOptimisticScmIndex() {
+        const nextOptimisticScmByPath = new Map<string, ScmEntry>();
+        for (const optimisticPath of this.optimisticUntrackedPaths) {
+            const repositoryRoot = this.findRepositoryRootForPath(optimisticPath);
+            if (!repositoryRoot) {
+                continue;
+            }
+
+            this.upsertScm(nextOptimisticScmByPath, optimisticPath, 'U', 'Source control: Untracked', this.getScmPriority('U'));
+            let current = optimisticPath;
+            while (current.startsWith(repositoryRoot)) {
+                const separatorIndex = Math.max(current.lastIndexOf('\\'), current.lastIndexOf('/'));
+                if (separatorIndex <= 0) {
+                    break;
+                }
+                current = this.normalizePath(current.substring(0, separatorIndex));
+                if (!current || current.length < repositoryRoot.length) {
+                    break;
+                }
+                this.upsertScm(nextOptimisticScmByPath, current, 'U', 'Source control: Untracked', this.getScmPriority('U'));
+                if (current === repositoryRoot) {
+                    break;
+                }
+            }
+        }
+
+        if (this.areScmMapsEqual(this.optimisticScmByPath, nextOptimisticScmByPath)) {
+            return false;
+        }
+
+        this.optimisticScmByPath.clear();
+        for (const [pathKey, entry] of nextOptimisticScmByPath.entries()) {
+            this.optimisticScmByPath.set(pathKey, entry);
+        }
+        this.scmRevision += 1;
+        return true;
+    }
+
+    private findRepositoryRootForPath(filePath: string) {
+        const normalizedPath = this.normalizePath(filePath);
+        let bestMatch = '';
+        for (const repository of this.gitApi?.repositories ?? []) {
+            const rootPath = this.normalizePath(repository.rootUri?.fsPath);
+            if (!rootPath) {
+                continue;
+            }
+            if (normalizedPath === rootPath || normalizedPath.startsWith(`${rootPath}\\`)) {
+                if (rootPath.length > bestMatch.length) {
+                    bestMatch = rootPath;
+                }
+            }
+        }
+        return bestMatch || undefined;
+    }
+
+    private areScmMapsEqual(left: ReadonlyMap<string, ScmEntry>, right: ReadonlyMap<string, ScmEntry>) {
+        if (left.size !== right.size) {
+            return false;
+        }
+        for (const [pathKey, leftEntry] of left.entries()) {
+            const rightEntry = right.get(pathKey);
+            if (!rightEntry) {
+                return false;
+            }
+            if (
+                leftEntry.badge !== rightEntry.badge
+                || leftEntry.tooltip !== rightEntry.tooltip
+                || leftEntry.sort !== rightEntry.sort
+            ) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private normalizePath(filePath: string | undefined): string {
@@ -716,7 +915,11 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
     }
 
     private async getScmEntry(item: TwinCATFileTreeItem): Promise<ScmEntry | undefined> {
-        const exact = this.scmByPath.get(this.normalizePath(item.targetUri.fsPath));
+        const normalizedPath = this.normalizePath(item.targetUri.fsPath);
+        const exact = this.getStrongestScmEntry([
+            this.scmByPath.get(normalizedPath),
+            this.optimisticScmByPath.get(normalizedPath)
+        ]);
 
         if (item.itemType === TwinCATItemType.Folder || item.itemType === TwinCATItemType.PlcProjectFolder) {
             return exact;

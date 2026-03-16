@@ -112,6 +112,21 @@ export async function runLanguageFeatureUtilityTests(): Promise<void> {
     assert.ok(declaredNames.has('TONDELAYON'));
     assert.ok(declaredNames.has('TONDELAYOFF'));
 
+    const stringInitializerDeclarationSample = [
+        'FUNCTION F_Format_RealToString : T_MaxString',
+        'VAR_INPUT',
+        "    sUnit : STRING(10) := '';",
+        'END_VAR'
+    ].join('\n');
+    const stringInitializerDeclarationAst = buildAstAnalysis(stringInitializerDeclarationSample);
+    const sUnitDeclaration = stringInitializerDeclarationAst.declarations.find(d => d.upper === 'SUNIT');
+    assert.ok(sUnitDeclaration, 'Expected SUnit declaration to be parsed.');
+    assert.strictEqual(
+        sUnitDeclaration?.type,
+        "STRING(10) := ''",
+        'String initializer should be preserved in declaration type text.'
+    );
+
     const inlineEnumDeclarationSample = [
         'FUNCTION_BLOCK FB_CreateDirs',
         'VAR',
