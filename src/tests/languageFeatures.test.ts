@@ -99,6 +99,89 @@ export async function runLanguageFeatureUtilityTests(): Promise<void> {
     const outputArgNames = new Set(outputArgAst.usages.map(u => u.upper));
     assert.ok(!outputArgNames.has('RESULT'));
 
+    const multiDeclarationSample = [
+        'VAR',
+        '    tonDelayOn, tonDelayOff : TON;',
+        'END_VAR',
+        '',
+        'tonDelayOn(IN := TRUE, PT := T#1s);',
+        'tonDelayOff(IN := FALSE, PT := T#1s);'
+    ].join('\n');
+    const multiDeclarationAst = buildAstAnalysis(multiDeclarationSample);
+    const declaredNames = new Set(multiDeclarationAst.declarations.map(d => d.upper));
+    assert.ok(declaredNames.has('TONDELAYON'));
+    assert.ok(declaredNames.has('TONDELAYOFF'));
+
+    const inlineEnumDeclarationSample = [
+        'FUNCTION_BLOCK FB_CreateDirs',
+        'VAR',
+        '    eState : (Idle, CheckPath, Cleanup);',
+        'END_VAR',
+        '',
+        'CASE eState OF',
+        '    Idle:',
+        '        eState := CheckPath;',
+        '    CheckPath:',
+        '        eState := Cleanup;',
+        'END_CASE'
+    ].join('\n');
+    const inlineEnumDeclarationAst = buildAstAnalysis(inlineEnumDeclarationSample);
+    const inlineEnumUsages = new Set(inlineEnumDeclarationAst.usages.map(u => u.upper));
+    assert.ok(inlineEnumUsages.has('IDLE'));
+    assert.ok(inlineEnumUsages.has('CHECKPATH'));
+    assert.ok(inlineEnumUsages.has('CLEANUP'));
+
+    const multilineInlineEnumDeclarationSample = [
+        'FUNCTION_BLOCK FB_FileCopy',
+        'VAR',
+        '    eState : (Idle, OpenSrcFile, WaitSrcFileOpened, OpenDestFile, WaitDestFileOpened,',
+        '              ReadSrcFile, WaitSrcFileRead, WriteDestFile, WaitWritingDestDone,',
+        '              CloseDestFile, WaitDestFileClosed, CloseSrcFile, WaitSrcFileClosed, Cleanup);',
+        'END_VAR',
+        '',
+        'CASE eState OF',
+        '    Idle:',
+        '        eState := OpenSrcFile;',
+        'END_CASE'
+    ].join('\n');
+    const multilineInlineEnumDeclarationAst = buildAstAnalysis(multilineInlineEnumDeclarationSample);
+    const multilineEnumDeclaredNames = new Set(multilineInlineEnumDeclarationAst.declarations.map(d => d.upper));
+    assert.ok(multilineEnumDeclaredNames.has('ESTATE'));
+
+    const pragmaPrefixedDeclarationSample = [
+        'VAR_GLOBAL',
+        "    {attribute 'OPC.UA.DA' := '1'} PLCinfo : ST_PLC;",
+        'END_VAR'
+    ].join('\n');
+    const pragmaPrefixedDeclarationAst = buildAstAnalysis(pragmaPrefixedDeclarationSample);
+    assert.ok(
+        pragmaPrefixedDeclarationAst.declarations.some(d => d.upper === 'PLCINFO' && d.type === 'ST_PLC'),
+        'Attribute-prefixed declarations should still be parsed as normal declarations'
+    );
+
+    const internalFunctionHeaderSample = [
+        'FUNCTION INTERNAL F_Msg_CheckInFaultRange : BOOL',
+        'VAR_INPUT',
+        '    stMsg : ST_Message;',
+        'END_VAR',
+        '',
+        'F_Msg_CheckInFaultRange := TRUE;'
+    ].join('\n');
+    const internalFunctionHeaderAst = buildAstAnalysis(internalFunctionHeaderSample);
+    assert.strictEqual(
+        internalFunctionHeaderAst.missingSemicolons.length,
+        0,
+        'Function headers with modifiers should not require semicolons'
+    );
+    assert.ok(
+        internalFunctionHeaderAst.declarations.some(d => d.upper === 'F_MSG_CHECKINFAULTRANGE' && d.scopeKind === 'FUNCTION'),
+        'Function header should contribute the implicit return variable declaration'
+    );
+    assert.ok(
+        internalFunctionHeaderAst.usages.some(u => u.upper === 'F_MSG_CHECKINFAULTRANGE'),
+        'Function body should preserve assignments to the function return variable'
+    );
+
     const inlineIfSample = 'IF NOT Reset THEN RETURN; END_IF';
     const inlineIfAst = buildAstAnalysis(inlineIfSample);
     assert.strictEqual(inlineIfAst.blockErrors.length, 0, 'Inline IF block should not create missing END_IF errors');
@@ -384,6 +467,21 @@ export async function runLanguageFeatureUtilityTests(): Promise<void> {
     assert.ok(!interfacePropertySt.includes('SET'));
     assert.ok(interfaceGetSt.includes('cannot be opened'));
     assert.strictEqual(interfaceFileSt.trim(), 'INTERFACE I_IntegrationSample');
+
+    const wrappedFunctionXml = [
+        '<?xml version="1.0" encoding="utf-8"?>',
+        '<TcPlcObject Version="1.1.0.1">',
+        '  <TcPlcObject_POU_Declaration><![CDATA[FUNCTION INTERNAL F_Msg_CheckInFaultRange : BOOL',
+        'VAR_INPUT',
+        '    bValue : BOOL;',
+        'END_VAR]]></TcPlcObject_POU_Declaration>',
+        '  <TcPlcObject_POU_Implementation_ST><![CDATA[F_Msg_CheckInFaultRange := bValue;]]></TcPlcObject_POU_Implementation_ST>',
+        '</TcPlcObject>'
+    ].join('\n');
+    const wrappedFunctionSt = await interfaceConverter.convertXmlToST(wrappedFunctionXml);
+    assert.ok(wrappedFunctionSt.includes('FUNCTION INTERNAL F_Msg_CheckInFaultRange : BOOL'));
+    assert.ok(wrappedFunctionSt.includes('VAR_INPUT'));
+    assert.ok(wrappedFunctionSt.includes('F_Msg_CheckInFaultRange := bValue;'));
 
     await assert.rejects(
         applyFragmentSTToXml(interfaceXml, 'PropertyGet:Speed', 'GET'),

@@ -148,7 +148,7 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
                 this.lastVisibleStructureKey = structureKey;
                 this.lastVisibleStateKey = stateKey;
                 await withPerfMetric('tree.webview.refresh.postMessage.roots', () => this.view!.webview.postMessage({ type: 'roots', nodes: this.createStructurePayload(payload) }));
-                this.scheduleGroupRootWarmup();
+                this.scheduleGroupRootWarmup(10);
                 return;
             }
 
@@ -540,7 +540,7 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
         }, delayMs);
     }
 
-    private scheduleGroupRootWarmup(delayMs = 120) {
+    private scheduleGroupRootWarmup(delayMs = 10) {
         if (this.groupRootStateReady) {
             return;
         }
@@ -941,7 +941,8 @@ ${this.renderScript()}
             --color-info: var(--vscode-charts-blue);
             --caret-size: 22px;
             --caret-center: calc(var(--caret-size) / 2);
-            --row-height: 10px;
+            --row-height: 26px;
+            --sticky-step: 26px;
             --scrollbar-lane: 10px;
         }
         html, body {
@@ -1035,7 +1036,6 @@ ${this.renderScript()}
             box-sizing: border-box;
         }
         .row {
-            contain: layout paint;
             display: grid;
             grid-template-columns: var(--caret-size, 10px) minmax(0, 1fr) auto;
             gap: 4px;
@@ -1061,7 +1061,7 @@ ${this.renderScript()}
         }
         .node.expanded > .row {
             position: sticky;
-            top: calc(var(--depth, 0) * var(--row-height));
+            top: calc(var(--depth, 0) * var(--sticky-step));
             z-index: calc(200 - var(--depth, 0));
             background: var(--bg);
         }
@@ -1609,6 +1609,7 @@ ${this.renderScript()}
                 const previousScrollTop = treeViewport.scrollTop;
                 nodeIndex.clear();
                 renderNodes(tree, message.nodes || [], 0);
+                syncStickyStep();
                 ensureSelectedVisible();
                 treeViewport.scrollTop = previousScrollTop;
                 return;
@@ -1617,6 +1618,7 @@ ${this.renderScript()}
                 for (const node of message.nodes || []) {
                     applyNodeState(node);
                 }
+                syncStickyStep();
                 ensureSelectedVisible();
                 return;
             }
@@ -1650,6 +1652,19 @@ ${this.renderScript()}
         });
 
         const getVisibleRows = () => Array.from(tree.querySelectorAll('.row'));
+
+        const syncStickyStep = () => {
+            const rows = getVisibleRows().slice(0, 40);
+            let maxHeight = 0;
+            for (const row of rows) {
+                const height = row.getBoundingClientRect().height;
+                if (height > maxHeight) {
+                    maxHeight = height;
+                }
+            }
+            const stickyStep = Math.max(26, Math.ceil(maxHeight));
+            document.documentElement.style.setProperty('--sticky-step', stickyStep + 'px');
+        };
 
         const clearDraftEditor = () => {
             if (!draftEditor) {
@@ -2093,6 +2108,7 @@ ${this.renderScript()}
             treeViewport.scrollLeft += event.deltaX * 0.82;
         }, { passive: false });
 
+        window.addEventListener('resize', syncStickyStep);
         vscode.postMessage({ type: 'ready' });
 `;
     }

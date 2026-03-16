@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
 import * as path from 'path';
 import * as xml2js from 'xml2js';
 import { getProjectAnalyzer, initializeProjectAnalyzer, onProjectAnalyzerCreated } from './tcViewProjectAnalyzer';
@@ -381,7 +382,7 @@ const noSemicolonKeywords = [
 // These must be very specific to avoid false positives
 const noSemicolonPatterns = [
     // Function/FB/Program declarations at start of line (e.g., "FUNCTION foo : INT")
-    /^\s*(FUNCTION|FUNCTION_BLOCK|PROGRAM)\s+\w+(\s*:\s*\w+)?\s*$/i,
+    /^\s*(FUNCTION|FUNCTION_BLOCK|PROGRAM)\b(?:\s+(?:PUBLIC|PRIVATE|PROTECTED|INTERNAL|FINAL|ABSTRACT|OVERRIDE|STATIC))*\s+[A-Za-z_]\w*(\s*:\s*[A-Za-z_][A-Za-z0-9_.]*)?\s*$/i,
     // Case labels: number or identifier followed by colon (e.g., "1:", "ALARM_IDLE:", "stateIdle:")
     // Must be at start of line (after whitespace), not contain assignment operator
     /^\s*([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*|\d+)\s*:\s*(\/\/.*)?$/i,
@@ -420,6 +421,77 @@ const PROJECT_SCAN_PATTERN = '**/*.{st,TcPOU,TcPRG,TcAPP,TcCOM,TcGVL,TcDUT,TcVAR
 const stringTokenRegex = /'([^']|'')*'|"([^"]|"")*"/g;
 const numberTokenRegex = /\b(16#[0-9A-Fa-f_]+|2#[01_]+|8#[0-7_]+|\d+(\.\d+)?([eE][+-]?\d+)?)\b/g;
 const identifierTokenRegex = /\b[a-zA-Z_]\w*\b/g;
+
+function augmentStandardDefinitionsFromBundledLibraryMetadata(): void {
+    try {
+        const metadataPath = path.resolve(__dirname, '..', 'resources', 'library-metadata.json');
+        const raw = JSON.parse(fs.readFileSync(metadataPath, 'utf8')) as {
+            libraries?: Array<{
+                functionBlocks?: Array<{ name?: string; documentation?: string; members?: Record<string, string> }>;
+                functions?: Array<{ name?: string; documentation?: string; returnType?: string }>;
+                variables?: Array<{ name?: string; documentation?: string; type?: string }>;
+                dataTypes?: Array<{ name?: string; documentation?: string; members?: Record<string, string> }>;
+            }>;
+        };
+
+        for (const library of raw.libraries ?? []) {
+            for (const item of library.functionBlocks ?? []) {
+                const name = item.name?.trim();
+                if (!name || standardIecDefinitions[name]) continue;
+                standardIecDefinitions[name] = {
+                    kind: 'functionBlock',
+                    summary: item.documentation ?? `Bundled library function block: ${name}`,
+                    members: Object.entries(item.members ?? {}).map(([memberName, type]) => ({
+                        name: memberName,
+                        type,
+                        description: ''
+                    }))
+                };
+            }
+
+            for (const item of library.functions ?? []) {
+                const name = item.name?.trim();
+                if (!name || standardIecDefinitions[name]) continue;
+                standardIecDefinitions[name] = {
+                    kind: 'function',
+                    summary: item.returnType
+                        ? `${item.documentation ?? 'Bundled library function.'} Returns ${item.returnType}.`
+                        : item.documentation ?? `Bundled library function: ${name}`
+                };
+            }
+
+            for (const item of library.variables ?? []) {
+                const name = item.name?.trim();
+                if (!name || standardIecDefinitions[name]) continue;
+                standardIecDefinitions[name] = {
+                    kind: 'constant',
+                    summary: item.type
+                        ? `${item.documentation ?? 'Bundled library global.'} Type: ${item.type}.`
+                        : item.documentation ?? `Bundled library global: ${name}`
+                };
+            }
+
+            for (const item of library.dataTypes ?? []) {
+                const name = item.name?.trim();
+                if (!name || standardIecDefinitions[name]) continue;
+                standardIecDefinitions[name] = {
+                    kind: 'type',
+                    summary: item.documentation ?? `Bundled library data type: ${name}`,
+                    members: Object.entries(item.members ?? {}).map(([memberName, type]) => ({
+                        name: memberName,
+                        type,
+                        description: ''
+                    }))
+                };
+            }
+        }
+    } catch {
+        // Fall back to the handwritten core definitions if the bundled catalog cannot be read.
+    }
+}
+
+augmentStandardDefinitionsFromBundledLibraryMetadata();
+
 const stdSymbolSet = new Set(Object.keys(standardIecDefinitions).map(name => name.toUpperCase()));
 
 
@@ -490,6 +562,12 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
 
     const isDocumentVisibleInEditor = (document: vscode.TextDocument) =>
         vscode.window.visibleTextEditors.some(editor => editor.document.uri.toString() === document.uri.toString());
+
+    const hasOpenIecStDocumentForSourcePath = (sourcePath: string) =>
+        vscode.workspace.textDocuments.some(doc =>
+            doc.languageId === 'iec-st' &&
+            (getSourcePathForDocument(doc)?.toLowerCase() === sourcePath.toLowerCase())
+        );
 
     const isBackgroundDiagnosticSourcePath = (filePath: string) =>
         backgroundDiagnosticExtensions.has(path.extname(filePath).toLowerCase());
@@ -581,6 +659,11 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
 
     const validateSourcePathInBackground = async (sourcePath: string) => {
         if (!isBackgroundDiagnosticSourcePath(sourcePath)) {
+            return;
+        }
+
+        if (hasOpenIecStDocumentForSourcePath(sourcePath)) {
+            diagnosticCollection.delete(vscode.Uri.file(sourcePath));
             return;
         }
 
@@ -1482,6 +1565,15 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         programNames.forEach(name => allKnownVars.add(name.toUpperCase()));
         const callableNames = extractCallableNames(text);
         callableNames.forEach(name => allKnownVars.add(name.toUpperCase()));
+        const callableReturnTypes = extractCallableReturnTypes(lines);
+        callableReturnTypes.forEach(callable => {
+            const upperName = callable.name.toUpperCase();
+            allKnownVars.add(upperName);
+            if (callable.kind.toUpperCase() === 'FUNCTION') {
+                allDeclared.add(upperName);
+                astSymbolTypes.set(upperName, normalizeTypeName(callable.typeName));
+            }
+        });
 
         const astProjectAnalyzer = getProjectAnalyzer();
         const astProjectSymbols = new Map<string, ReturnType<typeof astProjectAnalyzer.getSymbol>>();
@@ -1574,7 +1666,7 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
             }
         });
 
-        extractCallableReturnTypes(lines).forEach(callable => {
+        callableReturnTypes.forEach(callable => {
             const typeStatus = getDeclarationTypeStatus(callable.typeName);
             if (typeStatus === 'known') {
                 return;
@@ -1611,6 +1703,15 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
                 allKnownVars.add(normalized.toUpperCase());
             }
         });
+        const localInlineEnumMembers = new Set<string>();
+        ast.declarations.forEach(decl => {
+            parseInlineEnumMembers(decl.type).forEach(memberName => {
+                const upperMemberName = memberName.toUpperCase();
+                localInlineEnumMembers.add(upperMemberName);
+                allKnownVars.add(upperMemberName);
+                allDeclared.add(upperMemberName);
+            });
+        });
         parseTwinCATTypeDeclarations(text).forEach(typeInfo => {
             if (typeInfo.kind !== 'enum') {
                 return;
@@ -1623,6 +1724,10 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         const astUsedIdentifiers = new Set<string>();
         ast.usages.forEach(u => {
             if (isKnownIecBuiltinIdentifier(u.upper)) return;
+            if (localInlineEnumMembers.has(u.upper)) {
+                astUsedIdentifiers.add(u.upper);
+                return;
+            }
             if (!allDeclared.has(u.upper)) {
                 const qualifiedGlobalOwners = [...(qualifiedOnlyInfo.globals.get(u.upper) ?? [])];
                 const qualifiedEnumOwners = [...(qualifiedOnlyInfo.enums.get(u.upper) ?? [])];
@@ -1673,16 +1778,27 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         });
 
         const isLikelyPartialPouMainView =
-            target.uri.scheme === 'twincat' &&
+            !!originalPath &&
+            /\.(tcpou|tcprg|tcapp|tccom)$/i.test(originalPath) &&
             /^\s*(FUNCTION_BLOCK|FUNCTION|PROGRAM)\b/im.test(text) &&
             !/^\s*(METHOD|PROPERTY|ACTION|TRANSITION)\b/im.test(text);
-        const wholePouUsageSet = isLikelyPartialPouMainView && target.documentForWholePouUsage
-            ? await getWholePouUsageSet(target.documentForWholePouUsage)
+        const wholePouUsageSet = isLikelyPartialPouMainView
+            ? (
+                target.documentForWholePouUsage
+                    ? await getWholePouUsageSet(target.documentForWholePouUsage)
+                    : originalPath
+                        ? await getWholePouUsageSetForSourcePath(originalPath)
+                        : undefined
+            )
             : undefined;
 
         if (!isGlobalListDocument) {
+            const standardImplicitLocals = getImplicitlyUsedLocalsForDocument(target);
             astLocalsForUnusedCheck.forEach(local => {
                 if (isTcviewLintRuleSuppressed(tcviewLintPragmas, local.line, 'unused-instance')) {
+                    return;
+                }
+                if (standardImplicitLocals.has(local.upper)) {
                     return;
                 }
                 const usedInBody = astUsedIdentifiers.has(local.upper) || isIdentifierUsedInBody(text, local.name);
@@ -1701,11 +1817,15 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
 
     const validateDocument = async (document: vscode.TextDocument) => {
         if (document.languageId !== 'iec-st') return;
+        const sourcePath = getSourcePathForDocument(document);
+        if (sourcePath) {
+            diagnosticCollection.delete(vscode.Uri.file(sourcePath));
+        }
         const diagnostics = await computeDiagnostics({
             uri: document.uri,
             languageId: document.languageId,
             text: document.getText(),
-            originalPath: getSourcePathForDocument(document),
+            originalPath: sourcePath,
             documentForWholePouUsage: document
         });
         diagnosticCollection.set(document.uri, diagnostics);
@@ -1785,20 +1905,30 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         if (!isDocumentVisibleInEditor(doc)) {
             return;
         }
+        const source = getSourcePathForDocument(doc);
+        if (source) {
+            diagnosticCollection.delete(vscode.Uri.file(source));
+        }
         scheduleDocumentValidation(doc, 40);
     });
     const changeListener = vscode.workspace.onDidChangeTextDocument(e => {
+        const source = getSourcePathForDocument(e.document);
+        if (source) {
+            diagnosticCollection.delete(vscode.Uri.file(source));
+        }
         scheduleDocumentValidation(e.document);
         invalidateSearchCacheForDocument(e.document);
         invalidateWholePouUsageCacheForDocument(e.document);
-        const source = getSourcePathForDocument(e.document);
         if (source) scheduleRelatedValidation(source);
     });
     const saveListener = vscode.workspace.onDidSaveTextDocument(doc => {
+        const source = getSourcePathForDocument(doc);
+        if (source) {
+            diagnosticCollection.delete(vscode.Uri.file(source));
+        }
         scheduleDocumentValidation(doc, 40);
         invalidateSearchCacheForDocument(doc);
         invalidateWholePouUsageCacheForDocument(doc);
-        const source = getSourcePathForDocument(doc);
         if (source) scheduleRelatedValidation(source);
     });
     const closeListener = vscode.workspace.onDidCloseTextDocument(doc => {
@@ -1816,7 +1946,7 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
     });
     const handleAnalyzerRefresh = () => {
         const docs = vscode.workspace.textDocuments.filter(doc =>
-            doc.languageId === 'iec-st' && isDocumentVisibleInEditor(doc)
+            doc.languageId === 'iec-st'
         );
         for (const doc of docs) {
             scheduleDocumentValidation(doc, 80);
@@ -1837,7 +1967,7 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         activeAnalyzerRefreshDisposable?.dispose();
         activeAnalyzerRefreshDisposable = analyzer.onDidRefreshIndex(() => {
             handleAnalyzerRefresh();
-            scheduleBackgroundProjectValidation(1200, { full: true });
+            scheduleBackgroundProjectValidation(250, { full: true });
         });
     });
     const backgroundDiagnosticWatcher = vscode.workspace.createFileSystemWatcher(PROJECT_SCAN_PATTERN);
@@ -2101,41 +2231,66 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
 // Extract declared variables from VAR sections
 function extractDeclaredVariables(text: string): string[] {
     const declaredVars: string[] = [];
-    const varSectionRegex = /\b(VAR|VAR_INPUT|VAR_OUTPUT|VAR_IN_OUT|VAR_TEMP|VAR_GLOBAL|VAR_INST|VAR_STAT)\b[\s\S]*?\bEND_VAR\b/gi;
-    
-    let sectionMatch;
-    while ((sectionMatch = varSectionRegex.exec(text)) !== null) {
-        const section = sectionMatch[0];
-        // Match variable declarations: "name : type" or "name : type := value"
-        const varDeclRegex = /^\s*([a-zA-Z_]\w*)\s*:/gm;
-        let declMatch;
-        while ((declMatch = varDeclRegex.exec(section)) !== null) {
-            declaredVars.push(declMatch[1].toUpperCase());
-        }
-    }
-    
+    forEachVarDeclaration(text, ({ names }) => {
+        names.forEach(name => declaredVars.push(name.toUpperCase()));
+    });
     return declaredVars;
 }
 
 function extractDeclaredSymbolsWithTypes(text: string): Map<string, { name: string; type: string }> {
     const symbols = new Map<string, { name: string; type: string }>();
-    const varSectionRegex = /\b(VAR|VAR_INPUT|VAR_OUTPUT|VAR_IN_OUT|VAR_TEMP|VAR_GLOBAL|VAR_INST|VAR_STAT)\b[\s\S]*?\bEND_VAR\b/gi;
-
-    let sectionMatch;
-    while ((sectionMatch = varSectionRegex.exec(text)) !== null) {
-        const section = sectionMatch[0];
-        const varDeclRegex = /^\s*([a-zA-Z_]\w*)\s*:\s*([^;]+);/gm;
-        let declMatch;
-
-        while ((declMatch = varDeclRegex.exec(section)) !== null) {
-            const name = declMatch[1];
-            const rawType = declMatch[2];
-            const type = normalizeTypeName(rawType);
+    forEachVarDeclaration(text, ({ names, rawType }) => {
+        const type = normalizeTypeName(rawType);
+        for (const name of names) {
             symbols.set(name.toUpperCase(), { name, type: type || rawType.trim() });
         }
-    }
+    });
 
     return symbols;
+}
+
+function forEachVarDeclaration(
+    text: string,
+    callback: (declaration: { names: string[]; rawType: string }) => void
+): void {
+    const varSectionRegex = /\b(VAR|VAR_INPUT|VAR_OUTPUT|VAR_IN_OUT|VAR_TEMP|VAR_GLOBAL|VAR_INST|VAR_STAT)\b[\s\S]*?\bEND_VAR\b/gi;
+    let sectionMatch: RegExpExecArray | null;
+
+    while ((sectionMatch = varSectionRegex.exec(text)) !== null) {
+        const section = sectionMatch[0].replace(/\r/g, '');
+        const body = section
+            .replace(/^\s*(VAR|VAR_INPUT|VAR_OUTPUT|VAR_IN_OUT|VAR_TEMP|VAR_GLOBAL|VAR_INST|VAR_STAT)\b[^\n]*\n?/i, '')
+            .replace(/\n?\s*END_VAR\b\s*$/i, '');
+
+        const statements = body.split(';');
+        let pending = '';
+
+        for (const fragment of statements) {
+            const cleanFragment = fragment.replace(/\/\/.*$/gm, '').trim();
+            if (!cleanFragment) {
+                continue;
+            }
+
+            const combined = `${pending} ${cleanFragment}`.trim();
+            const stripped = stripLeadingDeclarationPragmas(combined).trim();
+            if (!stripped) {
+                pending = combined;
+                continue;
+            }
+
+            const match = stripped.match(/^([a-zA-Z_]\w*(?:\s*,\s*[a-zA-Z_]\w*)*)(?:\s+AT\s+[^:]+)?\s*:\s*([\s\S]+)$/m);
+            if (!match) {
+                pending = combined;
+                continue;
+            }
+
+            const names = match[1].match(/[a-zA-Z_]\w*/g) ?? [];
+            if (names.length > 0) {
+                callback({ names, rawType: match[2].trim() });
+            }
+            pending = '';
+        }
+    }
 }
 
 function normalizeTypeName(rawType: string): string {
@@ -2166,6 +2321,9 @@ function extractBaseTypeName(typeExpr: string): string {
     if (!typeExpr) return '';
 
     let working = typeExpr.trim();
+    if (working.startsWith('(') && working.endsWith(')')) {
+        return '';
+    }
     working = working.replace(/\b(CONSTANT|RETAIN|PERSISTENT)\b/gi, '').trim();
     working = working.replace(/\bAT\s+%[A-Za-z0-9_.]+\b/gi, '').trim();
 
@@ -2184,6 +2342,57 @@ function extractBaseTypeName(typeExpr: string): string {
 
     const normalized = normalizeTypeName(working);
     return normalized;
+}
+
+function parseInlineEnumMembers(typeExpr: string): string[] {
+    if (!typeExpr) {
+        return [];
+    }
+
+    const trimmed = typeExpr.trim();
+    if (!trimmed.startsWith('(') || !trimmed.endsWith(')')) {
+        return [];
+    }
+
+    const members: string[] = [];
+    for (const rawSegment of trimmed.slice(1, -1).split(',')) {
+        const segment = rawSegment
+            .replace(/\/\/.*$/g, '')
+            .replace(/\(\*[\s\S]*?\*\)/g, '')
+            .trim();
+        if (!segment) {
+            continue;
+        }
+
+        const memberName = segment.split(':=')[0].trim();
+        if (/^[A-Za-z_]\w*$/.test(memberName)) {
+            members.push(memberName);
+        }
+    }
+
+    return members;
+}
+
+function stripLeadingDeclarationPragmas(text: string): string {
+    let working = text;
+    while (true) {
+        const next = working.replace(/^\s*\{[\s\S]*?\}\s*/u, '');
+        if (next === working) {
+            return working;
+        }
+        working = next;
+    }
+}
+
+function getImplicitlyUsedLocalsForDocument(target: { uri: vscode.Uri; text: string }): Set<string> {
+    const implicit = new Set<string>();
+    const fragment = (target.uri.fragment || '').toLowerCase();
+    const text = target.text.replace(/\r/g, '');
+    if (fragment === 'method:fb_init' || /^\s*METHOD\b(?:\s+(?:PUBLIC|PRIVATE|PROTECTED|INTERNAL|FINAL|ABSTRACT|OVERRIDE|STATIC))*\s+FB_Init\b/im.test(text)) {
+        implicit.add('BINITRETAINS');
+        implicit.add('BINCOPYCODE');
+    }
+    return implicit;
 }
 
 function findDeclarationTypeRange(lineText: string, lineNumber: number): vscode.Range {
@@ -2303,8 +2512,8 @@ function getSystemVariables(): string[] {
 function extractProgramFunctionNames(text: string): string[] {
     const names: string[] = [];
     
-    // Match PROGRAM Name, FUNCTION Name : Type, FUNCTION_BLOCK Name
-    const declRegex = /^\s*(PROGRAM|FUNCTION|FUNCTION_BLOCK)\s+([a-zA-Z_]\w*)/gm;
+    // Match PROGRAM Name, FUNCTION [modifiers] Name : Type, FUNCTION_BLOCK [modifiers] Name
+    const declRegex = /^\s*(PROGRAM|FUNCTION|FUNCTION_BLOCK)\b(?:\s+(?:PUBLIC|PRIVATE|PROTECTED|INTERNAL|FINAL|ABSTRACT|OVERRIDE|STATIC))*\s+([a-zA-Z_]\w*)/gm;
     let match;
     while ((match = declRegex.exec(text)) !== null) {
         names.push(match[2]);
@@ -2947,16 +3156,23 @@ function isIdentifierUsedInBody(text: string, identifier: string): boolean {
 
 const wholePouUsageCache = new Map<string, Set<string>>();
 
-async function getWholePouUsageSet(document: vscode.TextDocument): Promise<Set<string> | undefined> {
-    if (document.uri.scheme !== 'twincat') return undefined;
-    const originalPath = decodeURIComponent(document.uri.query || '');
+async function getWholePouUsageSetForSourcePath(originalPath: string): Promise<Set<string> | undefined> {
     if (!/\.(tcpou|tcprg|tcapp|tccom)$/i.test(originalPath)) return undefined;
 
     try {
         const sourceUri = vscode.Uri.file(originalPath);
         const sourceStat = await vscode.workspace.fs.stat(sourceUri);
         const sourceFingerprint = `${sourceStat.mtime}:${sourceStat.size}`;
-        const cacheKey = `${originalPath.toLowerCase()}|${document.version}|${sourceFingerprint}`;
+        const openDocFingerprint = vscode.workspace.textDocuments
+            .filter(openDoc =>
+                openDoc.languageId === 'iec-st' &&
+                openDoc.uri.scheme === 'twincat' &&
+                decodeURIComponent(openDoc.uri.query || '').toLowerCase() === originalPath.toLowerCase()
+            )
+            .map(openDoc => `${openDoc.uri.toString()}:${openDoc.version}`)
+            .sort((a, b) => a.localeCompare(b))
+            .join('|');
+        const cacheKey = `${originalPath.toLowerCase()}|${sourceFingerprint}|${openDocFingerprint}`;
         const cached = wholePouUsageCache.get(cacheKey);
         if (cached) {
             return new Set(cached);
@@ -3056,6 +3272,12 @@ async function getWholePouUsageSet(document: vscode.TextDocument): Promise<Set<s
     } catch {
         return undefined;
     }
+}
+
+async function getWholePouUsageSet(document: vscode.TextDocument): Promise<Set<string> | undefined> {
+    if (document.uri.scheme !== 'twincat') return undefined;
+    const originalPath = decodeURIComponent(document.uri.query || '');
+    return getWholePouUsageSetForSourcePath(originalPath);
 }
 
 function getConfiguredSeverity(settingKey: string, fallback: vscode.DiagnosticSeverity): vscode.DiagnosticSeverity {

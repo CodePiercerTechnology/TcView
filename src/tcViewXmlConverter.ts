@@ -613,22 +613,13 @@ export class TwinCATXmlConverter {
             } else if (pouData.TcPlcObject_POU_Implementation_ST) {
                 implementation = this.getTextContent(pouData.TcPlcObject_POU_Implementation_ST);
             }
-            
-            // Extract POU header from declaration
-            let pouHeader = 'FUNCTION_BLOCK Main';
-            const headerMatch = declaration.match(/(PROGRAM|FUNCTION_BLOCK|FUNCTION)\s+(\w+)/);
-            if (headerMatch) {
-                pouHeader = `${headerMatch[1]} ${headerMatch[2]}`;
-            }
-            
-            stCode += `${pouHeader}\n\n`;
-            
-            // Extract VAR sections from declaration
-            const varSections = declaration.match(/VAR[\s\S]*?END_VAR/g);
-            if (varSections) {
-                for (const section of varSections) {
-                    stCode += `${section}\n\n`;
+
+            if (declaration.trim()) {
+                stCode += declaration.trim();
+                if (implementation.trim()) {
+                    stCode += `\n\n${implementation.trim()}`;
                 }
+                return stCode.trimEnd() + '\n';
             }
             
             // Add implementation

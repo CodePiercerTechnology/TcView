@@ -127,6 +127,7 @@ export class TwinCATProjectAnalyzer {
     private fileWatcher: vscode.FileSystemWatcher | undefined;
     private libraryMetadataWatcher: vscode.FileSystemWatcher | undefined;
     private globalLibraryMetadataWatcher: vscode.FileSystemWatcher | undefined;
+    private referencedRootWatchers: vscode.Disposable[] = [];
     private converter: TwinCATXmlConverter;
     private scanTimer: NodeJS.Timeout | undefined;
     private libraryRefreshTimer: NodeJS.Timeout | undefined;
@@ -235,6 +236,7 @@ export class TwinCATProjectAnalyzer {
         if (!this.fileWatcher) {
             this.setupFileWatcher();
         }
+        await this.refreshReferencedRootWatchers();
 
         // Initial scan
         await this.scanProject();
@@ -278,7 +280,7 @@ export class TwinCATProjectAnalyzer {
     private setupFileWatcher(): void {
         // Watch TwinCAT PLC source plus project/library metadata outputs.
         this.fileWatcher = vscode.workspace.createFileSystemWatcher(
-            '**/*.{TcPOU,TcGVL,TcDUT,TcPRG,TcCOM,TcAPP,TcVAR,TcGDS,TcIO,TcITF,plcproj,tsproj,tspproj,tmc}'
+            '**/*.{TcPOU,TcGVL,TcDUT,TcPRG,TcCOM,TcAPP,TcVAR,TcGDS,TcIO,TcITF,tcpou,tcgvl,tcdut,tcprg,tccom,tcapp,tcvar,tcgds,tcio,tcitf,st,plcproj,tsproj,tspproj,tmc}'
         );
         this.libraryMetadataWatcher = vscode.workspace.createFileSystemWatcher('**/tcview.libraries.json');
         const globalMetadataPath = this.getGlobalLibraryMetadataPath();
@@ -305,10 +307,44 @@ export class TwinCATProjectAnalyzer {
 
         if (this.isLibraryMetadataFile(filePath)) {
             this.invalidateProjectMetadataTextCache(filePath);
-            if (path.extname(filePath).toLowerCase() === '.tmc') {
+            const ext = path.extname(filePath).toLowerCase();
+            if (ext === '.tmc') {
                 this.tmcParseCache.delete(filePath);
             }
+            if (ext === '.plcproj' || ext === '.tsproj' || ext === '.tspproj') {
+                void this.refreshReferencedRootWatchers();
+                this.scheduleScan(150);
+            }
             this.scheduleLibraryRefresh();
+        }
+    }
+
+    private async refreshReferencedRootWatchers(): Promise<void> {
+        this.referencedRootWatchers.forEach(watcher => watcher.dispose());
+        this.referencedRootWatchers = [];
+
+        const workspaceRoots = new Set(
+            (vscode.workspace.workspaceFolders ?? []).map(folder => path.normalize(folder.uri.fsPath).toLowerCase())
+        );
+        const searchRoots = await this.getProjectSearchRoots();
+        const externalRoots = searchRoots.filter(root => !workspaceRoots.has(path.normalize(root).toLowerCase()));
+
+        for (const root of externalRoots) {
+            const sourceWatcher = vscode.workspace.createFileSystemWatcher(
+                new vscode.RelativePattern(root, '**/*.{TcPOU,TcGVL,TcDUT,TcPRG,TcCOM,TcAPP,TcVAR,TcGDS,TcIO,TcITF,tcpou,tcgvl,tcdut,tcprg,tccom,tcapp,tcvar,tcgds,tcio,tcitf,st}')
+            );
+            sourceWatcher.onDidCreate(uri => this.handleWatchedFileEvent(uri.fsPath, 'change'));
+            sourceWatcher.onDidChange(uri => this.handleWatchedFileEvent(uri.fsPath, 'change'));
+            sourceWatcher.onDidDelete(uri => this.handleWatchedFileEvent(uri.fsPath, 'delete'));
+
+            const metadataWatcher = vscode.workspace.createFileSystemWatcher(
+                new vscode.RelativePattern(root, '**/*.{plcproj,tsproj,tspproj,tmc}')
+            );
+            metadataWatcher.onDidCreate(uri => this.handleWatchedFileEvent(uri.fsPath, 'change'));
+            metadataWatcher.onDidChange(uri => this.handleWatchedFileEvent(uri.fsPath, 'change'));
+            metadataWatcher.onDidDelete(uri => this.handleWatchedFileEvent(uri.fsPath, 'delete'));
+
+            this.referencedRootWatchers.push(sourceWatcher, metadataWatcher);
         }
     }
 
@@ -447,18 +483,13 @@ export class TwinCATProjectAnalyzer {
      * Find all PLC files in the project
      */
     private async findPLCFiles(): Promise<string[]> {
-        const pattern = '**/*.{TcPOU,TcGVL,TcDUT,TcPRG,TcCOM,TcAPP,TcVAR,TcGDS,TcIO,TcITF,tcpou,tcgvl,tcdut,tcprg,tccom,tcapp,tcvar,tcgds,tcio,tcitf}';
-
         try {
             const searchRoots = await this.getProjectSearchRoots();
             const foundByPath = new Map<string, string>();
             await Promise.all(searchRoots.map(async root => {
-                const foundFiles = await vscode.workspace.findFiles(
-                    new vscode.RelativePattern(root, pattern),
-                    '**/node_modules/**'
-                );
-                for (const file of foundFiles) {
-                    foundByPath.set(file.fsPath.toLowerCase(), file.fsPath);
+                const foundFiles = await this.findFilesUnderRoot(root, filePath => this.isPLCFile(filePath));
+                for (const filePath of foundFiles) {
+                    foundByPath.set(filePath.toLowerCase(), filePath);
                 }
             }));
             return [...foundByPath.values()].sort((a, b) => a.localeCompare(b));
@@ -639,22 +670,22 @@ export class TwinCATProjectAnalyzer {
             const stContent = await this.converter.convertXmlToST(content);
             
             // Extract declaration type and name
-            const declMatch = stContent.match(/^\s*(PROGRAM|FUNCTION|FUNCTION_BLOCK)\s+(\w+)/im);
-            if (declMatch) {
-                const kind = declMatch[1].toUpperCase();
-                const name = declMatch[2];
-                
+            const declMatch = stContent.match(/^\s*(PROGRAM|FUNCTION|FUNCTION_BLOCK)\b(?:\s+(?:PUBLIC|PRIVATE|PROTECTED|INTERNAL|FINAL|ABSTRACT|OVERRIDE|STATIC))*\s+([A-Za-z_]\w*)/im);
+            const declarationInfo = declMatch
+                ? { kind: declMatch[1].toUpperCase(), name: declMatch[2] }
+                : this.extractPouDeclarationInfoFromXml(content);
+            if (declarationInfo) {
                 let symbolKind: TwinCATSymbol['kind'] = 'program';
-                if (kind === 'FUNCTION_BLOCK') symbolKind = 'functionBlock';
-                if (kind === 'FUNCTION') symbolKind = 'function';
+                if (declarationInfo.kind === 'FUNCTION_BLOCK') symbolKind = 'functionBlock';
+                if (declarationInfo.kind === 'FUNCTION') symbolKind = 'function';
 
-                this.symbols.set(name.toUpperCase(), {
-                    name,
-                    type: kind,
+                this.symbols.set(declarationInfo.name.toUpperCase(), {
+                    name: declarationInfo.name,
+                    type: declarationInfo.kind,
                     kind: symbolKind,
                     source: filePath
                 });
-                contribution.symbolKeys.add(name.toUpperCase());
+                contribution.symbolKeys.add(declarationInfo.name.toUpperCase());
             }
 
             // Extract local variables
@@ -824,29 +855,130 @@ export class TwinCATProjectAnalyzer {
         qualifiedGlobalEntries: Array<{ memberKey: string; ownerName: string }>;
         qualifiedEnumEntries: Array<{ memberKey: string; ownerName: string }>;
     }): void {
-        // Match variable declarations: name : type;
-        const varRegex = /(\w+)\s*:\s*(\w+)(?:\s*\(.*?\))?\s*(?::=.*?)?;/g;
-        let match;
-        
-        while ((match = varRegex.exec(varSection)) !== null) {
-            const name = match[1];
-            const type = match[2];
-            
-            const symbol: TwinCATSymbol = {
-                name,
-                type,
-                kind,
-                source
-            };
+        for (const declaration of this.parseVarDeclarations(varSection)) {
+            for (const name of declaration.names) {
+                const symbol: TwinCATSymbol = {
+                    name,
+                    type: declaration.type,
+                    kind,
+                    source
+                };
 
-            if (kind === 'global') {
-                this.globalVars.set(name.toUpperCase(), symbol);
-                contribution.globalVarKeys.add(name.toUpperCase());
-            } else {
-                this.symbols.set(name.toUpperCase(), symbol);
-                contribution.symbolKeys.add(name.toUpperCase());
+                if (kind === 'global') {
+                    this.globalVars.set(name.toUpperCase(), symbol);
+                    contribution.globalVarKeys.add(name.toUpperCase());
+                } else {
+                    this.symbols.set(name.toUpperCase(), symbol);
+                    contribution.symbolKeys.add(name.toUpperCase());
+                }
             }
         }
+    }
+
+    private parseVarDeclarations(varSection: string): Array<{ names: string[]; type: string }> {
+        const section = varSection.replace(/\r/g, '');
+        const body = section
+            .replace(/^\s*(VAR|VAR_INPUT|VAR_OUTPUT|VAR_IN_OUT|VAR_TEMP|VAR_GLOBAL|VAR_INST|VAR_STAT)\b[^\n]*\n?/i, '')
+            .replace(/\n?\s*END_VAR\b\s*$/i, '');
+        const statements = body.split(';');
+        const declarations: Array<{ names: string[]; type: string }> = [];
+        let pending = '';
+
+        for (const fragment of statements) {
+            const cleanFragment = fragment.replace(/\/\/.*$/gm, '').trim();
+            if (!cleanFragment) {
+                continue;
+            }
+
+            const combined = `${pending} ${cleanFragment}`.trim();
+            const stripped = this.stripLeadingDeclarationPragmas(combined).trim();
+            if (!stripped) {
+                pending = combined;
+                continue;
+            }
+
+            const match = stripped.match(/^([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)(?:\s+AT\s+[^:]+)?\s*:\s*([\s\S]+)$/m);
+            if (!match) {
+                pending = combined;
+                continue;
+            }
+
+            const names = match[1].match(/[A-Za-z_]\w*/g) ?? [];
+            const type = this.normalizeDeclarationType(match[2]);
+            if (names.length > 0) {
+                declarations.push({ names, type });
+            }
+            pending = '';
+        }
+
+        return declarations;
+    }
+
+    private normalizeDeclarationType(rawType: string): string {
+        const cleaned = rawType
+            .split(':=')[0]
+            .replace(/\(\*[\s\S]*?\*\)/g, ' ')
+            .replace(/\b(CONSTANT|RETAIN|PERSISTENT)\b/gi, ' ')
+            .trim();
+
+        const arrayMatch = cleaned.match(/\bARRAY\b[\s\S]*\bOF\s+(.+)$/i);
+        if (arrayMatch) {
+            return this.normalizeDeclarationType(arrayMatch[1]);
+        }
+
+        const refMatch = cleaned.match(/\b(?:REFERENCE|POINTER)\s+TO\s+(.+)$/i);
+        if (refMatch) {
+            return this.normalizeDeclarationType(refMatch[1]);
+        }
+
+        if (/^\s*STRING\s*\(/i.test(cleaned)) return 'STRING';
+        if (/^\s*WSTRING\s*\(/i.test(cleaned)) return 'WSTRING';
+
+        const qualified = cleaned.match(/[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+/);
+        if (qualified) {
+            const parts = qualified[0].split('.');
+            return parts[parts.length - 1];
+        }
+
+        const token = cleaned.match(/[A-Za-z_]\w*/);
+        return token ? token[0] : cleaned;
+    }
+
+    private stripLeadingDeclarationPragmas(text: string): string {
+        let working = text;
+        while (true) {
+            const next = working.replace(/^\s*\{[\s\S]*?\}\s*/u, '');
+            if (next === working) {
+                return working;
+            }
+            working = next;
+        }
+    }
+
+    private extractPouDeclarationInfoFromXml(content: string): { kind: 'PROGRAM' | 'FUNCTION' | 'FUNCTION_BLOCK'; name: string } | undefined {
+        const pouTag = content.match(/<POU\b([^>]*)>/i);
+        if (!pouTag) {
+            return undefined;
+        }
+
+        const attrs = pouTag[1];
+        const nameMatch = attrs.match(/\bName\s*=\s*["']([^"']+)["']/i);
+        if (!nameMatch) {
+            return undefined;
+        }
+
+        const typeMatch = attrs.match(/\bPOUType\s*=\s*["']([^"']+)["']/i);
+        const declarationText = content.match(/<Declaration>\s*<!\[CDATA\[([\s\S]*?)\]\]>\s*<\/Declaration>/i)?.[1] ?? '';
+        const declarationKindMatch = declarationText.match(/^\s*(PROGRAM|FUNCTION|FUNCTION_BLOCK)\b/im);
+        const rawKind = (typeMatch?.[1] ?? declarationKindMatch?.[1] ?? '').trim().toUpperCase();
+        if (rawKind !== 'PROGRAM' && rawKind !== 'FUNCTION' && rawKind !== 'FUNCTION_BLOCK') {
+            return undefined;
+        }
+
+        return {
+            kind: rawKind,
+            name: nameMatch[1].trim()
+        };
     }
 
     private removeFileContributions(filePath: string): boolean {
@@ -1056,19 +1188,67 @@ export class TwinCATProjectAnalyzer {
         try {
             const searchRoots = await this.getProjectSearchRoots();
             const foundByPath = new Map<string, string>();
+            const extensions = this.getExtensionsForGlob(pattern);
             await Promise.all(searchRoots.map(async root => {
-                const foundFiles = await vscode.workspace.findFiles(
-                    new vscode.RelativePattern(root, pattern),
-                    '**/node_modules/**'
+                const foundFiles = await this.findFilesUnderRoot(
+                    root,
+                    filePath => extensions.some(ext => filePath.toLowerCase().endsWith(ext))
                 );
-                for (const file of foundFiles) {
-                    foundByPath.set(file.fsPath.toLowerCase(), file.fsPath);
+                for (const filePath of foundFiles) {
+                    foundByPath.set(filePath.toLowerCase(), filePath);
                 }
             }));
             return [...foundByPath.values()].sort((a, b) => a.localeCompare(b));
         } catch {
             return [];
         }
+    }
+
+    private getExtensionsForGlob(pattern: string): string[] {
+        const braceMatch = pattern.match(/\{([^}]+)\}/);
+        if (braceMatch) {
+            return braceMatch[1]
+                .split(',')
+                .map(part => part.trim().replace(/^\*?/, ''))
+                .filter(Boolean)
+                .map(ext => ext.startsWith('.') ? ext.toLowerCase() : `.${ext.toLowerCase()}`);
+        }
+
+        const simpleMatch = pattern.match(/\.([A-Za-z0-9]+)$/);
+        return simpleMatch ? [`.${simpleMatch[1].toLowerCase()}`] : [];
+    }
+
+    private async findFilesUnderRoot(root: string, predicate: (filePath: string) => boolean): Promise<string[]> {
+        const results: string[] = [];
+        const pending: string[] = [root];
+
+        while (pending.length > 0) {
+            const current = pending.pop()!;
+            let entries: fs.Dirent[];
+            try {
+                entries = await fs.promises.readdir(current, { withFileTypes: true });
+            } catch {
+                continue;
+            }
+
+            for (const entry of entries) {
+                if (entry.name === 'node_modules' || entry.name === '.git') {
+                    continue;
+                }
+
+                const fullPath = path.join(current, entry.name);
+                if (entry.isDirectory()) {
+                    pending.push(fullPath);
+                    continue;
+                }
+
+                if (entry.isFile() && predicate(fullPath)) {
+                    results.push(fullPath);
+                }
+            }
+        }
+
+        return results;
     }
 
     private async getProjectSearchRoots(): Promise<string[]> {
@@ -1515,43 +1695,60 @@ export class TwinCATProjectAnalyzer {
         );
 
         if (tc3GlobalTypesEntry) {
-            const systemRef = this.createImplicitSystemLibraryRef('Tc3_GlobalTypes', tc3GlobalTypesEntry);
+            const systemRef = this.createImplicitCatalogLibraryRef('Tc3_GlobalTypes', tc3GlobalTypesEntry, 'system_global');
             refsByKey.set(`${systemRef.name.toUpperCase()}|${(systemRef.vendor ?? '').toUpperCase()}|${systemRef.version}`, systemRef);
             this.implicitSystemLibraries.add(this.normalizeLookupName(systemRef.name));
         }
 
-        if (systemGlobalEntries.length === 0) {
-            return;
+        if (systemGlobalEntries.length > 0) {
+            const supportsVirtualLibraries = this.projectBuildNumber >= 4026;
+            for (const entry of systemGlobalEntries) {
+                if (entry.name.localeCompare('Tc3_GlobalTypes', undefined, { sensitivity: 'accent' }) === 0) {
+                    continue;
+                }
+
+                this.implicitSystemLibraries.add(this.normalizeLookupName(entry.name));
+                if (!supportsVirtualLibraries) {
+                    continue;
+                }
+
+                const systemRef = this.createImplicitCatalogLibraryRef(entry.name, entry, 'system_global');
+                refsByKey.set(`${systemRef.name.toUpperCase()}|${(systemRef.vendor ?? '').toUpperCase()}|${systemRef.version}`, systemRef);
+            }
         }
 
-        const supportsVirtualLibraries = this.projectBuildNumber >= 4026;
-        for (const entry of systemGlobalEntries) {
-            if (entry.name.localeCompare('Tc3_GlobalTypes', undefined, { sensitivity: 'accent' }) === 0) {
+        for (const libraryName of this.standardLibraries) {
+            const catalogEntry = this.resolveCatalogLibraryMetadata(catalog, libraryName);
+            if (!catalogEntry) {
                 continue;
             }
 
-            this.implicitSystemLibraries.add(this.normalizeLookupName(entry.name));
-            if (!supportsVirtualLibraries) {
-                continue;
-            }
-
-            const systemRef = this.createImplicitSystemLibraryRef(entry.name, entry);
-            refsByKey.set(`${systemRef.name.toUpperCase()}|${(systemRef.vendor ?? '').toUpperCase()}|${systemRef.version}`, systemRef);
+            const standardRef = this.createImplicitCatalogLibraryRef(libraryName, catalogEntry, 'built_in');
+            refsByKey.set(`${standardRef.name.toUpperCase()}|${(standardRef.vendor ?? '').toUpperCase()}|${standardRef.version}`, standardRef);
+            this.implicitSystemLibraries.add(this.normalizeLookupName(standardRef.name));
         }
     }
 
-    private createImplicitSystemLibraryRef(name: string, catalogEntry: LibraryCatalogEntry): TwinCATLibraryRef {
+    private createImplicitCatalogLibraryRef(
+        name: string,
+        catalogEntry: LibraryCatalogEntry,
+        metadataSource: TwinCATLibraryRef['metadataSource'] = 'system_global'
+    ): TwinCATLibraryRef {
         return {
             name,
             version: catalogEntry.version ?? (this.projectBuildNumber > 0 ? `3.1.${this.projectBuildNumber}` : 'system'),
             vendor: catalogEntry.vendor ?? 'Beckhoff Automation GmbH',
             path: this.projectRoot ?? '',
             mode: 'public_symbols',
-            metadataSource: 'system_global',
+            metadataSource,
             infoUrl: catalogEntry.infoUrl,
-            category: catalogEntry.category ?? 'System',
+            category: catalogEntry.category ?? (metadataSource === 'system_global' ? 'System' : 'Base'),
             suppliedWith: catalogEntry.suppliedWith ?? 'TwinCAT 3',
-            summary: catalogEntry.summary ?? 'TwinCAT system-provided global type library.'
+            summary: catalogEntry.summary ?? (
+                metadataSource === 'system_global'
+                    ? 'TwinCAT system-provided global type library.'
+                    : 'TwinCAT standard library metadata.'
+            )
         };
     }
 
@@ -1562,7 +1759,7 @@ export class TwinCATProjectAnalyzer {
                 .filter(libraryKey => !this.libraryRefs.some(ref => this.normalizeLookupName(ref.name) === libraryKey))
                 .map(libraryKey => {
                     const matchingEntry = [...catalog.values()].flat().find(entry => this.normalizeLookupName(entry.name) === libraryKey);
-                    return matchingEntry ? this.createImplicitSystemLibraryRef(matchingEntry.name, matchingEntry) : undefined;
+                    return matchingEntry ? this.createImplicitCatalogLibraryRef(matchingEntry.name, matchingEntry, 'built_in') : undefined;
                 })
                 .filter((ref): ref is TwinCATLibraryRef => !!ref)
         ];
@@ -2251,6 +2448,8 @@ export class TwinCATProjectAnalyzer {
         if (this.globalLibraryMetadataWatcher) {
             this.globalLibraryMetadataWatcher.dispose();
         }
+        this.referencedRootWatchers.forEach(watcher => watcher.dispose());
+        this.referencedRootWatchers = [];
         this.initialized = false;
         this.initializePromise = undefined;
         this.libraryPlaceholderSymbolKeys.clear();

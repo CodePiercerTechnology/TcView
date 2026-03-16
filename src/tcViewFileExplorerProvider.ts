@@ -1308,11 +1308,7 @@ export class TwinCATFileExplorerProvider
 
     private getDiagnosticBreadcrumbForStructuredItem(item: TwinCATFileTreeItem): DiagnosticBreadcrumb {
         const filePath = item.parentPath ?? item.targetUri.fsPath;
-        const fragmentSummary = this.getDiagnosticBreadcrumbForFragment(filePath, item.targetUri.fragment);
-        if (fragmentSummary.errors > 0 || fragmentSummary.warnings > 0) {
-            return fragmentSummary;
-        }
-        return this.getDiagnosticBreadcrumbForFile(filePath);
+        return this.getDiagnosticBreadcrumbForFragment(filePath, item.targetUri.fragment);
     }
 
     private getDiagnosticBreadcrumbForProperty(item: TwinCATFileTreeItem): DiagnosticBreadcrumb {
@@ -1321,9 +1317,6 @@ export class TwinCATFileExplorerProvider
         let summary = this.getDiagnosticBreadcrumbForFragment(filePath, item.targetUri.fragment);
         summary = combineDiagnosticBreadcrumb(summary, this.getDiagnosticBreadcrumbForFragment(filePath, `propertyget:${propertyName}`));
         summary = combineDiagnosticBreadcrumb(summary, this.getDiagnosticBreadcrumbForFragment(filePath, `propertyset:${propertyName}`));
-        if (summary.errors === 0 && summary.warnings === 0) {
-            return this.getDiagnosticBreadcrumbForFile(filePath);
-        }
         return summary;
     }
 
@@ -1351,9 +1344,6 @@ export class TwinCATFileExplorerProvider
                 default:
                     break;
             }
-        }
-        if (summary.errors === 0 && summary.warnings === 0) {
-            return this.getDiagnosticBreadcrumbForFile(item.parentPath ?? item.targetUri.fsPath);
         }
         return summary;
     }
@@ -1383,7 +1373,11 @@ export class TwinCATFileExplorerProvider
         return summary;
     }
 
-    private async createTreeItemFromEntry(folderPath: string, entry: fs.Dirent, knownHasPlcProject?: boolean): Promise<TwinCATFileTreeItem | undefined> {
+    private async createTreeItemFromEntry(
+        folderPath: string,
+        entry: fs.Dirent,
+        options?: { knownHasPlcProject?: boolean; skipFilePresentationDetails?: boolean }
+    ): Promise<TwinCATFileTreeItem | undefined> {
         if (this.isHiddenOrExcluded(entry.name)) {
             return undefined;
         }
@@ -1391,7 +1385,7 @@ export class TwinCATFileExplorerProvider
         const fullPath = path.join(folderPath, entry.name);
 
         if (entry.isDirectory()) {
-            const hasPlcProject = knownHasPlcProject ?? await this.directoryContainsPlcProj(fullPath);
+            const hasPlcProject = options?.knownHasPlcProject ?? await this.directoryContainsPlcProj(fullPath);
             const item = new TwinCATFileTreeItem(
                 vscode.Uri.file(fullPath),
                 vscode.TreeItemCollapsibleState.Collapsed,
@@ -1405,7 +1399,12 @@ export class TwinCATFileExplorerProvider
 
         if (entry.isFile() && this.isTwinCATFile(entry.name)) {
             const uri = vscode.Uri.file(fullPath);
-            const detail = await this.getFileTreePresentation(uri);
+            const detail = options?.skipFilePresentationDetails
+                ? {
+                    hasChildren: this.isExpandablePOUFile(fullPath),
+                    label: getTwinCATFileKindLabel(fullPath)
+                }
+                : await this.getFileTreePresentation(uri);
 
             const item = new TwinCATFileTreeItem(
                 uri,
@@ -1465,7 +1464,10 @@ export class TwinCATFileExplorerProvider
                         : await this.directoryContainsPlcProj(fullPath)
                 );
                 const isIoEntry = this.tsprojStructure?.ioFolderPaths.has(normalizedFullPath) || this.isIoLikeEntry(entry.name);
-                const item = await this.createTreeItemFromEntry(this.contentRoot!, entry, hasPlcProject);
+                const item = await this.createTreeItemFromEntry(this.contentRoot!, entry, {
+                    knownHasPlcProject: hasPlcProject,
+                    skipFilePresentationDetails: true
+                });
                 if (!item) {
                     return;
                 }
@@ -1604,6 +1606,16 @@ export class TwinCATFileExplorerProvider
             return cached;
         }
 
+        const hiddenSystemGlobalReferenceNames = new Set([
+            'TC3GLOBALTYPES',
+            'TC3GLOBALTYPESGLOBAL',
+            'TWINCATSYSTEMINFOVARLIST'
+        ]);
+        const shouldHideReferenceLabel = (label: string) => {
+            const normalized = label.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+            return hiddenSystemGlobalReferenceNames.has(normalized);
+        };
+
         try {
             const xml = await this.getProjectMetadataXml(plcprojPath);
             if (!xml) {
@@ -1632,7 +1644,8 @@ export class TwinCATFileExplorerProvider
                     item.setDescriptionText(namespaceValue && namespaceValue !== label ? namespaceValue.toString() : undefined);
                     item.tooltip = tooltip;
                     return item;
-                });
+                })
+                .filter(item => !shouldHideReferenceLabel(item.label?.toString() || ''));
 
             try {
                 const analyzer = peekProjectAnalyzer();
@@ -1642,26 +1655,8 @@ export class TwinCATFileExplorerProvider
                     this.plcReferencesCache.set(cacheKey, sorted);
                     return sorted;
                 }
-                const implicitRefs = analyzer.getLibraryReferences()
-                    .filter(ref => ref.metadataSource === 'system_global')
-                    .map(ref => {
-                        const item = new TwinCATFileTreeItem(
-                            vscode.Uri.file(path.join(path.dirname(plcprojPath), `${ref.name}.library`)),
-                            vscode.TreeItemCollapsibleState.None,
-                            TwinCATItemType.ReferenceItem,
-                            plcprojPath,
-                            ref,
-                            ref.name
-                        );
-                        item.setDescriptionText('system global');
-                        item.tooltip = ref.summary
-                            ? `${ref.name}\n${ref.summary}`
-                            : `${ref.name} (system global)`;
-                        return item;
-                    });
-
                 const deduped = new Map<string, TwinCATFileTreeItem>();
-                for (const item of [...items, ...implicitRefs]) {
+                for (const item of items) {
                     const key = (item.label?.toString() || '').toUpperCase();
                     if (!deduped.has(key)) {
                         deduped.set(key, item);
@@ -1994,14 +1989,28 @@ export class TwinCATFileExplorerProvider
         if (!this.workspaceRoot) return;
 
         this.fileWatcher = vscode.workspace.createFileSystemWatcher(
-            '**/*.{tcpou,tcprg,tcapp,tccom,tcgvl,tcdut,tcvar,tcgds,tcio,tcitf,TcPOU,TcPRG,TcAPP,TcCOM,TcGVL,TcDUT,TcVAR,TcGDS,TcIO,TcITF,plcproj,tsproj,tspproj,sln}'
+            new vscode.RelativePattern(this.workspaceRoot, '**/*')
         );
 
         this.fileWatcher.onDidChange(uri => {
             this.parsedPOUCache.delete(uri.fsPath);
             this.invalidateMetadataCaches(uri.fsPath);
             const ext = path.extname(uri.fsPath).toLowerCase();
-            const requiresStructuralRefresh = ext === '.plcproj' || ext === '.tsproj' || ext === '.tspproj' || ext === '.sln';
+            const requiresStructuralRefresh =
+                ext === '.plcproj' ||
+                ext === '.tsproj' ||
+                ext === '.tspproj' ||
+                ext === '.sln' ||
+                ext === '.tcpou' ||
+                ext === '.tcprg' ||
+                ext === '.tcapp' ||
+                ext === '.tccom' ||
+                ext === '.tcgvl' ||
+                ext === '.tcdut' ||
+                ext === '.tcvar' ||
+                ext === '.tcgds' ||
+                ext === '.tcio' ||
+                ext === '.tcitf';
             this.scheduleRefresh(requiresStructuralRefresh);
         });
 
