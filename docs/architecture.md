@@ -21,12 +21,12 @@ Primary implementation lives in the TypeScript extension.
 
 Key files:
 
-- [extension.ts](c:/Users/TwinCAT/Documents/MyStuff/TcView/src/extension.ts)
-- [tcViewFileExplorerProvider.ts](c:/Users/TwinCAT/Documents/MyStuff/TcView/src/tcViewFileExplorerProvider.ts)
-- [tcViewWebviewExplorerProvider.ts](c:/Users/TwinCAT/Documents/MyStuff/TcView/src/tcViewWebviewExplorerProvider.ts)
-- [tcViewFileSystemProvider.ts](c:/Users/TwinCAT/Documents/MyStuff/TcView/src/tcViewFileSystemProvider.ts)
-- [tcViewProjectAnalyzer.ts](c:/Users/TwinCAT/Documents/MyStuff/TcView/src/tcViewProjectAnalyzer.ts)
-- [iecStLanguageFeatures.ts](c:/Users/TwinCAT/Documents/MyStuff/TcView/src/iecStLanguageFeatures.ts)
+- [extension.ts](../src/extension.ts)
+- [tcViewFileExplorerProvider.ts](../src/tcViewFileExplorerProvider.ts)
+- [tcViewWebviewExplorerProvider.ts](../src/tcViewWebviewExplorerProvider.ts)
+- [tcViewFileSystemProvider.ts](../src/tcViewFileSystemProvider.ts)
+- [tcViewProjectAnalyzer.ts](../src/tcViewProjectAnalyzer.ts)
+- [iecStLanguageFeatures.ts](../src/iecStLanguageFeatures.ts)
 
 Responsibilities:
 
@@ -51,9 +51,9 @@ Flow:
 
 Key files:
 
-- [tcViewXmlConverter.ts](c:/Users/TwinCAT/Documents/MyStuff/TcView/src/tcViewXmlConverter.ts)
-- [tcViewFragmentCodec.ts](c:/Users/TwinCAT/Documents/MyStuff/TcView/src/tcViewFragmentCodec.ts)
-- [tcViewFileSystemProvider.ts](c:/Users/TwinCAT/Documents/MyStuff/TcView/src/tcViewFileSystemProvider.ts)
+- [tcViewXmlConverter.ts](../src/tcViewXmlConverter.ts)
+- [tcViewFragmentCodec.ts](../src/tcViewFragmentCodec.ts)
+- [tcViewFileSystemProvider.ts](../src/tcViewFileSystemProvider.ts)
 
 ### Project Analyzer
 
@@ -70,7 +70,7 @@ Sources merged by the analyzer:
 
 Key file:
 
-- [tcViewProjectAnalyzer.ts](c:/Users/TwinCAT/Documents/MyStuff/TcView/src/tcViewProjectAnalyzer.ts)
+- [tcViewProjectAnalyzer.ts](../src/tcViewProjectAnalyzer.ts)
 
 ### Optional Backend
 
@@ -84,8 +84,8 @@ Current backend usage is limited to TwinCAT Automation Interface operations:
 
 Key files:
 
-- [tcViewBackendClient.ts](c:/Users/TwinCAT/Documents/MyStuff/TcView/src/backend/tcViewBackendClient.ts)
-- [Program.cs](c:/Users/TwinCAT/Documents/MyStuff/TcView/backend/TcView.Backend/Program.cs)
+- [tcViewBackendClient.ts](../src/backend/tcViewBackendClient.ts)
+- [Program.cs](../backend/TcView.Backend/Program.cs)
 
 Current packaging note:
 
@@ -170,7 +170,7 @@ That boundary is deliberate.
 
 ## Why the Repo Still Contains a Backend Solution
 
-[TcView.sln](c:/Users/TwinCAT/Documents/MyStuff/TcView/TcView.sln) exists to support backend development in Visual Studio.
+[TcView.sln](../TcView.sln) exists to support backend development in Visual Studio.
 
 It is not the main build entrypoint for the VS Code extension itself.
 
