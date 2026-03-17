@@ -2,7 +2,7 @@
   "name": "tcview",
   "displayName": "TcView",
   "description": "TcView: view and edit TwinCAT XML files as IEC Structured Text (ST).",
-  "version": "1.0.0-alpha.2",
+  "version": "1.0.0-alpha.3",
   "publisher": "CodePiercerTechnology",
   "repository": {
     "type": "git",
