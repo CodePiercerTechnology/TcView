@@ -1,0 +1,1633 @@
+{
+  "libraries": [
+    {
+      "name": "Tc2_Standard",
+      "vendor": "Beckhoff Automation GmbH",
+      "category": "Base",
+      "suppliedWith": "TwinCAT 3 PLC",
+      "summary": "Core standard IEC function blocks and timers commonly used in PLC projects.",
+      "infoUrl": "https://infosys.beckhoff.com/english.php?content=../content/1033/tcinfosys3/4340797963.html&id=8505895370400145937",
+      "functionBlocks": [
+        {
+          "name": "R_TRIG",
+          "documentation": "Rising-edge detector.",
+          "members": {
+            "CLK": "BOOL",
+            "Q": "BOOL"
+          }
+        },
+        {
+          "name": "F_TRIG",
+          "documentation": "Falling-edge detector.",
+          "members": {
+            "CLK": "BOOL",
+            "Q": "BOOL"
+          }
+        },
+        {
+          "name": "TON",
+          "documentation": "On-delay timer.",
+          "members": {
+            "IN": "BOOL",
+            "PT": "TIME",
+            "Q": "BOOL",
+            "ET": "TIME"
+          }
+        },
+        {
+          "name": "TOF",
+          "documentation": "Off-delay timer.",
+          "members": {
+            "IN": "BOOL",
+            "PT": "TIME",
+            "Q": "BOOL",
+            "ET": "TIME"
+          }
+        },
+        {
+          "name": "TP",
+          "documentation": "Pulse timer.",
+          "members": {
+            "IN": "BOOL",
+            "PT": "TIME",
+            "Q": "BOOL",
+            "ET": "TIME"
+          }
+        },
+        {
+          "name": "RS",
+          "documentation": "Reset-dominant bistable function block.",
+          "members": {
+            "SET": "BOOL",
+            "RESET1": "BOOL",
+            "Q1": "BOOL"
+          }
+        },
+        {
+          "name": "SR",
+          "documentation": "Set-dominant bistable function block.",
+          "members": {
+            "SET1": "BOOL",
+            "RESET": "BOOL",
+            "Q1": "BOOL"
+          }
+        },
+        {
+          "name": "CTU",
+          "documentation": "Up-counter function block.",
+          "members": {
+            "CU": "BOOL",
+            "R": "BOOL",
+            "PV": "INT",
+            "Q": "BOOL",
+            "CV": "INT"
+          }
+        },
+        {
+          "name": "CTD",
+          "documentation": "Down-counter function block.",
+          "members": {
+            "CD": "BOOL",
+            "LD": "BOOL",
+            "PV": "INT",
+            "Q": "BOOL",
+            "CV": "INT"
+          }
+        },
+        {
+          "name": "CTUD",
+          "documentation": "Up/down counter function block.",
+          "members": {
+            "CU": "BOOL",
+            "CD": "BOOL",
+            "R": "BOOL",
+            "LD": "BOOL",
+            "PV": "INT",
+            "QU": "BOOL",
+            "QD": "BOOL",
+            "CV": "INT"
+          }
+        }
+      ],
+      "variables": [
+        {
+          "name": "stLibVersion_Tc2_Standard",
+          "type": "ST_LibVersion",
+          "documentation": "Global library version constant for Tc2_Standard."
+        }
+      ],
+      "dataTypes": [
+        {
+          "name": "ST_LibVersion",
+          "kind": "struct",
+          "documentation": "Library version structure used by Beckhoff libraries.",
+          "members": {
+            "iMajor": "UINT",
+            "iMinor": "UINT",
+            "iBuild": "UINT",
+            "iRevision": "UINT",
+            "nFlags": "DWORD",
+            "sVersion": "STRING(23)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Tc2_System",
+      "vendor": "Beckhoff Automation GmbH",
+      "category": "Base",
+      "suppliedWith": "TwinCAT 3 PLC",
+      "summary": "System-oriented PLC types and runtime support interfaces.",
+      "infoUrl": "https://infosys.beckhoff.com/english.php?content=../content/1033/tcinfosys3/4340797963.html&id=8505895370400145937",
+      "dataTypes": [
+        {
+          "name": "E_OpenPath",
+          "kind": "enum",
+          "documentation": "Selects generic or TwinCAT system paths for file access operations.",
+          "members": {
+            "PATH_GENERIC": "E_OpenPath",
+            "PATH_BOOTPRJ": "E_OpenPath",
+            "PATH_BOOTDATA": "E_OpenPath",
+            "PATH_BOOTPATH": "E_OpenPath",
+            "PATH_USERPATH1": "E_OpenPath",
+            "PATH_USERPATH2": "E_OpenPath",
+            "PATH_USERPATH3": "E_OpenPath",
+            "PATH_USERPATH4": "E_OpenPath",
+            "PATH_USERPATH5": "E_OpenPath",
+            "PATH_USERPATH6": "E_OpenPath",
+            "PATH_USERPATH7": "E_OpenPath",
+            "PATH_USERPATH8": "E_OpenPath",
+            "PATH_USERPATH9": "E_OpenPath"
+          }
+        },
+        {
+          "name": "E_SeekOrigin",
+          "kind": "enum",
+          "documentation": "Origin point used when moving a file pointer.",
+          "members": {
+            "SEEK_SET": "E_SeekOrigin",
+            "SEEK_CUR": "E_SeekOrigin",
+            "SEEK_END": "E_SeekOrigin"
+          }
+        },
+        {
+          "name": "PlcAppSystemInfo",
+          "kind": "struct",
+          "documentation": "Global PLC application system information.",
+          "members": {
+            "ObjId": "OTCID",
+            "TaskCnt": "UDINT",
+            "OnlineChangeCnt": "UDINT",
+            "Flags": "DWORD",
+            "AdsPort": "UINT",
+            "BootDataLoaded": "BOOL",
+            "OldBootData": "BOOL",
+            "AppTimestamp": "DT",
+            "KeepOutputsOnBP": "BOOL",
+            "ShutdownInProgress": "BOOL",
+            "LicensesPending": "BOOL",
+            "BSODOccured": "BOOL",
+            "LoggedIn": "BOOL",
+            "PersistentStatus": "EPlcPersistentStatus",
+            "TComSrvPtr": "ITComObjectServer"
+          }
+        },
+        {
+          "name": "PlcTaskSystemInfo",
+          "kind": "struct",
+          "documentation": "Global PLC task system information.",
+          "members": {
+            "ObjId": "OTCID",
+            "CycleTime": "UDINT",
+            "Priority": "UINT",
+            "AdsPort": "UINT",
+            "CycleCount": "UDINT",
+            "DcTaskTime": "LINT",
+            "LastExecTime": "UDINT",
+            "FirstCycle": "BOOL",
+            "CycleTimeExceeded": "BOOL",
+            "InCallAfterOutputUpdate": "BOOL",
+            "RTViolation": "BOOL",
+            "TaskName": "STRING(63)"
+          }
+        },
+        {
+          "name": "ST_LibVersion",
+          "kind": "struct",
+          "documentation": "Library version structure used by Beckhoff libraries.",
+          "members": {
+            "iMajor": "UINT",
+            "iMinor": "UINT",
+            "iBuild": "UINT",
+            "iRevision": "UINT",
+            "nFlags": "DWORD",
+            "sVersion": "STRING(23)"
+          }
+        },
+        {
+          "name": "T_AmsNetId",
+          "kind": "alias",
+          "documentation": "AMS network identifier string.",
+          "target": "STRING(23)"
+        },
+        {
+          "name": "T_AmsNetIdArr",
+          "kind": "alias",
+          "documentation": "AMS network identifier byte array returned by F_ScanAmsNetIds."
+        },
+        {
+          "name": "T_AmsPort",
+          "kind": "alias",
+          "documentation": "ADS device port number."
+        },
+        {
+          "name": "T_MaxString",
+          "kind": "alias",
+          "documentation": "Common TwinCAT system string alias."
+        }
+      ],
+      "variables": [
+        {
+          "name": "DEFAULT_ADS_TIMEOUT",
+          "type": "TIME",
+          "documentation": "Default ADS timeout used by Tc2_System function blocks."
+        },
+        {
+          "name": "FOPEN_MODEAPPEND",
+          "type": "DWORD",
+          "documentation": "File open flag: open for appending."
+        },
+        {
+          "name": "FOPEN_MODEBINARY",
+          "type": "DWORD",
+          "documentation": "File open flag: binary mode."
+        },
+        {
+          "name": "FOPEN_MODEPLUS",
+          "type": "DWORD",
+          "documentation": "File open flag: enable read/write mode."
+        },
+        {
+          "name": "FOPEN_MODEREAD",
+          "type": "DWORD",
+          "documentation": "File open flag: open for reading."
+        },
+        {
+          "name": "FOPEN_MODETEXT",
+          "type": "DWORD",
+          "documentation": "File open flag: text mode."
+        },
+        {
+          "name": "FOPEN_MODEWRITE",
+          "type": "DWORD",
+          "documentation": "File open flag: open for writing and overwrite existing files."
+        },
+        {
+          "name": "stLibVersion_Tc2_System",
+          "type": "ST_LibVersion",
+          "documentation": "Global library version constant for Tc2_System."
+        }
+      ],
+      "functionBlocks": [
+        {
+          "name": "ADSCLEAREVENTS",
+          "documentation": "Sends and acknowledges TwinCAT EventLogger messages."
+        },
+        {
+          "name": "ADSLOGEVENT",
+          "documentation": "Sends and acknowledges TwinCAT EventLogger messages."
+        },
+        {
+          "name": "ADSRDDEVINFO",
+          "documentation": "Reads ADS device information."
+        },
+        {
+          "name": "ADSRDSTATE",
+          "documentation": "Reads the state of an ADS device."
+        },
+        {
+          "name": "ADSRDWRT",
+          "documentation": "Reading and writing data via ADS."
+        },
+        {
+          "name": "ADSRDWRTEX",
+          "documentation": "Writes data via ADS and returns the number of bytes read."
+        },
+        {
+          "name": "ADSRDWRTIND",
+          "documentation": "ADSRDWRT indication."
+        },
+        {
+          "name": "ADSRDWRTRES",
+          "documentation": "ADSRDWRT response."
+        },
+        {
+          "name": "ADSREAD",
+          "documentation": "Reading data via ADS."
+        },
+        {
+          "name": "ADSREADEX",
+          "documentation": "Reads data via ADS and returns the number of bytes read."
+        },
+        {
+          "name": "ADSREADIND",
+          "documentation": "ADSREAD indication."
+        },
+        {
+          "name": "ADSREADRES",
+          "documentation": "ADSREAD response."
+        },
+        {
+          "name": "ADSWRITE",
+          "documentation": "Writing data via ADS."
+        },
+        {
+          "name": "ADSWRITEIND",
+          "documentation": "ADSWRITE indication."
+        },
+        {
+          "name": "ADSWRITERES",
+          "documentation": "ADSWRITE response."
+        },
+        {
+          "name": "ADSWRTCTL",
+          "documentation": "Writes control words to an ADS device."
+        },
+        {
+          "name": "AnalyzeEspressionTable",
+          "documentation": "Required if SFC flags are used."
+        },
+        {
+          "name": "AnalyzeExpression",
+          "documentation": "Required if SFC flags are used."
+        },
+        {
+          "name": "AnalyzeExpressionCombined",
+          "documentation": "Required if SFC flags are used."
+        },
+        {
+          "name": "AppendErrorString",
+          "documentation": "Formats strings with error descriptions for SFC flags."
+        },
+        {
+          "name": "DRAND",
+          "documentation": "Random number generator."
+        },
+        {
+          "name": "FB_CreateDir",
+          "documentation": "Create new directory."
+        },
+        {
+          "name": "FB_EOF",
+          "documentation": "Checks whether the end of a file was reached."
+        },
+        {
+          "name": "FB_FileClose",
+          "documentation": "Close a file."
+        },
+        {
+          "name": "FB_FileDelete",
+          "documentation": "Deletes a file."
+        },
+        {
+          "name": "FB_FileOpen",
+          "documentation": "Open a file."
+        },
+        {
+          "name": "FB_FileRead",
+          "documentation": "Read from a file."
+        },
+        {
+          "name": "FB_FileRename",
+          "documentation": "Renames a file."
+        },
+        {
+          "name": "FB_FileWrite",
+          "documentation": "Write to a file."
+        },
+        {
+          "name": "FB_IecCriticalSection",
+          "documentation": "Critical sections should be made mutually exclusive."
+        },
+        {
+          "name": "FB_PcWatchdog",
+          "documentation": "Activates or deactivates the PC watchdog."
+        },
+        {
+          "name": "FB_PcWatchdog_BAPI",
+          "documentation": "Activates or deactivates the PC watchdog on supported BIOS API systems."
+        },
+        {
+          "name": "FB_RemoveDir",
+          "documentation": "Remove directory."
+        },
+        {
+          "name": "FB_SetLedColor_BAPI",
+          "documentation": "Switches the user LED on supported PCs and Embedded PCs."
+        },
+        {
+          "name": "FB_SimpleAdsLogEvent",
+          "documentation": "Sends and acknowledges TwinCAT EventLogger messages."
+        },
+        {
+          "name": "GETCPUACCOUNT",
+          "documentation": "Reads the PLC task cycle counter."
+        },
+        {
+          "name": "GETCPUCOUNTER",
+          "documentation": "Reads the CPU cycle counter."
+        },
+        {
+          "name": "GETCURTASKINDEX",
+          "documentation": "Determines the index of the current task."
+        },
+        {
+          "name": "SFCActionControl",
+          "documentation": "Enables the use of IEC steps."
+        }
+      ],
+      "functions": [
+        {
+          "name": "ADSLOGDINT",
+          "documentation": "Logs a DINT value into the NT Eventlog and/or message box."
+        },
+        {
+          "name": "ADSLOGLREAL",
+          "documentation": "Logs a REAL/LREAL value into the NT Eventlog and/or message box."
+        },
+        {
+          "name": "ADSLOGSTR",
+          "documentation": "Logs a STRING value into the NT Eventlog and/or message box."
+        },
+        {
+          "name": "CLEARBIT32",
+          "documentation": "Clears a bit in a DWORD."
+        },
+        {
+          "name": "CSETBIT32",
+          "documentation": "Sets or resets a bit in a DWORD."
+        },
+        {
+          "name": "F_CheckMemoryArea",
+          "documentation": "Returns information about the memory area in which a variable is located."
+        },
+        {
+          "name": "F_CmpLibVersion",
+          "returnType": "DINT",
+          "documentation": "Compares an existing library version with the required version."
+        },
+        {
+          "name": "F_CreateAmsNetId",
+          "returnType": "STRING",
+          "documentation": "Creates an AmsNetId string."
+        },
+        {
+          "name": "F_CreateIPv4Addr",
+          "returnType": "STRING",
+          "documentation": "Converts individual IPv4 address bytes to a string."
+        },
+        {
+          "name": "F_GetMappingPartner",
+          "documentation": "Returns the object ID of the partner side of the mapping."
+        },
+        {
+          "name": "F_GetMappingStatus",
+          "documentation": "Returns the current mapping status of a PLC variable."
+        },
+        {
+          "name": "F_GetStructMemberAlignment",
+          "documentation": "Reads information about the memory alignment used."
+        },
+        {
+          "name": "F_GetSystemTime",
+          "documentation": "Reads the operating system timestamp."
+        },
+        {
+          "name": "F_GetTaskInfo",
+          "returnType": "PlcTaskSystemInfo",
+          "documentation": "Returns the task system information for the calling task."
+        },
+        {
+          "name": "F_GetTaskTime",
+          "documentation": "Reads the target start time of the task."
+        },
+        {
+          "name": "F_IOPortRead",
+          "documentation": "Reads from an I/O port."
+        },
+        {
+          "name": "F_IOPortWrite",
+          "documentation": "Writes to an I/O port."
+        },
+        {
+          "name": "F_ScanAmsNetIds",
+          "returnType": "BOOL",
+          "documentation": "Converts an AmsNetId string to array elements."
+        },
+        {
+          "name": "F_ScanIPv4AddrIds",
+          "returnType": "BOOL",
+          "documentation": "Converts an IPv4 address string to individual address bytes."
+        },
+        {
+          "name": "F_SplitPathName",
+          "documentation": "Splits a path name into individual components."
+        },
+        {
+          "name": "F_ToASC",
+          "returnType": "BYTE",
+          "documentation": "Converts a string character to an ASCII code."
+        },
+        {
+          "name": "F_ToCHR",
+          "returnType": "STRING",
+          "documentation": "Converts an ASCII code to a character."
+        },
+        {
+          "name": "GETBIT32",
+          "documentation": "Reads a bit from a DWORD."
+        },
+        {
+          "name": "GETCURTASTINDEXEX",
+          "returnType": "UINT",
+          "documentation": "Determines the task index."
+        },
+        {
+          "name": "LPTSIGNAL",
+          "documentation": "Outputs a signal on one of the parallel port pins."
+        },
+        {
+          "name": "MEMCMP",
+          "returnType": "DINT",
+          "documentation": "Compares the values of variables in two memory areas."
+        },
+        {
+          "name": "MEMCPY",
+          "returnType": "UDINT",
+          "documentation": "Copies values from one memory area to another."
+        },
+        {
+          "name": "MEMMOVE",
+          "returnType": "UDINT",
+          "documentation": "Copies values from overlapping memory areas."
+        },
+        {
+          "name": "MEMSET",
+          "returnType": "UDINT",
+          "documentation": "Sets the variables in a memory area to a particular value."
+        },
+        {
+          "name": "SETBIT32",
+          "documentation": "Sets a bit in a DWORD."
+        },
+        {
+          "name": "TestAndSet",
+          "documentation": "Sets and checks a flag without interruption."
+        }
+      ]
+    },
+    {
+      "name": "Tc2_Utilities",
+      "vendor": "Beckhoff Automation GmbH",
+      "category": "Base",
+      "suppliedWith": "TwinCAT 3 PLC",
+      "summary": "General-purpose utility blocks for typical PLC application code.",
+      "infoUrl": "https://infosys.beckhoff.com/content/1033/tcplclib_tc2_utilities/index.html?id=2949581920031290772",
+      "variables": [
+        {
+          "name": "stLibVersion_Tc2_Utilities",
+          "type": "ST_LibVersion",
+          "documentation": "Global library version constant for Tc2_Utilities."
+        }
+      ],
+      "functionBlocks": [
+        {
+          "name": "FB_LocalSystemTime",
+          "documentation": "Returns the local Windows system time and daylight-saving information."
+        },
+        {
+          "name": "FB_GetRouterStatusInfo",
+          "documentation": "Reads TwinCAT Router status information."
+        },
+        {
+          "name": "FB_RegQueryValue",
+          "documentation": "Reads values from the Windows registry."
+        },
+        {
+          "name": "FB_RegSetValue",
+          "documentation": "Writes values to the Windows registry."
+        },
+        {
+          "name": "FB_EnumFindFileEntry",
+          "documentation": "Searches a directory for a file or subdirectory whose name matches a pattern."
+        },
+        {
+          "name": "FB_EnumFindFileList",
+          "documentation": "Searches a directory and returns matching entries in groups."
+        },
+        {
+          "name": "FB_GetAdaptersInfo",
+          "documentation": "Reads network adapter information."
+        },
+        {
+          "name": "FB_GetHostName",
+          "documentation": "Reads the host name of the local PC."
+        },
+        {
+          "name": "FB_GetHostAddrByName",
+          "documentation": "Converts a host name into an IPv4 address."
+        },
+        {
+          "name": "FB_GetTimeZoneInformation",
+          "documentation": "Reads the operating system time zone configuration."
+        },
+        {
+          "name": "FB_SetTimeZoneInformation",
+          "documentation": "Sets the operating system time zone configuration."
+        },
+        {
+          "name": "FB_CheckLicense",
+          "documentation": "Checks an OEM/application license."
+        },
+        {
+          "name": "FB_FormatString",
+          "documentation": "Formats values into strings using format placeholders."
+        },
+        {
+          "name": "FB_GetLocalAmsNetId",
+          "documentation": "Reads the local AMS Net ID of the runtime."
+        },
+        {
+          "name": "FB_MemRingBuffer",
+          "documentation": "Utility function block for ring-buffer style memory management."
+        },
+        {
+          "name": "FB_WritePersistentData",
+          "documentation": "Writes PLC persistent data explicitly."
+        },
+        {
+          "name": "RTC_EX",
+          "documentation": "Extended real-time clock function block."
+        },
+        {
+          "name": "RTC_EX2",
+          "documentation": "Extended real-time clock function block."
+        }
+      ],
+      "functions": [
+        {
+          "name": "NT_Shutdown",
+          "returnType": "BOOL",
+          "documentation": "Shuts down the operating system."
+        },
+        {
+          "name": "NT_AbortShutdown",
+          "returnType": "BOOL",
+          "documentation": "Interrupts an operating system shutdown."
+        },
+        {
+          "name": "NT_Reboot",
+          "returnType": "BOOL",
+          "documentation": "Restarts the operating system."
+        },
+        {
+          "name": "NT_GetTime",
+          "returnType": "BOOL",
+          "documentation": "Reads the current local Windows system time."
+        },
+        {
+          "name": "NT_SetLocalTime",
+          "returnType": "BOOL",
+          "documentation": "Sets the current local Windows system time."
+        },
+        {
+          "name": "NT_StartProcess",
+          "returnType": "BOOL",
+          "documentation": "Starts a Windows application from the PLC."
+        },
+        {
+          "name": "NT_SetTimeToRTCTime",
+          "returnType": "BOOL",
+          "documentation": "Synchronizes the local Windows system time with the RTC."
+        },
+        {
+          "name": "PLC_Reset",
+          "returnType": "BOOL",
+          "documentation": "Resets the PLC."
+        },
+        {
+          "name": "PLC_Start",
+          "returnType": "BOOL",
+          "documentation": "Starts the PLC."
+        },
+        {
+          "name": "PLC_Stop",
+          "returnType": "BOOL",
+          "documentation": "Stops the PLC."
+        },
+        {
+          "name": "TC_Restart",
+          "returnType": "BOOL",
+          "documentation": "Restarts the TwinCAT system."
+        },
+        {
+          "name": "TC_Stop",
+          "returnType": "BOOL",
+          "documentation": "Stops the TwinCAT system."
+        },
+        {
+          "name": "TC_Config",
+          "returnType": "BOOL",
+          "documentation": "Switches the TwinCAT system to CONFIG mode."
+        },
+        {
+          "name": "TC_CpuUsage",
+          "returnType": "UDINT",
+          "documentation": "Determines CPU usage of the TwinCAT system."
+        },
+        {
+          "name": "TC_SysLatency",
+          "returnType": "UDINT",
+          "documentation": "Determines the current and maximum latency time of a TwinCAT system."
+        },
+        {
+          "name": "F_CheckSum16",
+          "returnType": "UINT",
+          "documentation": "Calculates a 16-bit checksum."
+        },
+        {
+          "name": "F_DATA_TO_CRC16_CCITT",
+          "returnType": "UINT",
+          "documentation": "Calculates CRC16-CCITT for arbitrary data."
+        },
+        {
+          "name": "F_BYTE_TO_CRC16_CCITT",
+          "returnType": "UINT",
+          "documentation": "Calculates CRC16-CCITT for one byte."
+        },
+        {
+          "name": "F_ARGCMP",
+          "documentation": "Performs an argument comparison helper operation."
+        },
+        {
+          "name": "F_ARGCPY",
+          "documentation": "Performs an argument copy helper operation."
+        },
+        {
+          "name": "F_ARGISZERO",
+          "returnType": "BOOL",
+          "documentation": "Checks whether the supplied argument value is zero."
+        },
+        {
+          "name": "F_FormatArgToStr",
+          "returnType": "STRING",
+          "documentation": "Formats a single Tc2_Utilities argument value into its string representation."
+        },
+        {
+          "name": "F_BIGTYPE",
+          "documentation": "Converts an input value to BIGTYPE."
+        },
+        {
+          "name": "F_BOOL",
+          "returnType": "BOOL",
+          "documentation": "Converts an input value to BOOL."
+        },
+        {
+          "name": "F_BYTE",
+          "returnType": "BYTE",
+          "documentation": "Converts an input value to BYTE."
+        },
+        {
+          "name": "F_DINT",
+          "returnType": "DINT",
+          "documentation": "Converts an input value to DINT."
+        },
+        {
+          "name": "F_DWORD",
+          "returnType": "DWORD",
+          "documentation": "Converts a numeric input value to DWORD."
+        },
+        {
+          "name": "F_HUGE",
+          "documentation": "Converts an input value to HUGE."
+        },
+        {
+          "name": "F_INT",
+          "returnType": "INT",
+          "documentation": "Converts an input value to INT."
+        },
+        {
+          "name": "F_LARGE",
+          "documentation": "Converts an input value to LARGE."
+        },
+        {
+          "name": "F_LINT",
+          "returnType": "LINT",
+          "documentation": "Converts an input value to LINT."
+        },
+        {
+          "name": "F_LREAL",
+          "returnType": "LREAL",
+          "documentation": "Converts an input value to LREAL."
+        },
+        {
+          "name": "F_LWORD",
+          "returnType": "LWORD",
+          "documentation": "Converts an input value to LWORD."
+        },
+        {
+          "name": "F_PVOID",
+          "returnType": "PVOID",
+          "documentation": "Converts an input value to PVOID."
+        },
+        {
+          "name": "F_REAL",
+          "returnType": "REAL",
+          "documentation": "Converts a numeric input value to REAL."
+        },
+        {
+          "name": "F_SINT",
+          "returnType": "SINT",
+          "documentation": "Converts an input value to SINT."
+        },
+        {
+          "name": "F_STRING",
+          "returnType": "STRING",
+          "documentation": "Converts an input value to STRING."
+        },
+        {
+          "name": "F_STRINGEx",
+          "returnType": "STRINGEx",
+          "documentation": "Converts an input value to STRINGEx."
+        },
+        {
+          "name": "F_UDINT",
+          "returnType": "UDINT",
+          "documentation": "Converts a numeric input value to UDINT."
+        },
+        {
+          "name": "F_UHUGE",
+          "documentation": "Converts an input value to UHUGE."
+        },
+        {
+          "name": "F_UINT",
+          "returnType": "UINT",
+          "documentation": "Converts an input value to UINT."
+        },
+        {
+          "name": "F_ULARGE",
+          "documentation": "Converts an input value to ULARGE."
+        },
+        {
+          "name": "F_ULINT",
+          "returnType": "ULINT",
+          "documentation": "Converts an input value to ULINT."
+        },
+        {
+          "name": "F_USINT",
+          "returnType": "USINT",
+          "documentation": "Converts an input value to USINT."
+        },
+        {
+          "name": "F_WORD",
+          "returnType": "WORD",
+          "documentation": "Converts an input value to WORD."
+        },
+        {
+          "name": "WritePersistentData",
+          "returnType": "BOOL",
+          "documentation": "Triggers writing PLC persistent data."
+        },
+        {
+          "name": "IsFinite",
+          "returnType": "BOOL",
+          "documentation": "Checks whether a REAL/LREAL value is finite."
+        }
+      ],
+      "dataTypes": [
+        {
+          "name": "ST_LibVersion",
+          "kind": "struct",
+          "documentation": "Library version structure used by Beckhoff libraries.",
+          "members": {
+            "iMajor": "UINT",
+            "iMinor": "UINT",
+            "iBuild": "UINT",
+            "iRevision": "UINT",
+            "nFlags": "DWORD",
+            "sVersion": "STRING(23)"
+          }
+        },
+        {
+          "name": "TIMESTRUCT",
+          "kind": "struct",
+          "documentation": "Broken-down date and time structure.",
+          "members": {
+            "wYear": "WORD",
+            "wMonth": "WORD",
+            "wDay": "WORD",
+            "wHour": "WORD",
+            "wMinute": "WORD",
+            "wSecond": "WORD",
+            "wMilliseconds": "WORD",
+            "wDayOfWeek": "WORD"
+          }
+        },
+        {
+          "name": "ST_TimeZoneInformation",
+          "kind": "struct",
+          "documentation": "Time zone information returned by Tc2_Utilities functions.",
+          "members": {
+            "bias": "DINT",
+            "standardName": "STRING",
+            "standardDate": "TIMESTRUCT",
+            "standardBias": "DINT",
+            "daylightName": "STRING",
+            "daylightDate": "TIMESTRUCT",
+            "daylightBias": "DINT"
+          }
+        },
+        {
+          "name": "ST_AmsGetTimeZoneInformation",
+          "kind": "struct",
+          "documentation": "Structure used for ADS time-zone information exchange."
+        },
+        {
+          "name": "ST_AmsRouteEntry",
+          "kind": "struct",
+          "documentation": "AMS route entry description."
+        },
+        {
+          "name": "ST_FormatParameters",
+          "kind": "struct",
+          "documentation": "Parameter container used by formatting helpers."
+        },
+        {
+          "name": "ST_HKeySrvRead",
+          "kind": "struct",
+          "documentation": "Registry read request/response structure for registry helper blocks."
+        },
+        {
+          "name": "T_Arg",
+          "kind": "alias",
+          "documentation": "Generic argument helper type used by formatting and conversion helpers."
+        },
+        {
+          "name": "T_ULARGE_INTEGER",
+          "kind": "struct",
+          "documentation": "Unsigned 64-bit integer split into high and low DWORD parts.",
+          "members": {
+            "dwLowPart": "DWORD",
+            "dwHighPart": "DWORD"
+          }
+        },
+        {
+          "name": "E_ArgType",
+          "kind": "enum",
+          "documentation": "Argument type classification used by formatting helpers."
+        },
+        {
+          "name": "E_HashPrefixTypes",
+          "kind": "enum",
+          "documentation": "Prefix-type selection for hash/string helper APIs."
+        },
+        {
+          "name": "E_PersistentMode",
+          "kind": "enum",
+          "documentation": "Mode selection for writing persistent data."
+        },
+        {
+          "name": "E_RouteTransportType",
+          "kind": "enum",
+          "documentation": "Transport type used for AMS route configuration."
+        },
+        {
+          "name": "E_SBCSType",
+          "kind": "enum",
+          "documentation": "Single-byte character set selection."
+        },
+        {
+          "name": "E_TimeZoneID",
+          "kind": "enum",
+          "documentation": "Time-zone identifier used by Tc2_Utilities time APIs."
+        },
+        {
+          "name": "E_TypeFieldParam",
+          "kind": "enum",
+          "documentation": "Type-field selector used by formatting helpers."
+        },
+        {
+          "name": "RTC_EX2",
+          "kind": "struct",
+          "documentation": "Extended RTC/date-time structure used by utility time helpers."
+        },
+        {
+          "name": "RTC_EX",
+          "kind": "struct",
+          "documentation": "Extended RTC/date-time structure used by utility time helpers."
+        }
+      ]
+    },
+    {
+      "name": "Tc2_Math",
+      "vendor": "Beckhoff Automation GmbH",
+      "category": "Base",
+      "suppliedWith": "TwinCAT 3 PLC",
+      "summary": "Additional mathematical function blocks and helper functions.",
+      "infoUrl": "https://infosys.beckhoff.com/english.php?content=../content/1033/tcinfosys3/4340797963.html&id=8505895370400145937"
+    },
+    {
+      "name": "Tc2_IoFunctions",
+      "vendor": "Beckhoff Automation GmbH",
+      "category": "I/O",
+      "suppliedWith": "TwinCAT 3 PLC",
+      "summary": "PLC-side helper functions for common I/O handling tasks.",
+      "infoUrl": "https://infosys.beckhoff.com/english.php?content=../content/1033/tcinfosys3/4340797963.html&id=8505895370400145937"
+    },
+    {
+      "name": "Tc2_DataExchange",
+      "vendor": "Beckhoff Automation GmbH",
+      "category": "Communication",
+      "suppliedWith": "TwinCAT 3 PLC",
+      "summary": "Data exchange helpers for moving information between PLC and external systems.",
+      "infoUrl": "https://infosys.beckhoff.com/english.php?content=../content/1033/tcinfosys3/4340797963.html&id=8505895370400145937"
+    },
+    {
+      "name": "Tc2_EtherCAT",
+      "vendor": "Beckhoff Automation GmbH",
+      "category": "Communication",
+      "suppliedWith": "TwinCAT 3 PLC",
+      "summary": "EtherCAT-related PLC interfaces and helper blocks.",
+      "infoUrl": "https://infosys.beckhoff.com/english.php?content=../content/1033/tcinfosys3/4340797963.html&id=8505895370400145937"
+    },
+    {
+      "name": "Tc2_EthernetIP",
+      "vendor": "Beckhoff Automation GmbH",
+      "category": "Communication",
+      "suppliedWith": "TwinCAT 3 PLC",
+      "summary": "EtherNet/IP communication support for PLC applications.",
+      "infoUrl": "https://infosys.beckhoff.com/english.php?content=../content/1033/tcinfosys3/4340797963.html&id=8505895370400145937"
+    },
+    {
+      "name": "Tc2_IEC61850",
+      "vendor": "Beckhoff Automation GmbH",
+      "category": "Communication",
+      "suppliedWith": "TwinCAT 3 PLC",
+      "summary": "IEC 61850 communication support for electrical automation projects.",
+      "infoUrl": "https://infosys.beckhoff.com/english.php?content=../content/1033/tcinfosys3/4340797963.html&id=8505895370400145937"
+    },
+    {
+      "name": "Tc2_MBus",
+      "vendor": "Beckhoff Automation GmbH",
+      "category": "Communication",
+      "suppliedWith": "TwinCAT 3 PLC",
+      "summary": "M-Bus communication support for metering and building applications.",
+      "infoUrl": "https://infosys.beckhoff.com/english.php?content=../content/1033/tcinfosys3/4340797963.html&id=8505895370400145937"
+    },
+    {
+      "name": "Tc2_ModbusSrv",
+      "vendor": "Beckhoff Automation GmbH",
+      "category": "Communication",
+      "suppliedWith": "TwinCAT 3 PLC",
+      "summary": "Modbus server-side communication support.",
+      "infoUrl": "https://infosys.beckhoff.com/english.php?content=../content/1033/tcinfosys3/4340797963.html&id=8505895370400145937"
+    },
+    {
+      "name": "Tc2_ModbusTcp",
+      "vendor": "Beckhoff Automation GmbH",
+      "category": "Communication",
+      "suppliedWith": "TwinCAT 3 PLC",
+      "summary": "Modbus TCP communication support for PLC applications.",
+      "infoUrl": "https://infosys.beckhoff.com/english.php?content=../content/1033/tcinfosys3/4340797963.html&id=8505895370400145937"
+    },
+    {
+      "name": "Tc2_ProfinetDiag",
+      "vendor": "Beckhoff Automation GmbH",
+      "category": "Communication",
+      "suppliedWith": "TwinCAT 3 PLC",
+      "summary": "Diagnostic support for PROFINET-connected systems.",
+      "infoUrl": "https://infosys.beckhoff.com/english.php?content=../content/1033/tcinfosys3/4340797963.html&id=8505895370400145937"
+    },
+    {
+      "name": "Tc2_MC2",
+      "vendor": "Beckhoff Automation GmbH",
+      "category": "Motion",
+      "suppliedWith": "TwinCAT 3 NC/PTP",
+      "summary": "Core PLCopen-style motion control function blocks.",
+      "infoUrl": "https://infosys.beckhoff.com/english.php?content=../content/1033/tcinfosys3/4340797963.html&id=8505895370400145937"
+    },
+    {
+      "name": "Tc2_MC2_Drive",
+      "vendor": "Beckhoff Automation GmbH",
+      "category": "Motion",
+      "suppliedWith": "TwinCAT 3 NC/PTP",
+      "summary": "Drive-oriented extensions around the Tc2_MC2 motion layer.",
+      "infoUrl": "https://infosys.beckhoff.com/english.php?content=../content/1033/tcinfosys3/4340797963.html&id=8505895370400145937"
+    },
+    {
+      "name": "Tc2_Drive",
+      "vendor": "Beckhoff Automation GmbH",
+      "category": "Motion",
+      "suppliedWith": "TwinCAT 3 NC/PTP",
+      "summary": "Drive communication and axis-oriented helper functionality.",
+      "infoUrl": "https://infosys.beckhoff.com/english.php?content=../content/1033/tcinfosys3/4340797963.html&id=8505895370400145937"
+    },
+    {
+      "name": "Tc3_Module",
+      "vendor": "Beckhoff Automation GmbH",
+      "category": "Framework",
+      "suppliedWith": "TwinCAT 3 PLC",
+      "summary": "Module framework library used by componentized TwinCAT solutions.",
+      "infoUrl": "https://infosys.beckhoff.com/content/1033/tcplclib_tc3_module/index.html?id=6104941854863873775",
+      "functionBlocks": [
+        {
+          "name": "TcBaseModuleRegistered",
+          "documentation": "Base function block that registers a TcCOM object automatically."
+        },
+        {
+          "name": "TcBaseModule",
+          "documentation": "Base TcCOM module function block."
+        }
+      ],
+      "functions": [
+        {
+          "name": "FW_ObjMgr_CreateAndInitInstance",
+          "returnType": "HRESULT",
+          "documentation": "Creates and initializes a TcCOM object instance."
+        },
+        {
+          "name": "FW_ObjMgr_CreateInstance",
+          "returnType": "HRESULT",
+          "documentation": "Creates an instance of the specified class and returns an interface pointer."
+        },
+        {
+          "name": "FW_ObjMgr_DeleteInstance",
+          "returnType": "HRESULT",
+          "documentation": "Deletes a previously created TcCOM object instance."
+        },
+        {
+          "name": "FW_ObjMgr_GetObjectInstance",
+          "returnType": "HRESULT",
+          "documentation": "Obtains an interface pointer to an existing object instance."
+        },
+        {
+          "name": "FW_SafeRelease",
+          "returnType": "HRESULT",
+          "documentation": "Safely releases a TcCOM interface reference."
+        },
+        {
+          "name": "FAILED",
+          "returnType": "BOOL",
+          "documentation": "Evaluates an HRESULT as failure."
+        },
+        {
+          "name": "SUCCEEDED",
+          "returnType": "BOOL",
+          "documentation": "Evaluates an HRESULT as success."
+        },
+        {
+          "name": "GuidsEqual",
+          "returnType": "BOOL",
+          "documentation": "Compares two GUID values."
+        },
+        {
+          "name": "TcAddRef",
+          "returnType": "HRESULT",
+          "documentation": "Increments the reference count of a TcCOM interface."
+        },
+        {
+          "name": "TcRelease",
+          "returnType": "HRESULT",
+          "documentation": "Decrements the reference count of a TcCOM interface."
+        },
+        {
+          "name": "TcQuerySmartObjectInterface",
+          "returnType": "HRESULT",
+          "documentation": "Queries a TcCOM object for a requested interface."
+        },
+        {
+          "name": "TcGetObjectId",
+          "returnType": "OTCID",
+          "documentation": "Returns the object identifier of a TcCOM object."
+        },
+        {
+          "name": "TcGetObjectState",
+          "returnType": "HRESULT",
+          "documentation": "Reads the current object state of a TcCOM object."
+        },
+        {
+          "name": "TcSetObjStatePS",
+          "returnType": "HRESULT",
+          "documentation": "Requests a TwinCAT object state transition."
+        }
+      ],
+      "variables": [
+        {
+          "name": "S_OK",
+          "type": "HRESULT",
+          "documentation": "HRESULT success code."
+        },
+        {
+          "name": "S_FALSE",
+          "type": "HRESULT",
+          "documentation": "HRESULT success code indicating a false or partial result."
+        },
+        {
+          "name": "E_FAIL",
+          "type": "HRESULT",
+          "documentation": "Unspecified HRESULT failure code."
+        },
+        {
+          "name": "E_NOTIMPL",
+          "type": "HRESULT",
+          "documentation": "HRESULT indicating the requested operation is not implemented."
+        },
+        {
+          "name": "E_POINTER",
+          "type": "HRESULT",
+          "documentation": "HRESULT indicating an invalid pointer reference."
+        },
+        {
+          "name": "E_INVALIDARG",
+          "type": "HRESULT",
+          "documentation": "HRESULT indicating one or more arguments are invalid."
+        },
+        {
+          "name": "E_OUTOFMEMORY",
+          "type": "HRESULT",
+          "documentation": "HRESULT indicating insufficient memory."
+        }
+      ],
+      "dataTypes": [
+        {
+          "name": "HRESULT",
+          "kind": "alias",
+          "documentation": "Result code returned by TcCOM API functions."
+        },
+        {
+          "name": "CLSID",
+          "kind": "alias",
+          "documentation": "Class identifier used for TcCOM objects."
+        },
+        {
+          "name": "IID",
+          "kind": "alias",
+          "documentation": "Interface identifier used for TcCOM interfaces."
+        },
+        {
+          "name": "ITcUnknown",
+          "kind": "alias",
+          "documentation": "Base TcCOM interface for reference counting and interface queries."
+        },
+        {
+          "name": "ITComObject",
+          "kind": "alias",
+          "documentation": "TcCOM object interface."
+        },
+        {
+          "name": "ITComObjectServer",
+          "kind": "alias",
+          "documentation": "TcCOM object server interface."
+        },
+        {
+          "name": "ITcADI",
+          "kind": "alias",
+          "documentation": "TcCOM interface for ADS device information access."
+        },
+        {
+          "name": "ITcCyclic",
+          "kind": "alias",
+          "documentation": "TcCOM interface for cyclic module execution."
+        },
+        {
+          "name": "ITcCyclicCaller",
+          "kind": "alias",
+          "documentation": "TcCOM caller interface for cyclic execution context."
+        },
+        {
+          "name": "ITcIoInputUpdate",
+          "kind": "alias",
+          "documentation": "TcCOM interface for input update callbacks."
+        },
+        {
+          "name": "ITcIoOutputUpdate",
+          "kind": "alias",
+          "documentation": "TcCOM interface for output update callbacks."
+        },
+        {
+          "name": "ITcModule",
+          "kind": "alias",
+          "documentation": "Base Tc3_Module interface for TwinCAT module objects."
+        },
+        {
+          "name": "ITcModuleParameter",
+          "kind": "alias",
+          "documentation": "TcCOM interface for module parameter access."
+        },
+        {
+          "name": "ITcPostCyclic",
+          "kind": "alias",
+          "documentation": "TcCOM interface for post-cyclic callbacks."
+        },
+        {
+          "name": "ITcPreCyclic",
+          "kind": "alias",
+          "documentation": "TcCOM interface for pre-cyclic callbacks."
+        },
+        {
+          "name": "ITcTask",
+          "kind": "alias",
+          "documentation": "TcCOM task interface."
+        },
+        {
+          "name": "OTCID",
+          "kind": "alias",
+          "documentation": "TwinCAT object identifier type."
+        }
+      ]
+    },
+    {
+      "name": "Tc3_GlobalTypes",
+      "vendor": "Beckhoff Automation GmbH",
+      "category": "Framework",
+      "suppliedWith": "TwinCAT 3 PLC",
+      "summary": "Common TwinCAT 3 global data types shared across Beckhoff libraries and PLC projects.",
+      "infoUrl": "https://infosys.beckhoff.com/english.php?content=../content/1033/tcinfosys3/4340797963.html&id=8505895370400145937",
+      "dataTypes": [
+        {
+          "name": "ST_LibVersion",
+          "kind": "struct",
+          "documentation": "Global data type for Beckhoff library versions.",
+          "members": {
+            "iMajor": "UINT",
+            "iMinor": "UINT",
+            "iBuild": "UINT",
+            "iRevision": "UINT",
+            "nFlags": "DWORD",
+            "sVersion": "STRING(23)"
+          }
+        },
+        {
+          "name": "PlcAppSystemInfo",
+          "kind": "struct",
+          "documentation": "Global PLC application system information.",
+          "members": {
+            "ObjId": "OTCID",
+            "TaskCnt": "UDINT",
+            "OnlineChangeCnt": "UDINT",
+            "Flags": "DWORD",
+            "AdsPort": "UINT",
+            "BootDataLoaded": "BOOL",
+            "OldBootData": "BOOL",
+            "AppTimestamp": "DT",
+            "KeepOutputsOnBP": "BOOL",
+            "ShutdownInProgress": "BOOL",
+            "LicensesPending": "BOOL",
+            "BSODOccured": "BOOL",
+            "LoggedIn": "BOOL",
+            "PersistentStatus": "EPlcPersistentStatus",
+            "TComSrvPtr": "ITComObjectServer",
+            "AppName": "STRING(63)"
+          }
+        },
+        {
+          "name": "PlcTaskSystemInfo",
+          "kind": "struct",
+          "documentation": "Global PLC task system information.",
+          "members": {
+            "ObjId": "OTCID",
+            "CycleTime": "UDINT",
+            "Priority": "UINT",
+            "AdsPort": "UINT",
+            "CycleCount": "UDINT",
+            "DcTaskTime": "LINT",
+            "LastExecTime": "UDINT",
+            "FirstCycle": "BOOL",
+            "CycleTimeExceeded": "BOOL",
+            "InCallAfterOutputUpdate": "BOOL",
+            "RTViolation": "BOOL",
+            "TaskName": "STRING(63)"
+          }
+        },
+        {
+          "name": "TwinCAT_SystemInfoVarList",
+          "kind": "struct",
+          "documentation": "Namespace wrapper used for system information types and globals from Tc3_GlobalTypes.",
+          "members": {
+            "PlcAppSystemInfo": "PlcAppSystemInfo",
+            "PlcTaskSystemInfo": "PlcTaskSystemInfo",
+            "_AppInfo": "PlcAppSystemInfo",
+            "_TaskInfo": "ARRAY[*] OF PlcTaskSystemInfo"
+          }
+        }
+      ],
+      "variables": [
+        {
+          "name": "TwinCAT_SystemInfoVarList",
+          "type": "TwinCAT_SystemInfoVarList",
+          "documentation": "Namespace instance exposing system information types and globals."
+        },
+        {
+          "name": "_AppInfo",
+          "type": "PlcAppSystemInfo",
+          "documentation": "Global application system information instance."
+        },
+        {
+          "name": "_TaskInfo",
+          "type": "ARRAY[*] OF PlcTaskSystemInfo",
+          "documentation": "Global task system information array."
+        }
+      ]
+    },
+    {
+      "name": "Tc3_GlobalTypes_Global",
+      "vendor": "Beckhoff Automation GmbH",
+      "category": "Framework",
+      "suppliedWith": "TwinCAT 3 PLC",
+      "summary": "Virtual global data type library created from unnamed TwinCAT global types on build 4026 and later.",
+      "infoUrl": "https://infosys.beckhoff.com/english.php?content=../content/1033/tcinfosys3/4340797963.html&id=8505895370400145937",
+      "virtualParent": "Tc3_GlobalTypes",
+      "dataTypes": [
+        {
+          "name": "ST_LibVersion",
+          "kind": "struct",
+          "documentation": "Global data type for Beckhoff library versions.",
+          "members": {
+            "iMajor": "UINT",
+            "iMinor": "UINT",
+            "iBuild": "UINT",
+            "iRevision": "UINT",
+            "nFlags": "DWORD",
+            "sVersion": "STRING(23)"
+          }
+        },
+        {
+          "name": "PlcAppSystemInfo",
+          "kind": "struct",
+          "documentation": "Global PLC application system information.",
+          "members": {
+            "ObjId": "OTCID",
+            "TaskCnt": "UDINT",
+            "OnlineChangeCnt": "UDINT",
+            "Flags": "DWORD",
+            "AdsPort": "UINT",
+            "BootDataLoaded": "BOOL",
+            "OldBootData": "BOOL",
+            "AppTimestamp": "DT",
+            "KeepOutputsOnBP": "BOOL",
+            "ShutdownInProgress": "BOOL",
+            "LicensesPending": "BOOL",
+            "BSODOccured": "BOOL",
+            "LoggedIn": "BOOL",
+            "PersistentStatus": "EPlcPersistentStatus",
+            "TComSrvPtr": "ITComObjectServer",
+            "AppName": "STRING(63)"
+          }
+        },
+        {
+          "name": "PlcTaskSystemInfo",
+          "kind": "struct",
+          "documentation": "Global PLC task system information.",
+          "members": {
+            "ObjId": "OTCID",
+            "CycleTime": "UDINT",
+            "Priority": "UINT",
+            "AdsPort": "UINT",
+            "CycleCount": "UDINT",
+            "DcTaskTime": "LINT",
+            "LastExecTime": "UDINT",
+            "FirstCycle": "BOOL",
+            "CycleTimeExceeded": "BOOL",
+            "InCallAfterOutputUpdate": "BOOL",
+            "RTViolation": "BOOL",
+            "TaskName": "STRING(63)"
+          }
+        },
+        {
+          "name": "TwinCAT_SystemInfoVarList",
+          "kind": "struct",
+          "documentation": "Namespace wrapper used for system information types and globals from Tc3_GlobalTypes.",
+          "members": {
+            "PlcAppSystemInfo": "PlcAppSystemInfo",
+            "PlcTaskSystemInfo": "PlcTaskSystemInfo",
+            "_AppInfo": "PlcAppSystemInfo",
+            "_TaskInfo": "ARRAY[*] OF PlcTaskSystemInfo"
+          }
+        }
+      ],
+      "variables": [
+        {
+          "name": "TwinCAT_SystemInfoVarList",
+          "type": "TwinCAT_SystemInfoVarList",
+          "documentation": "Namespace instance exposing system information types and globals."
+        },
+        {
+          "name": "_AppInfo",
+          "type": "PlcAppSystemInfo",
+          "documentation": "Global application system information instance."
+        },
+        {
+          "name": "_TaskInfo",
+          "type": "ARRAY[*] OF PlcTaskSystemInfo",
+          "documentation": "Global task system information array."
+        }
+      ]
+    },
+    {
+      "name": "Tc3_DriveMotionControl",
+      "vendor": "Beckhoff Automation GmbH",
+      "category": "Motion",
+      "suppliedWith": "TwinCAT 3 NC/PTP",
+      "summary": "TwinCAT 3 motion control extensions for drive-oriented applications.",
+      "infoUrl": "https://infosys.beckhoff.com/english.php?content=../content/1033/tcinfosys3/4340797963.html&id=8505895370400145937"
+    },
+    {
+      "name": "Tc3_DynamicMemory",
+      "vendor": "Beckhoff Automation GmbH",
+      "category": "Framework",
+      "suppliedWith": "TwinCAT 3 PLC",
+      "summary": "Dynamic memory handling utilities for advanced PLC designs.",
+      "infoUrl": "https://infosys.beckhoff.com/english.php?content=../content/1033/tcinfosys3/4340797963.html&id=8505895370400145937"
+    },
+    {
+      "name": "Tc3_EventLogger",
+      "vendor": "Beckhoff Automation GmbH",
+      "category": "Diagnostics",
+      "suppliedWith": "TwinCAT 3 PLC",
+      "summary": "Structured event and logging support for TwinCAT applications.",
+      "infoUrl": "https://infosys.beckhoff.com/english.php?content=../content/1033/tcinfosys3/4340797963.html&id=8505895370400145937"
+    },
+    {
+      "name": "Tc3_Filter",
+      "vendor": "Beckhoff Automation GmbH",
+      "category": "Signal Processing",
+      "suppliedWith": "TwinCAT 3 PLC",
+      "summary": "Signal filtering utilities for measurement and control applications.",
+      "infoUrl": "https://infosys.beckhoff.com/english.php?content=../content/1033/tcinfosys3/4340797963.html&id=8505895370400145937"
+    },
+    {
+      "name": "Tc3_IoLink",
+      "vendor": "Beckhoff Automation GmbH",
+      "category": "I/O",
+      "suppliedWith": "TwinCAT 3 PLC",
+      "summary": "IO-Link support for device integration and parameter handling.",
+      "infoUrl": "https://infosys.beckhoff.com/english.php?content=../content/1033/tcinfosys3/4340797963.html&id=8505895370400145937"
+    },
+    {
+      "name": "Tc3_IPCDiag",
+      "vendor": "Beckhoff Automation GmbH",
+      "category": "Diagnostics",
+      "suppliedWith": "TwinCAT 3 PLC",
+      "summary": "Industrial PC diagnostics and status access from PLC code.",
+      "infoUrl": "https://infosys.beckhoff.com/english.php?content=../content/1033/tcinfosys3/4340797963.html&id=8505895370400145937"
+    },
+    {
+      "name": "Tc3_JsonXml",
+      "vendor": "Beckhoff Automation GmbH",
+      "category": "Data Handling",
+      "suppliedWith": "TwinCAT 3 PLC",
+      "summary": "JSON and XML handling support for structured data exchange.",
+      "infoUrl": "https://infosys.beckhoff.com/english.php?content=../content/1033/tcinfosys3/4340797963.html&id=8505895370400145937"
+    },
+    {
+      "name": "Tc3_PackML",
+      "vendor": "Beckhoff Automation GmbH",
+      "category": "Framework",
+      "suppliedWith": "TwinCAT 3 PLC",
+      "summary": "PackML-oriented state model support for machine applications.",
+      "infoUrl": "https://infosys.beckhoff.com/english.php?content=../content/1033/tcinfosys3/4340797963.html&id=8505895370400145937"
+    },
+    {
+      "name": "Tc3_PlcOpen",
+      "vendor": "Beckhoff Automation GmbH",
+      "category": "Framework",
+      "suppliedWith": "TwinCAT 3 PLC",
+      "summary": "PLCopen-related support utilities and conventions.",
+      "infoUrl": "https://infosys.beckhoff.com/english.php?content=../content/1033/tcinfosys3/4340797963.html&id=8505895370400145937"
+    },
+    {
+      "name": "Tc3_PlcOpenMotion",
+      "vendor": "Beckhoff Automation GmbH",
+      "category": "Motion",
+      "suppliedWith": "TwinCAT 3 NC/PTP",
+      "summary": "PLCopen motion extensions for TwinCAT applications.",
+      "infoUrl": "https://infosys.beckhoff.com/english.php?content=../content/1033/tcinfosys3/4340797963.html&id=8505895370400145937"
+    },
+    {
+      "name": "Tc3_BA",
+      "vendor": "Beckhoff Automation GmbH",
+      "category": "Building Automation",
+      "suppliedWith": "TwinCAT 3 PLC",
+      "summary": "Building automation-oriented function blocks and models.",
+      "infoUrl": "https://infosys.beckhoff.com/english.php?content=../content/1033/tcinfosys3/4340797963.html&id=8505895370400145937"
+    },
+    {
+      "name": "Tc3_HVAC",
+      "vendor": "Beckhoff Automation GmbH",
+      "category": "Building Automation",
+      "suppliedWith": "TwinCAT 3 PLC",
+      "summary": "HVAC-oriented application support for building systems.",
+      "infoUrl": "https://infosys.beckhoff.com/english.php?content=../content/1033/tcinfosys3/4340797963.html&id=8505895370400145937"
+    }
+  ]
+}

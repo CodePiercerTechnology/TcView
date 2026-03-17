@@ -2,6 +2,7 @@
     "version": "2.0.0",
     "tasks": [
         {
+            "label": "compile",
             "type": "npm",
             "script": "compile",
             "group": "build",
@@ -12,6 +13,7 @@
             "problemMatcher": "$tsc"
         },
         {
+            "label": "watch",
             "type": "npm",
             "script": "watch",
             "group": "build",

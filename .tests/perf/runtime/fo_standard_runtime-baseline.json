@@ -1,0 +1,105 @@
+{
+  "generatedAt": "2026-03-16T21:48:35.733Z",
+  "metrics": {
+    "reindex.full": {
+      "count": 1,
+      "totalMs": 667,
+      "maxMs": 667,
+      "lastMs": 667,
+      "errors": 0
+    },
+    "tree.refresh.topLevelGroups": {
+      "count": 1,
+      "totalMs": 167,
+      "maxMs": 167,
+      "lastMs": 167,
+      "errors": 0
+    },
+    "tree.refresh.topLevelGroups.classify": {
+      "count": 1,
+      "totalMs": 1,
+      "maxMs": 1,
+      "lastMs": 1,
+      "errors": 0
+    },
+    "tree.refresh.topLevelGroups.entries": {
+      "count": 1,
+      "totalMs": 166,
+      "maxMs": 166,
+      "lastMs": 166,
+      "errors": 0
+    },
+    "tree.refresh.topLevelGroups.syntheticPlc": {
+      "count": 1,
+      "totalMs": 0,
+      "maxMs": 0,
+      "lastMs": 0,
+      "errors": 0
+    },
+    "tree.webview.refresh": {
+      "count": 7,
+      "totalMs": 816,
+      "maxMs": 340,
+      "lastMs": 2,
+      "errors": 0
+    },
+    "tree.webview.refresh.postMessage.roots": {
+      "count": 4,
+      "totalMs": 360,
+      "maxMs": 150,
+      "lastMs": 12,
+      "errors": 0
+    },
+    "tree.webview.refresh.postMessage.state": {
+      "count": 7,
+      "totalMs": 284,
+      "maxMs": 186,
+      "lastMs": 1,
+      "errors": 0
+    },
+    "tree.webview.refresh.roots": {
+      "count": 7,
+      "totalMs": 170,
+      "maxMs": 167,
+      "lastMs": 0,
+      "errors": 0
+    },
+    "tree.webview.refresh.serialize": {
+      "count": 7,
+      "totalMs": 1,
+      "maxMs": 1,
+      "lastMs": 1,
+      "errors": 0
+    }
+  },
+  "baselines": {
+    "open": {
+      "operations": 0,
+      "totalCount": 0,
+      "avgMs": 0,
+      "maxMs": 0,
+      "errorCount": 0
+    },
+    "reindex": {
+      "operations": 1,
+      "totalCount": 1,
+      "avgMs": 667,
+      "maxMs": 667,
+      "errorCount": 0
+    },
+    "treeRefresh": {
+      "operations": 9,
+      "totalCount": 36,
+      "avgMs": 55,
+      "maxMs": 340,
+      "errorCount": 0
+    },
+    "save": {
+      "operations": 0,
+      "totalCount": 0,
+      "avgMs": 0,
+      "maxMs": 0,
+      "errorCount": 0
+    }
+  }
+}

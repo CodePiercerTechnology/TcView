@@ -1,0 +1,11 @@
+* @cody-codepiercer
+
+# Core runtime and packaging surfaces
+/src/ @cody-codepiercer
+/backend/ @cody-codepiercer
+/package.json @cody-codepiercer
+/.github/workflows/ @cody-codepiercer
+
+# Docs and alpha process
+/docs/ @cody-codepiercer
+/.github/ISSUE_TEMPLATE/ @cody-codepiercer

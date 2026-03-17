@@ -1,0 +1,80 @@
+name: Alpha Bug Report
+description: Report an alpha issue with reproduction details and environment metadata.
+title: "[Alpha Bug]: "
+labels:
+  - alpha
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for functional or correctness issues seen during alpha testing.
+  - type: input
+    id: tcview_version
+    attributes:
+      label: TcView version or commit
+      placeholder: 0.0.5 / 5937eaf
+    validations:
+      required: true
+  - type: input
+    id: vscode_version
+    attributes:
+      label: VS Code version
+      placeholder: 1.99.0
+    validations:
+      required: true
+  - type: input
+    id: twincat_version
+    attributes:
+      label: TwinCAT / XAE version
+      placeholder: 3.x build number if known
+  - type: dropdown
+    id: workspace_shape
+    attributes:
+      label: Workspace shape
+      options:
+        - Solution (.sln + .tsproj/.tspproj + .plcproj)
+        - Standalone PLC project (.plcproj)
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: backend_configured
+    attributes:
+      label: Backend configured
+      options:
+        - No
+        - Yes
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. Open ...
+        2. Run ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: artifacts
+    attributes:
+      label: Logs, screenshots, sample files
+      description: Include minimal sample files or exact error text when possible.
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context

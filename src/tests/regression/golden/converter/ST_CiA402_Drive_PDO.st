@@ -1,0 +1,9 @@
+TYPE ST_CiA402_Drive_PDO :
+STRUCT
+    ControlWord    : WORD;
+    VelocityTarget : INT;
+    StatusWord     : WORD;
+    VelocityActual : INT;
+    FaultCode      : WORD;
+END_STRUCT
+END_TYPE

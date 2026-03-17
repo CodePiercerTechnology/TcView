@@ -1,0 +1,4 @@
+METHOD Reset : BOOL
+VAR_INPUT
+    bHard : BOOL;
+END_VAR

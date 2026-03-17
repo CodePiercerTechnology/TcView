@@ -1,7 +1,24 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
 import * as xml2js from 'xml2js';
-import { getProjectAnalyzer } from './twinCATProjectAnalyzer';
+import { getProjectAnalyzer, initializeProjectAnalyzer, onProjectAnalyzerCreated } from './tcViewProjectAnalyzer';
 import { buildAstAnalysis } from './iecStAst';
+import { TwinCATFileSystemProvider } from './tcViewFileSystemProvider';
+import { TwinCATXmlConverter } from './tcViewXmlConverter';
+import { isTcviewLintRuleSuppressed, parseTcviewLintPragmas } from './tcviewLintPragmas';
+import { extractQualifiedOnlyUsageInfo, mergeQualifiedOnlyUsageInfo } from './twinCATQualifiedOnly';
+import { parseTwinCATTypeDeclarations } from './twinCATTypeParser';
+import {
+    iecBuiltinFunctions,
+    iecBuiltinNamespaces,
+    iecBuiltinTypes,
+    isConversionFunctionName,
+    isKnownIecBuiltinFunction,
+    isKnownIecBuiltinNamespace,
+    isKnownIecBuiltinType
+} from './iecStBuiltins';
+import { iecStKeywords, iecStKeywordSet } from './iecStKeywords';
 
 type IECPrimitiveType =
     | 'BOOL'
@@ -16,64 +33,21 @@ type IECPrimitiveType =
     | 'UNKNOWN';
 
 interface IECStandardDefinition {
-    kind: 'functionBlock' | 'function' | 'type';
+    kind: 'functionBlock' | 'function' | 'type' | 'constant';
     summary: string;
     members?: Array<{ name: string; type: string; description: string }>;
     parameters?: Array<{ name: string; type: string; direction: 'IN' | 'OUT' | 'IN_OUT'; description: string }>;
     example?: string;
 }
 
-
-// IEC ST Keywords and built-in functions for IntelliSense
-const iecStKeywords = [
-    // Program structure
-    'PROGRAM', 'END_PROGRAM', 'FUNCTION', 'END_FUNCTION', 'FUNCTION_BLOCK', 'END_FUNCTION_BLOCK',
-    'INTERFACE', 'END_INTERFACE', 'METHOD', 'END_METHOD', 'PROPERTY', 'END_PROPERTY',
-    'ACTION', 'END_ACTION', 'TRANSITION', 'END_TRANSITION', 'GET', 'SET',
-    'VAR', 'END_VAR', 'VAR_INPUT', 'VAR_OUTPUT', 'VAR_IN_OUT', 'VAR_GLOBAL', 'VAR_TEMP',
-    'CONSTANT', 'RETAIN', 'PERSISTENT',
-    
-    // Data types
-    'BOOL', 'BYTE', 'WORD', 'DWORD', 'LWORD',
-    'SINT', 'INT', 'DINT', 'LINT', 'USINT', 'UINT', 'UDINT', 'ULINT',
-    'REAL', 'LREAL', 'TIME', 'DATE', 'TIME_OF_DAY', 'TOD', 'DATE_AND_TIME', 'DT',
-    'STRING', 'WSTRING', 'ARRAY', 'OF', 'TYPE', 'END_TYPE', 'STRUCT', 'END_STRUCT', 'ENUM', 'END_ENUM',
-    
-    // Control flow
-    'IF', 'THEN', 'ELSIF', 'ELSE', 'END_IF',
-    'CASE', 'OF', 'ELSE', 'END_CASE',
-    'FOR', 'TO', 'BY', 'DO', 'END_FOR',
-    'WHILE', 'DO', 'END_WHILE',
-    'REPEAT', 'UNTIL', 'END_REPEAT',
-    'EXIT', 'CONTINUE', 'RETURN',
-    
-    // Operators
-    'AND', 'OR', 'XOR', 'NOT', 'MOD', 'DIV',
-    
-    // Standard functions
-    'ABS', 'SQRT', 'LN', 'LOG', 'EXP', 'SIN', 'COS', 'TAN', 'ASIN', 'ACOS', 'ATAN',
-    'EXPT', 'LIMIT', 'MIN', 'MAX', 'SEL', 'MUX', 'SHL', 'SHR', 'ROL', 'ROR',
-    'ADD', 'MUL', 'SUB', 'DIV', 'MOD', 'MOVE',
-    
-    // Type conversion
-    'BOOL_TO_BYTE', 'BOOL_TO_WORD', 'BOOL_TO_DWORD', 'BOOL_TO_LWORD',
-    'BYTE_TO_BOOL', 'BYTE_TO_WORD', 'BYTE_TO_DWORD', 'BYTE_TO_LWORD',
-    'INT_TO_REAL', 'REAL_TO_INT', 'TRUNC', 'ROUND', 'CEIL', 'FLOOR',
-    
-    // String functions
-    'LEN', 'LEFT', 'RIGHT', 'MID', 'CONCAT', 'INSERT', 'DELETE', 'REPLACE', 'FIND',
-    
-    // Time functions
-    'ADD_TIME', 'SUB_TIME', 'MUL_TIME', 'DIV_TIME', 'CONCAT_DATE_TOD',
-    
-    // Edge detection
-    'R_TRIG', 'F_TRIG', 'RS', 'SR',
-    
-    // Other
-    'TRUE', 'FALSE', 'NULL', 'THIS', 'SUPER'
-];
-const iecStKeywordSet = new Set(iecStKeywords.map(k => k.toUpperCase()));
-
+export function isKnownIecBuiltinIdentifier(value: string): boolean {
+    const upper = value.toUpperCase();
+    return iecStKeywordSet.has(upper) ||
+        stdSymbolSet.has(upper) ||
+        isKnownIecBuiltinType(upper) ||
+        isKnownIecBuiltinFunction(upper) ||
+        isKnownIecBuiltinNamespace(upper);
+}
 // IEC ST Snippets
 const iecStSnippets: { [key: string]: vscode.SnippetString } = {
     'IF Statement': new vscode.SnippetString([
@@ -328,6 +302,46 @@ const standardIecDefinitions: Record<string, IECStandardDefinition> = {
             { name: 'RESET', type: 'BOOL', description: 'Reset input.' },
             { name: 'Q1', type: 'BOOL', description: 'Output state.' }
         ]
+    },
+    ANY: {
+        kind: 'type',
+        summary: 'TwinCAT generic value carrier used for runtime type inspection and conversion.',
+        members: [
+            { name: 'TypeClass', type: '__SYSTEM.TYPE_CLASS', description: 'Runtime type classification for the contained value.' },
+            { name: 'pValue', type: 'PVOID', description: 'Pointer to the contained runtime value.' }
+        ]
+    },
+    HRESULT: {
+        kind: 'type',
+        summary: 'TwinCAT/TcCOM result code type used by system and module APIs.'
+    },
+    S_OK: {
+        kind: 'constant',
+        summary: 'HRESULT success code.'
+    },
+    S_FALSE: {
+        kind: 'constant',
+        summary: 'HRESULT success code indicating false or partial success.'
+    },
+    E_FAIL: {
+        kind: 'constant',
+        summary: 'HRESULT failure code for an unspecified error.'
+    },
+    E_NOTIMPL: {
+        kind: 'constant',
+        summary: 'HRESULT failure code indicating the operation is not implemented.'
+    },
+    E_POINTER: {
+        kind: 'constant',
+        summary: 'HRESULT failure code indicating an invalid pointer.'
+    },
+    E_INVALIDARG: {
+        kind: 'constant',
+        summary: 'HRESULT failure code indicating an invalid argument.'
+    },
+    E_OUTOFMEMORY: {
+        kind: 'constant',
+        summary: 'HRESULT failure code indicating insufficient memory.'
     }
 };
 
@@ -352,6 +366,7 @@ const blockPairs: { [key: string]: string } = {
 
 // All blocks that close with END_VAR
 const varBlocks = ['VAR', 'VAR_INPUT', 'VAR_OUTPUT', 'VAR_IN_OUT', 'VAR_TEMP', 'VAR_GLOBAL', 'VAR_INST', 'VAR_STAT'];
+const unusedDeclarationScopes = new Set(['VAR', 'VAR_INPUT', 'VAR_OUTPUT', 'VAR_IN_OUT', 'VAR_TEMP', 'VAR_INST', 'VAR_STAT']);
 
 
 
@@ -367,7 +382,7 @@ const noSemicolonKeywords = [
 // These must be very specific to avoid false positives
 const noSemicolonPatterns = [
     // Function/FB/Program declarations at start of line (e.g., "FUNCTION foo : INT")
-    /^\s*(FUNCTION|FUNCTION_BLOCK|PROGRAM)\s+\w+(\s*:\s*\w+)?\s*$/i,
+    /^\s*(FUNCTION|FUNCTION_BLOCK|PROGRAM)\b(?:\s+(?:PUBLIC|PRIVATE|PROTECTED|INTERNAL|FINAL|ABSTRACT|OVERRIDE|STATIC))*\s+[A-Za-z_]\w*(\s*:\s*[A-Za-z_][A-Za-z0-9_.]*)?\s*$/i,
     // Case labels: number or identifier followed by colon (e.g., "1:", "ALARM_IDLE:", "stateIdle:")
     // Must be at start of line (after whitespace), not contain assignment operator
     /^\s*([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*|\d+)\s*:\s*(\/\/.*)?$/i,
@@ -381,6 +396,8 @@ const noSemicolonPatterns = [
     /^\s*(TYPE|END_TYPE|STRUCT|END_STRUCT|UNION|END_UNION)\s*$/i,
     // TYPE declarations like "TYPE MyType :"
     /^\s*TYPE\s+[a-zA-Z_]\w*\s*:\s*$/i,
+    // VAR blocks with inline modifiers, e.g. "VAR_GLOBAL CONSTANT INTERNAL"
+    /^\s*(VAR|VAR_INPUT|VAR_OUTPUT|VAR_IN_OUT|VAR_TEMP|VAR_GLOBAL|VAR_INST|VAR_STAT)(\s+(CONSTANT|INTERNAL|PUBLIC|PRIVATE|PROTECTED|FINAL|ABSTRACT|RETAIN|PERSISTENT))*\s*$/i,
     // Method/property declarations at line start
     /^\s*(METHOD|END_METHOD|PROPERTY|END_PROPERTY)\b/i,
     // Action/transition declarations at line start
@@ -389,11 +406,93 @@ const noSemicolonPatterns = [
     /^\s*(CONFIGURATION|END_CONFIGURATION|RESOURCE|END_RESOURCE|TASK|END_TASK)\b/i,
     // Interface declarations/accessors at line start
     /^\s*(INTERFACE|END_INTERFACE|GET|SET)\b/i,
+    // Modifier-only declaration lines such as "CONSTANT INTERNAL"
+    /^\s*(CONSTANT|INTERNAL|PUBLIC|PRIVATE|PROTECTED|FINAL|ABSTRACT|RETAIN|PERSISTENT)(\s+(CONSTANT|INTERNAL|PUBLIC|PRIVATE|PROTECTED|FINAL|ABSTRACT|RETAIN|PERSISTENT))*\s*$/i,
     // Import/using statements at line start
     /^\s*(IMPORT|USING|FROM)\b/i,
     // Pragma/directive lines (curly braces)
     /^\s*\{.*\}\s*$/
 ];
+
+const globalListFileExtensions = new Set(['.tcgvl', '.tcgcl']);
+const globalListModifierOnlyLinePattern = /^\s*(CONSTANT|INTERNAL|PUBLIC|PRIVATE|PROTECTED|FINAL|ABSTRACT|RETAIN|PERSISTENT)(\s+(CONSTANT|INTERNAL|PUBLIC|PRIVATE|PROTECTED|FINAL|ABSTRACT|RETAIN|PERSISTENT))*\s*$/i;
+
+const PROJECT_SCAN_PATTERN = '**/*.{st,TcPOU,TcPRG,TcAPP,TcCOM,TcGVL,TcDUT,TcVAR,TcIO,TcITF,tcpou,tcprg,tcapp,tccom,tcgvl,tcdut,tcvar,tcio,tcitf}';
+const stringTokenRegex = /'([^']|'')*'|"([^"]|"")*"/g;
+const numberTokenRegex = /\b(16#[0-9A-Fa-f_]+|2#[01_]+|8#[0-7_]+|\d+(\.\d+)?([eE][+-]?\d+)?)\b/g;
+const identifierTokenRegex = /\b[a-zA-Z_]\w*\b/g;
+
+function augmentStandardDefinitionsFromBundledLibraryMetadata(): void {
+    try {
+        const metadataPath = path.resolve(__dirname, '..', 'resources', 'library-metadata.json');
+        const raw = JSON.parse(fs.readFileSync(metadataPath, 'utf8')) as {
+            libraries?: Array<{
+                functionBlocks?: Array<{ name?: string; documentation?: string; members?: Record<string, string> }>;
+                functions?: Array<{ name?: string; documentation?: string; returnType?: string }>;
+                variables?: Array<{ name?: string; documentation?: string; type?: string }>;
+                dataTypes?: Array<{ name?: string; documentation?: string; members?: Record<string, string> }>;
+            }>;
+        };
+
+        for (const library of raw.libraries ?? []) {
+            for (const item of library.functionBlocks ?? []) {
+                const name = item.name?.trim();
+                if (!name || standardIecDefinitions[name]) continue;
+                standardIecDefinitions[name] = {
+                    kind: 'functionBlock',
+                    summary: item.documentation ?? `Bundled library function block: ${name}`,
+                    members: Object.entries(item.members ?? {}).map(([memberName, type]) => ({
+                        name: memberName,
+                        type,
+                        description: ''
+                    }))
+                };
+            }
+
+            for (const item of library.functions ?? []) {
+                const name = item.name?.trim();
+                if (!name || standardIecDefinitions[name]) continue;
+                standardIecDefinitions[name] = {
+                    kind: 'function',
+                    summary: item.returnType
+                        ? `${item.documentation ?? 'Bundled library function.'} Returns ${item.returnType}.`
+                        : item.documentation ?? `Bundled library function: ${name}`
+                };
+            }
+
+            for (const item of library.variables ?? []) {
+                const name = item.name?.trim();
+                if (!name || standardIecDefinitions[name]) continue;
+                standardIecDefinitions[name] = {
+                    kind: 'constant',
+                    summary: item.type
+                        ? `${item.documentation ?? 'Bundled library global.'} Type: ${item.type}.`
+                        : item.documentation ?? `Bundled library global: ${name}`
+                };
+            }
+
+            for (const item of library.dataTypes ?? []) {
+                const name = item.name?.trim();
+                if (!name || standardIecDefinitions[name]) continue;
+                standardIecDefinitions[name] = {
+                    kind: 'type',
+                    summary: item.documentation ?? `Bundled library data type: ${name}`,
+                    members: Object.entries(item.members ?? {}).map(([memberName, type]) => ({
+                        name: memberName,
+                        type,
+                        description: ''
+                    }))
+                };
+            }
+        }
+    } catch {
+        // Fall back to the handwritten core definitions if the bundled catalog cannot be read.
+    }
+}
+
+augmentStandardDefinitionsFromBundledLibraryMetadata();
+
+const stdSymbolSet = new Set(Object.keys(standardIecDefinitions).map(name => name.toUpperCase()));
 
 
 
@@ -404,8 +503,38 @@ const noSemicolonPatterns = [
 export function registerLanguageFeatures(context: vscode.ExtensionContext): void {
     const localSymbolCache = new Map<string, { version: number; symbols: Map<string, { name: string; type: string }> }>();
     const relatedValidationTimers = new Map<string, NodeJS.Timeout>();
+    const documentValidationTimers = new Map<string, NodeJS.Timeout>();
+    const backgroundProjectValidationPaths = new Set<string>();
+    const backgroundProjectValidationRoots = new Set<string>();
     const featureStats = new Map<string, { calls: number; totalMs: number }>();
+    const workspaceSearchTextCache = new Map<string, { mtime: number; text: string }>();
+    const staticCompletionItems: vscode.CompletionItem[] = [];
+    const projectCompletionCache = {
+        revision: -1,
+        items: [] as vscode.CompletionItem[]
+    };
+    const startupValidationDelayMs = 3000;
+    const backgroundProjectValidationStartupDelayMs = 4500;
+    const languageFeaturesStartedAt = Date.now();
+    const converter = new TwinCATXmlConverter();
+    const backgroundDiagnosticExtensions = new Set([
+        '.st', '.tcpou', '.tcprg', '.tcapp', '.tccom', '.tcgvl', '.tcdut', '.tcvar', '.tcio', '.tcitf'
+    ]);
     let applyingAutoKeywordCase = false;
+    let analyzerReadyPromise: Promise<void> | undefined;
+    let projectValidationTimer: NodeJS.Timeout | undefined;
+    let projectValidationInProgress = false;
+    let projectValidationPending = false;
+    let projectValidationNeedsFullScan = false;
+
+    const ensureProjectAnalyzerReady = async () => {
+        if (!analyzerReadyPromise) {
+            analyzerReadyPromise = initializeProjectAnalyzer()
+                .catch(() => undefined)
+                .then(() => undefined);
+        }
+        await analyzerReadyPromise;
+    };
 
     const getLocalSymbols = (document: vscode.TextDocument) => {
         const key = document.uri.toString();
@@ -428,6 +557,31 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
             return document.uri.fsPath;
         }
         return undefined;
+    };
+
+    const isDocumentVisibleInEditor = (document: vscode.TextDocument) =>
+        vscode.window.visibleTextEditors.some(editor => editor.document.uri.toString() === document.uri.toString());
+
+    const hasOpenIecStDocumentForSourcePath = (sourcePath: string) =>
+        vscode.workspace.textDocuments.some(doc =>
+            doc.languageId === 'iec-st' &&
+            (getSourcePathForDocument(doc)?.toLowerCase() === sourcePath.toLowerCase())
+        );
+
+    const isBackgroundDiagnosticSourcePath = (filePath: string) =>
+        backgroundDiagnosticExtensions.has(path.extname(filePath).toLowerCase());
+
+    const normalizeLowerPath = (filePath: string) => path.normalize(filePath).toLowerCase();
+
+    const isPathWithinRoot = (filePath: string, rootPath: string) => {
+        const normalizedFilePath = normalizeLowerPath(filePath);
+        const normalizedRootPath = normalizeLowerPath(rootPath);
+        return normalizedFilePath === normalizedRootPath || normalizedFilePath.startsWith(`${normalizedRootPath}${path.sep}`);
+    };
+
+    const clearDiagnosticsForSourcePath = (sourcePath: string) => {
+        diagnosticCollection.delete(vscode.Uri.file(sourcePath));
+        diagnosticCollection.delete(TwinCATFileSystemProvider.createVirtualUri(sourcePath));
     };
 
     const trackFeature = async <T>(name: string, fn: () => Promise<T> | T): Promise<T> => {
@@ -490,6 +644,342 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         return { base: match[1], partial: match[2] ?? '' };
     };
 
+    const scheduleDocumentValidation = (document: vscode.TextDocument, delayMs = 180) => {
+        if (document.languageId !== 'iec-st') {
+            return;
+        }
+        const elapsedSinceStartup = Date.now() - languageFeaturesStartedAt;
+        if (elapsedSinceStartup < startupValidationDelayMs) {
+            delayMs = Math.max(delayMs, startupValidationDelayMs - elapsedSinceStartup);
+        }
+        const key = document.uri.toString();
+        const existing = documentValidationTimers.get(key);
+        if (existing) {
+            clearTimeout(existing);
+        }
+        const timer = setTimeout(() => {
+            documentValidationTimers.delete(key);
+            void validateDocument(document);
+        }, delayMs);
+        documentValidationTimers.set(key, timer);
+    };
+
+    const validateSourcePathInBackground = async (sourcePath: string) => {
+        if (!isBackgroundDiagnosticSourcePath(sourcePath)) {
+            return;
+        }
+
+        if (hasOpenIecStDocumentForSourcePath(sourcePath)) {
+            diagnosticCollection.delete(vscode.Uri.file(sourcePath));
+            return;
+        }
+
+        try {
+            const fileUri = vscode.Uri.file(sourcePath);
+            const bytes = await vscode.workspace.fs.readFile(fileUri);
+            const rawText = Buffer.from(bytes).toString('utf8');
+            const extension = path.extname(sourcePath).toLowerCase();
+            const text = extension === '.st'
+                ? rawText
+                : await converter.convertXmlToST(rawText);
+            const diagnostics = await computeDiagnostics({
+                uri: fileUri,
+                languageId: 'iec-st',
+                text,
+                originalPath: sourcePath
+            });
+            diagnosticCollection.set(fileUri, diagnostics);
+        } catch {
+            clearDiagnosticsForSourcePath(sourcePath);
+        }
+    };
+
+    const getBackgroundDiagnosticFiles = async (projectRoots?: string[]) => {
+        await ensureProjectAnalyzerReady();
+        const analyzer = getProjectAnalyzer();
+        let analyzerFiles = analyzer.getIndexedSourceFiles(projectRoots);
+        if (analyzerFiles.length === 0) {
+            analyzerFiles = await analyzer.getProjectSourceFiles();
+        }
+
+        return analyzerFiles
+            .filter(filePath => isBackgroundDiagnosticSourcePath(filePath))
+            .filter(filePath => !projectRoots || projectRoots.length === 0 || projectRoots.some(rootPath => isPathWithinRoot(filePath, rootPath)))
+            .sort((a, b) => a.localeCompare(b));
+    };
+
+    const resolveAffectedProjectRoots = async (filePaths: string[]) => {
+        await ensureProjectAnalyzerReady();
+        const searchRoots = await getProjectAnalyzer().getProjectSearchRoots();
+        const sortedRoots = [...searchRoots].sort((a, b) => b.length - a.length);
+        const matchedRoots = new Set<string>();
+
+        for (const filePath of filePaths) {
+            const matchedRoot = sortedRoots.find(rootPath => isPathWithinRoot(filePath, rootPath));
+            if (matchedRoot) {
+                matchedRoots.add(matchedRoot);
+            }
+        }
+
+        return [...matchedRoots].sort((a, b) => a.localeCompare(b));
+    };
+
+    const processBackgroundValidationBatch = async (filePaths: string[]) => {
+        const concurrency = 4;
+        for (let index = 0; index < filePaths.length; index += concurrency) {
+            const chunk = filePaths.slice(index, index + concurrency);
+            await Promise.allSettled(chunk.map(filePath => validateSourcePathInBackground(filePath)));
+        }
+    };
+
+    const runBackgroundProjectValidation = async () => {
+        if (projectValidationInProgress) {
+            projectValidationPending = true;
+            return;
+        }
+
+        projectValidationInProgress = true;
+        try {
+            const targetFiles = projectValidationNeedsFullScan
+                ? await getBackgroundDiagnosticFiles()
+                : backgroundProjectValidationRoots.size > 0
+                    ? await getBackgroundDiagnosticFiles([...backgroundProjectValidationRoots])
+                    : [...backgroundProjectValidationPaths].sort((a, b) => a.localeCompare(b));
+
+            projectValidationNeedsFullScan = false;
+            backgroundProjectValidationPaths.clear();
+            backgroundProjectValidationRoots.clear();
+
+            if (targetFiles.length === 0) {
+                return;
+            }
+
+            await processBackgroundValidationBatch(targetFiles);
+        } finally {
+            projectValidationInProgress = false;
+            if (projectValidationPending) {
+                projectValidationPending = false;
+                projectValidationNeedsFullScan = true;
+                backgroundProjectValidationPaths.clear();
+                backgroundProjectValidationRoots.clear();
+                const timer = setTimeout(() => {
+                    projectValidationTimer = undefined;
+                    void runBackgroundProjectValidation();
+                }, 500);
+                projectValidationTimer = timer;
+            }
+        }
+    };
+
+    const scheduleBackgroundProjectValidation = (
+        delayMs = 1000,
+        options?: { full?: boolean; paths?: string[]; projectRoots?: string[] }
+    ) => {
+        if (options?.full) {
+            projectValidationNeedsFullScan = true;
+            backgroundProjectValidationPaths.clear();
+            backgroundProjectValidationRoots.clear();
+        }
+        for (const filePath of options?.paths ?? []) {
+            if (isBackgroundDiagnosticSourcePath(filePath)) {
+                backgroundProjectValidationPaths.add(filePath);
+            }
+        }
+        for (const rootPath of options?.projectRoots ?? []) {
+            backgroundProjectValidationRoots.add(rootPath);
+        }
+
+        if (!projectValidationNeedsFullScan && backgroundProjectValidationPaths.size === 0 && backgroundProjectValidationRoots.size === 0) {
+            return;
+        }
+
+        if (projectValidationTimer) {
+            clearTimeout(projectValidationTimer);
+        }
+        projectValidationTimer = setTimeout(() => {
+            projectValidationTimer = undefined;
+            void runBackgroundProjectValidation();
+        }, delayMs);
+    };
+
+    const queueProjectScopedBackgroundValidation = async (
+        filePaths: string[],
+        delayMs: number,
+        fallbackToFull = false
+    ) => {
+        const projectRoots = await resolveAffectedProjectRoots(filePaths);
+        if (projectRoots.length > 0) {
+            scheduleBackgroundProjectValidation(delayMs, { projectRoots });
+            return;
+        }
+
+        if (fallbackToFull) {
+            scheduleBackgroundProjectValidation(delayMs, { full: true });
+            return;
+        }
+
+        scheduleBackgroundProjectValidation(delayMs, { paths: filePaths });
+    };
+
+    const kindMap: Record<string, vscode.CompletionItemKind> = {
+        variable: vscode.CompletionItemKind.Variable,
+        global: vscode.CompletionItemKind.Variable,
+        type: vscode.CompletionItemKind.Struct,
+        functionBlock: vscode.CompletionItemKind.Class,
+        function: vscode.CompletionItemKind.Function,
+        program: vscode.CompletionItemKind.Module
+    };
+
+    const buildStaticCompletionItems = () => {
+        if (staticCompletionItems.length > 0) {
+            return;
+        }
+        const seen = new Set<string>();
+        iecStKeywords.forEach(keyword => {
+            addCompletionUnique(
+                staticCompletionItems,
+                seen,
+                createCompletionItem(
+                    keyword,
+                    vscode.CompletionItemKind.Keyword,
+                    'IEC keyword',
+                    `IEC 61131-3 keyword: **${keyword}**`
+                )
+            );
+        });
+        Object.entries(iecStSnippets).forEach(([name, snippet]) => {
+            const item = createCompletionItem(name, vscode.CompletionItemKind.Snippet, 'IEC ST Snippet', `Snippet: ${name}`);
+            item.insertText = snippet;
+            addCompletionUnique(staticCompletionItems, seen, item);
+        });
+        Object.entries(standardIecDefinitions).forEach(([name, def]) => {
+            const kind = def.kind === 'functionBlock'
+                ? vscode.CompletionItemKind.Class
+                : def.kind === 'type'
+                    ? vscode.CompletionItemKind.Struct
+                    : def.kind === 'constant'
+                        ? vscode.CompletionItemKind.Constant
+                        : vscode.CompletionItemKind.Function;
+            addCompletionUnique(
+                staticCompletionItems,
+                seen,
+                createCompletionItem(
+                    name,
+                    kind,
+                    `IEC ${def.kind}`,
+                    `${def.summary}`
+                )
+            );
+        });
+        iecBuiltinFunctions.forEach(name => {
+            addCompletionUnique(
+                staticCompletionItems,
+                seen,
+                createCompletionItem(
+                    name,
+                    vscode.CompletionItemKind.Function,
+                    'IEC builtin',
+                    `IEC builtin function: **${name}**`
+                )
+            );
+        });
+        iecBuiltinNamespaces.forEach(name => {
+            addCompletionUnique(
+                staticCompletionItems,
+                seen,
+                createCompletionItem(
+                    name,
+                    vscode.CompletionItemKind.Module,
+                    'TwinCAT builtin namespace',
+                    `TwinCAT builtin namespace: **${name}**`
+                )
+            );
+        });
+    };
+
+    const getProjectCompletionItems = async () => {
+        await ensureProjectAnalyzerReady();
+        const analyzer = getProjectAnalyzer();
+        const revision = analyzer.getIndexRevision();
+        if (projectCompletionCache.revision === revision) {
+            return projectCompletionCache.items;
+        }
+
+        const items: vscode.CompletionItem[] = [];
+        analyzer.forEachAllSymbols(symbol => {
+            items.push(
+                createCompletionItem(
+                    symbol.name,
+                    kindMap[symbol.kind] ?? vscode.CompletionItemKind.Text,
+                    `${symbol.kind}: ${symbol.type}`,
+                    `Defined in: \`${symbol.source}\``
+                )
+            );
+        });
+        projectCompletionCache.revision = revision;
+        projectCompletionCache.items = items;
+        return items;
+    };
+
+    const buildPositionAt = (text: string) => {
+        const lineOffsets: number[] = [0];
+        for (let i = 0; i < text.length; i++) {
+            if (text.charCodeAt(i) === 10) {
+                lineOffsets.push(i + 1);
+            }
+        }
+        return (offset: number) => {
+            const clamped = Math.max(0, Math.min(offset, text.length));
+            let low = 0;
+            let high = lineOffsets.length - 1;
+            while (low <= high) {
+                const mid = Math.floor((low + high) / 2);
+                if (lineOffsets[mid] > clamped) {
+                    high = mid - 1;
+                } else {
+                    low = mid + 1;
+                }
+            }
+            const line = Math.max(0, high);
+            return new vscode.Position(line, clamped - lineOffsets[line]);
+        };
+    };
+
+    const getWorkspaceSearchDocs = async () => {
+        const files = await vscode.workspace.findFiles(PROJECT_SCAN_PATTERN, '**/node_modules/**');
+        const openDocsByUri = new Map(vscode.workspace.textDocuments.map(doc => [doc.uri.toString(), doc]));
+        const docs = await Promise.all(files.map(async uri => {
+            try {
+                const openDoc = openDocsByUri.get(uri.toString());
+                if (openDoc) {
+                    const openText = openDoc.getText();
+                    workspaceSearchTextCache.set(uri.toString(), { mtime: Date.now(), text: openText });
+                    return {
+                        uri,
+                        text: openText,
+                        positionAt: (offset: number) => openDoc.positionAt(offset)
+                    };
+                }
+
+                const stat = await vscode.workspace.fs.stat(uri);
+                const cacheKey = uri.toString();
+                const cached = workspaceSearchTextCache.get(cacheKey);
+                const text = cached && cached.mtime === stat.mtime
+                    ? cached.text
+                    : Buffer.from(await vscode.workspace.fs.readFile(uri)).toString('utf8');
+                workspaceSearchTextCache.set(cacheKey, { mtime: stat.mtime, text });
+                return {
+                    uri,
+                    text,
+                    positionAt: buildPositionAt(text)
+                };
+            } catch {
+                return undefined;
+            }
+        }));
+        return docs.filter((doc): doc is { uri: vscode.Uri; text: string; positionAt: (offset: number) => vscode.Position } => !!doc);
+    };
+
     // Register completion provider
     const completionProvider = vscode.languages.registerCompletionItemProvider(
         'iec-st',
@@ -498,6 +988,7 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
                 return trackFeature('completion', async () => {
                     const completions: vscode.CompletionItem[] = [];
                     const seen = new Set<string>();
+                    await ensureProjectAnalyzerReady();
                     const analyzer = getProjectAnalyzer();
                     const localSymbols = getLocalSymbols(document);
                     const linePrefix = document.lineAt(position.line).text.substring(0, position.character);
@@ -537,26 +1028,8 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
                         return completions;
                     }
                 
-                    // Add keywords
-                    iecStKeywords.forEach(keyword => {
-                        addCompletionUnique(
-                            completions,
-                            seen,
-                            createCompletionItem(
-                                keyword,
-                                vscode.CompletionItemKind.Keyword,
-                                'IEC keyword',
-                                `IEC 61131-3 keyword: **${keyword}**`
-                            )
-                        );
-                    });
-                
-                // Add snippets
-                Object.entries(iecStSnippets).forEach(([name, snippet]) => {
-                    const item = createCompletionItem(name, vscode.CompletionItemKind.Snippet, 'IEC ST Snippet', `Snippet: ${name}`);
-                    item.insertText = snippet;
-                    addCompletionUnique(completions, seen, item);
-                });
+                    buildStaticCompletionItems();
+                    staticCompletionItems.forEach(item => addCompletionUnique(completions, seen, item));
 
                 // Add local symbols
                 localSymbols.forEach(symbol => {
@@ -572,41 +1045,7 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
                     );
                 });
 
-                // Add project-wide symbols
-                analyzer.getAllSymbols().forEach(symbol => {
-                    const kindMap: Record<string, vscode.CompletionItemKind> = {
-                        variable: vscode.CompletionItemKind.Variable,
-                        global: vscode.CompletionItemKind.Variable,
-                        type: vscode.CompletionItemKind.Struct,
-                        functionBlock: vscode.CompletionItemKind.Class,
-                        function: vscode.CompletionItemKind.Function,
-                        program: vscode.CompletionItemKind.Module
-                    };
-
-                    addCompletionUnique(
-                        completions,
-                        seen,
-                        createCompletionItem(
-                            symbol.name,
-                            kindMap[symbol.kind] ?? vscode.CompletionItemKind.Text,
-                            `${symbol.kind}: ${symbol.type}`,
-                            `Defined in: \`${symbol.source}\``
-                        )
-                    );
-                });
-
-                Object.entries(standardIecDefinitions).forEach(([name, def]) => {
-                    addCompletionUnique(
-                        completions,
-                        seen,
-                        createCompletionItem(
-                            name,
-                            def.kind === 'functionBlock' ? vscode.CompletionItemKind.Class : vscode.CompletionItemKind.Function,
-                            `IEC ${def.kind}`,
-                            `${def.summary}`
-                        )
-                    );
-                });
+                    (await getProjectCompletionItems()).forEach(item => addCompletionUnique(completions, seen, item));
                 
                     return completions;
                 });
@@ -623,6 +1062,7 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
                 if (!wordRange) return;
                 
                 const word = document.getText(wordRange).toUpperCase();
+                await ensureProjectAnalyzerReady();
                 const analyzer = getProjectAnalyzer();
                 const localSymbols = getLocalSymbols(document);
 
@@ -714,6 +1154,101 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         }
     });
 
+    const foldingProvider = vscode.languages.registerFoldingRangeProvider('iec-st', {
+        provideFoldingRanges(document: vscode.TextDocument): vscode.FoldingRange[] {
+            const lines = document.getText().split('\n');
+            const ranges: vscode.FoldingRange[] = [];
+
+            const foldPairs: Record<string, string> = {
+                ...blockPairs,
+                METHOD: 'END_METHOD',
+                PROPERTY: 'END_PROPERTY',
+                ACTION: 'END_ACTION',
+                TRANSITION: 'END_TRANSITION',
+                TYPE: 'END_TYPE',
+                STRUCT: 'END_STRUCT',
+                UNION: 'END_UNION',
+                INTERFACE: 'END_INTERFACE'
+            };
+
+            const closeToOpen = new Map<string, string[]>();
+            for (const [open, close] of Object.entries(foldPairs)) {
+                const closers = closeToOpen.get(close) ?? [];
+                closers.push(open);
+                closeToOpen.set(close, closers);
+            }
+
+            const stack: Array<{ token: string; start: number }> = [];
+            const getToken = (line: string) => line.replace(/\/\/.*$/, '').trim().match(/^([A-Z_]+)/i)?.[1]?.toUpperCase();
+
+            for (let i = 0; i < lines.length; i++) {
+                const token = getToken(lines[i]);
+                if (!token) continue;
+
+                const closes = closeToOpen.get(token);
+                if (closes && closes.length > 0) {
+                    for (let idx = stack.length - 1; idx >= 0; idx--) {
+                        if (closes.includes(stack[idx].token)) {
+                            const open = stack[idx];
+                            stack.splice(idx, 1);
+                            if (i > open.start) {
+                                ranges.push(new vscode.FoldingRange(open.start, i, vscode.FoldingRangeKind.Region));
+                            }
+                            break;
+                        }
+                    }
+                    continue;
+                }
+
+                if (foldPairs[token]) {
+                    stack.push({ token, start: i });
+                }
+            }
+
+            let declarationStart = -1;
+            let declarationEnd = -1;
+            let inVarDepth = 0;
+            const headerRegex = /^\s*(PROGRAM|FUNCTION_BLOCK|FUNCTION|METHOD|PROPERTY|ACTION|TRANSITION)\b/i;
+            const varStartRegex = /^\s*VAR(?:_(INPUT|OUTPUT|IN_OUT|TEMP|GLOBAL|INST|STAT))?\b/i;
+            const keepInDeclarationRegex = /^\s*(\/\/.*|\(\*.*\*\)|\{.*\}|)\s*$/;
+
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                if (declarationStart < 0) {
+                    if (headerRegex.test(line)) {
+                        declarationStart = i;
+                        declarationEnd = i;
+                    }
+                    continue;
+                }
+
+                if (varStartRegex.test(line)) {
+                    inVarDepth++;
+                    declarationEnd = i;
+                    continue;
+                }
+                if (inVarDepth > 0) {
+                    declarationEnd = i;
+                    if (/^\s*END_VAR\b/i.test(line)) {
+                        inVarDepth = Math.max(0, inVarDepth - 1);
+                    }
+                    continue;
+                }
+                if (keepInDeclarationRegex.test(line)) {
+                    declarationEnd = i;
+                    continue;
+                }
+                break;
+            }
+
+            if (declarationStart >= 0 && declarationEnd > declarationStart) {
+                ranges.push(new vscode.FoldingRange(declarationStart, declarationEnd, vscode.FoldingRangeKind.Region));
+            }
+
+            return ranges;
+        }
+    });
+
     const formattingProvider = vscode.languages.registerDocumentFormattingEditProvider('iec-st', {
         provideDocumentFormattingEdits(document: vscode.TextDocument) {
             const formatted = formatIECStructuredText(
@@ -745,6 +1280,7 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
                 const wordRange = document.getWordRangeAtPosition(position);
                 if (!wordRange) return undefined;
                 const symbolName = document.getText(wordRange);
+                await ensureProjectAnalyzerReady();
                 const analyzer = getProjectAnalyzer();
 
                 const localDef = findDeclarationInDocument(document, symbolName);
@@ -775,15 +1311,14 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
                 const symbolName = document.getText(wordRange);
                 const includeCommentsStrings = vscode.workspace.getConfiguration('twincat').get<boolean>('renameIncludeCommentsStrings', false);
                 const locations: vscode.Location[] = [];
-                const files = await vscode.workspace.findFiles('**/*.{st,TcPOU,TcPRG,TcAPP,TcCOM,TcGVL,TcDUT,TcVAR,TcIO,TcITF,tcpou,tcprg,tcapp,tccom,tcgvl,tcdut,tcvar,tcio,tcitf}', '**/node_modules/**');
+                const docs = await getWorkspaceSearchDocs();
 
-                for (const uri of files) {
-                    const doc = await vscode.workspace.openTextDocument(uri);
-                    const occurrences = findIdentifierOccurrences(doc.getText(), symbolName, includeCommentsStrings);
+                for (const doc of docs) {
+                    const occurrences = findIdentifierOccurrences(doc.text, symbolName, includeCommentsStrings);
                     for (const index of occurrences) {
                         const start = doc.positionAt(index);
                         const end = doc.positionAt(index + symbolName.length);
-                        locations.push(new vscode.Location(uri, new vscode.Range(start, end)));
+                        locations.push(new vscode.Location(doc.uri, new vscode.Range(start, end)));
                     }
                 }
 
@@ -813,15 +1348,14 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
                 const oldName = document.getText(wordRange);
                 const includeCommentsStrings = vscode.workspace.getConfiguration('twincat').get<boolean>('renameIncludeCommentsStrings', false);
                 const edit = new vscode.WorkspaceEdit();
-                const files = await vscode.workspace.findFiles('**/*.{st,TcPOU,TcPRG,TcAPP,TcCOM,TcGVL,TcDUT,TcVAR,TcIO,TcITF,tcpou,tcprg,tcapp,tccom,tcgvl,tcdut,tcvar,tcio,tcitf}', '**/node_modules/**');
+                const docs = await getWorkspaceSearchDocs();
 
-                for (const uri of files) {
-                    const doc = await vscode.workspace.openTextDocument(uri);
-                    const occurrences = findIdentifierOccurrences(doc.getText(), oldName, includeCommentsStrings);
+                for (const doc of docs) {
+                    const occurrences = findIdentifierOccurrences(doc.text, oldName, includeCommentsStrings);
                     for (const index of occurrences) {
                         const start = doc.positionAt(index);
                         const end = doc.positionAt(index + oldName.length);
-                        edit.replace(uri, new vscode.Range(start, end), newName);
+                        edit.replace(doc.uri, new vscode.Range(start, end), newName);
                     }
                 }
                 return edit;
@@ -883,51 +1417,104 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
                 return trackFeature('semanticTokens', async () => {
                     const builder = new vscode.SemanticTokensBuilder(semanticTokensLegend);
                     const lines = document.getText().split('\n');
-                    const keywordSet = new Set(iecStKeywords.map(k => k.toUpperCase()));
-                    const stdSet = new Set(Object.keys(standardIecDefinitions));
+                    const stringRegex = new RegExp(stringTokenRegex.source, 'g');
+                    const numberRegex = new RegExp(numberTokenRegex.source, 'g');
+                    const idRegex = new RegExp(identifierTokenRegex.source, 'g');
+                    const pushCodeTokens = (lineIndex: number, segment: string, segmentOffset: number) => {
+                        if (!segment) {
+                            return;
+                        }
+
+                        stringRegex.lastIndex = 0;
+                        let sm;
+                        while ((sm = stringRegex.exec(segment)) !== null) {
+                            builder.push(lineIndex, segmentOffset + sm.index, sm[0].length, 6, 0);
+                        }
+
+                        numberRegex.lastIndex = 0;
+                        let nm;
+                        while ((nm = numberRegex.exec(segment)) !== null) {
+                            builder.push(lineIndex, segmentOffset + nm.index, nm[0].length, 5, 0);
+                        }
+
+                        idRegex.lastIndex = 0;
+                        let im;
+                        while ((im = idRegex.exec(segment)) !== null) {
+                            const token = im[0];
+                            const upper = token.toUpperCase();
+                            if (iecStKeywordSet.has(upper)) {
+                                builder.push(lineIndex, segmentOffset + im.index, token.length, 0, 0);
+                                continue;
+                            }
+                            if (/^(BOOL|BYTE|WORD|DWORD|LWORD|SINT|INT|DINT|LINT|USINT|UINT|UDINT|ULINT|REAL|LREAL|TIME|DATE|TIME_OF_DAY|TOD|DATE_AND_TIME|DT|STRING|WSTRING|ARRAY|STRUCT|ENUM|TYPE)$/i.test(token)) {
+                                builder.push(lineIndex, segmentOffset + im.index, token.length, 1, 0);
+                                continue;
+                            }
+                            if (stdSymbolSet.has(upper)) {
+                                builder.push(lineIndex, segmentOffset + im.index, token.length, 2, 0);
+                                continue;
+                            }
+                            builder.push(lineIndex, segmentOffset + im.index, token.length, 3, 0);
+                        }
+                    };
+                    let activeBlockCommentEnd: '*)' | '*/' | undefined;
 
                     for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
                         const raw = lines[lineIndex].replace(/\r/g, '');
                         if (!raw) continue;
 
-                        const commentIdx = raw.indexOf('//');
-                        if (commentIdx >= 0) {
-                            builder.push(lineIndex, commentIdx, raw.length - commentIdx, 7, 0);
-                        }
-
-                        // Strings
-                        const stringRegex = /'([^']|'')*'|"([^"]|"")*"/g;
-                        let sm;
-                        while ((sm = stringRegex.exec(raw)) !== null) {
-                            builder.push(lineIndex, sm.index, sm[0].length, 6, 0);
-                        }
-
-                        // Numbers
-                        const numberRegex = /\b(16#[0-9A-Fa-f_]+|2#[01_]+|8#[0-7_]+|\d+(\.\d+)?([eE][+-]?\d+)?)\b/g;
-                        let nm;
-                        while ((nm = numberRegex.exec(raw)) !== null) {
-                            builder.push(lineIndex, nm.index, nm[0].length, 5, 0);
-                        }
-
-                        // Identifiers -> keyword/type/function/variable
-                        const idRegex = /\b[a-zA-Z_]\w*\b/g;
-                        let im;
-                        while ((im = idRegex.exec(raw)) !== null) {
-                            const token = im[0];
-                            const upper = token.toUpperCase();
-                            if (keywordSet.has(upper)) {
-                                builder.push(lineIndex, im.index, token.length, 0, 0);
+                        let cursor = 0;
+                        while (cursor < raw.length) {
+                            if (activeBlockCommentEnd) {
+                                const blockEndIdx = raw.indexOf(activeBlockCommentEnd, cursor);
+                                if (blockEndIdx >= 0) {
+                                    builder.push(lineIndex, cursor, (blockEndIdx + activeBlockCommentEnd.length) - cursor, 7, 0);
+                                    cursor = blockEndIdx + activeBlockCommentEnd.length;
+                                    activeBlockCommentEnd = undefined;
+                                    continue;
+                                }
+                                builder.push(lineIndex, cursor, raw.length - cursor, 7, 0);
+                                cursor = raw.length;
                                 continue;
                             }
-                            if (/^(BOOL|BYTE|WORD|DWORD|LWORD|SINT|INT|DINT|LINT|USINT|UINT|UDINT|ULINT|REAL|LREAL|TIME|DATE|TIME_OF_DAY|TOD|DATE_AND_TIME|DT|STRING|WSTRING|ARRAY|STRUCT|ENUM|TYPE)$/i.test(token)) {
-                                builder.push(lineIndex, im.index, token.length, 1, 0);
+
+                            const lineCommentIdx = raw.indexOf('//', cursor);
+                            const parenCommentIdx = raw.indexOf('(*', cursor);
+                            const slashCommentIdx = raw.indexOf('/*', cursor);
+                            const nextBlockStartCandidates = [parenCommentIdx, slashCommentIdx].filter(idx => idx >= 0);
+                            const nextBlockStart = nextBlockStartCandidates.length > 0
+                                ? Math.min(...nextBlockStartCandidates)
+                                : -1;
+                            const nextCommentStartCandidates = [lineCommentIdx, nextBlockStart].filter(idx => idx >= 0);
+                            const nextCommentStart = nextCommentStartCandidates.length > 0
+                                ? Math.min(...nextCommentStartCandidates)
+                                : -1;
+
+                            if (nextCommentStart < 0) {
+                                pushCodeTokens(lineIndex, raw.substring(cursor), cursor);
+                                break;
+                            }
+
+                            if (nextCommentStart > cursor) {
+                                pushCodeTokens(lineIndex, raw.substring(cursor, nextCommentStart), cursor);
+                            }
+
+                            if (lineCommentIdx === nextCommentStart) {
+                                builder.push(lineIndex, nextCommentStart, raw.length - nextCommentStart, 7, 0);
+                                break;
+                            }
+
+                            const commentEndToken = parenCommentIdx === nextCommentStart ? '*)' : '*/';
+                            const blockEndIdx = raw.indexOf(commentEndToken, nextCommentStart + 2);
+                            if (blockEndIdx >= 0) {
+                                builder.push(lineIndex, nextCommentStart, (blockEndIdx + commentEndToken.length) - nextCommentStart, 7, 0);
+                                cursor = blockEndIdx + commentEndToken.length;
                                 continue;
                             }
-                            if (stdSet.has(upper)) {
-                                builder.push(lineIndex, im.index, token.length, 2, 0);
-                                continue;
-                            }
-                            builder.push(lineIndex, im.index, token.length, 3, 0);
+
+                            builder.push(lineIndex, nextCommentStart, raw.length - nextCommentStart, 7, 0);
+                            activeBlockCommentEnd = commentEndToken;
+                            break;
                         }
                     }
                     return builder.build();
@@ -939,23 +1526,54 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
     
     // Register diagnostics (error checking)
     const diagnosticCollection = vscode.languages.createDiagnosticCollection('iec-st');
-    
-    const validateDocument = async (document: vscode.TextDocument) => {
-        if (document.languageId !== 'iec-st') return;
-        
+
+    type ValidationTarget = {
+        uri: vscode.Uri;
+        languageId: string;
+        text: string;
+        originalPath?: string;
+        documentForWholePouUsage?: vscode.TextDocument;
+    };
+
+    const computeDiagnostics = async (target: ValidationTarget): Promise<vscode.Diagnostic[]> => {
+        if (target.languageId !== 'iec-st') {
+            return [];
+        }
+
         const diagnostics: vscode.Diagnostic[] = [];
+        await ensureProjectAnalyzerReady();
         const severityUndefined = getConfiguredSeverity('twincat.diagnostics.undefinedVariables', vscode.DiagnosticSeverity.Error);
         const severityUnused = getConfiguredSeverity('twincat.diagnostics.unusedVariables', vscode.DiagnosticSeverity.Warning);
         const severityDuplicate = getConfiguredSeverity('twincat.diagnostics.duplicateDeclarations', vscode.DiagnosticSeverity.Error);
         const severityTypeMismatch = getConfiguredSeverity('twincat.diagnostics.typeMismatch', vscode.DiagnosticSeverity.Error);
-        const text = document.getText();
+        const text = target.text;
         const lines = text.split('\n');
+        const tcviewLintPragmas = parseTcviewLintPragmas(text);
+        const pushLintDiagnostic = (rule: string, line: number, diagnostic: vscode.Diagnostic) => {
+            if (isTcviewLintRuleSuppressed(tcviewLintPragmas, line, rule)) {
+                return;
+            }
+            diagnostics.push(diagnostic);
+        };
+        const originalPath = target.originalPath
+            ?? (target.uri.scheme === 'twincat'
+                ? TwinCATFileSystemProvider.getOriginalPath(target.uri)
+                : target.uri.scheme === 'file'
+                    ? target.uri.fsPath
+                    : undefined);
+        const sourceExtension = originalPath ? path.extname(originalPath).toLowerCase() : '';
+        const isGlobalListDocument =
+            globalListFileExtensions.has(sourceExtension) ||
+            (/^\s*VAR_GLOBAL\b/im.test(text) && !/^\s*(FUNCTION|FUNCTION_BLOCK|PROGRAM|METHOD|PROPERTY|ACTION|TRANSITION)\b/im.test(text));
 
         // AST-based diagnostics path
-        {
         const ast = buildAstAnalysis(text);
 
         ast.missingSemicolons.forEach(item => {
+            const lineText = lines[item.line] ?? '';
+            if (isGlobalListDocument && globalListModifierOnlyLinePattern.test(lineText)) {
+                return;
+            }
             diagnostics.push(new vscode.Diagnostic(
                 new vscode.Range(item.line, item.startCol, item.line, item.endCol),
                 item.message,
@@ -984,7 +1602,7 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
             ));
         });
         ast.duplicates.forEach(dup => {
-            diagnostics.push(new vscode.Diagnostic(
+            pushLintDiagnostic('duplicate-declaration', dup.line, new vscode.Diagnostic(
                 new vscode.Range(dup.line, dup.startCol, dup.line, dup.endCol),
                 `Duplicate declaration '${dup.name}' in the same scope.`,
                 severityDuplicate
@@ -994,7 +1612,7 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         const allDeclared = new Set(ast.declarations.map(d => d.upper));
         const astSymbolTypes = new Map(ast.declarations.map(d => [d.upper, normalizeTypeName(d.type)] as [string, string]));
         const astLocalsForUnusedCheck = ast.declarations
-            .filter(d => d.scopeKind === 'VAR' || d.scopeKind === 'VAR_TEMP')
+            .filter(d => unusedDeclarationScopes.has(d.scopeKind))
             .map(d => ({ name: d.name, upper: d.upper, line: d.line, startCol: d.startCol, endCol: d.endCol }));
 
         const systemVars = getSystemVariables();
@@ -1003,32 +1621,198 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         programNames.forEach(name => allKnownVars.add(name.toUpperCase()));
         const callableNames = extractCallableNames(text);
         callableNames.forEach(name => allKnownVars.add(name.toUpperCase()));
+        const callableReturnTypes = extractCallableReturnTypes(lines);
+        callableReturnTypes.forEach(callable => {
+            const upperName = callable.name.toUpperCase();
+            allKnownVars.add(upperName);
+            if (callable.kind.toUpperCase() === 'FUNCTION') {
+                allDeclared.add(upperName);
+                astSymbolTypes.set(upperName, normalizeTypeName(callable.typeName));
+            }
+        });
 
         const astProjectAnalyzer = getProjectAnalyzer();
-        const astProjectSymbols = astProjectAnalyzer.getAllSymbols();
-        astProjectSymbols.forEach((symbol, name) => {
+        const astProjectSymbols = new Map<string, ReturnType<typeof astProjectAnalyzer.getSymbol>>();
+        astProjectAnalyzer.forEachAllSymbols((symbol, name) => {
+            astProjectSymbols.set(name, symbol);
             allKnownVars.add(name);
         });
-        const astProjectTypes = astProjectAnalyzer.getDataTypes();
-        astProjectTypes.forEach((_type, name) => {
+        const astProjectTypes = new Map<string, ReturnType<typeof astProjectAnalyzer.getDataType>>();
+        astProjectAnalyzer.forEachDataType((_type, name) => {
+            astProjectTypes.set(name, _type);
             allKnownVars.add(name);
+            if (_type.kind === 'enum') {
+                _type.members.forEach((_memberType, memberName) => allKnownVars.add(memberName.toUpperCase()));
+            }
         });
         Object.keys(standardIecDefinitions).forEach(name => allKnownVars.add(name.toUpperCase()));
         const astProjectSymbolTypes = new Map<string, string>();
-        astProjectAnalyzer.getAllSymbols().forEach(symbol => {
+        astProjectSymbols.forEach(symbol => {
+            if (!symbol) return;
             astProjectSymbolTypes.set(symbol.name.toUpperCase(), normalizeTypeName(symbol.type));
+        });
+        const qualifiedOnlyInfo = mergeQualifiedOnlyUsageInfo(
+            {
+                globals: new Map<string, Set<string>>(),
+                enums: new Map<string, Set<string>>()
+            },
+            extractQualifiedOnlyUsageInfo(text, originalPath)
+        );
+        mergeQualifiedOnlyUsageInfo(qualifiedOnlyInfo, astProjectAnalyzer.getQualifiedOnlyUsageInfo());
+
+        const getDeclarationTypeStatus = (typeName: string): 'known' | 'metadata_only' | 'unknown' => {
+            if (!typeName) return 'known';
+            if (isKnownIecBuiltinType(typeName) || standardIecDefinitions[typeName.toUpperCase()]) return 'known';
+            const analyzerStatus = astProjectAnalyzer.getTypeResolutionStatus(typeName);
+            if (analyzerStatus !== 'unknown') return analyzerStatus;
+            const key = typeName.toUpperCase();
+            if (astProjectTypes.has(key)) return 'known';
+            const sym = astProjectSymbols.get(key);
+            if (!sym) return 'unknown';
+            return sym.kind === 'type' || sym.kind === 'functionBlock' || sym.kind === 'program'
+                ? 'known'
+                : 'unknown';
+        };
+
+        ast.declarations.forEach(decl => {
+            const typeInfo = parseDeclarationTypeInfo(decl.type);
+            if (!typeInfo.baseType) {
+                return;
+            }
+
+            const typeStatus = getDeclarationTypeStatus(typeInfo.baseType);
+            if (typeStatus === 'unknown') {
+                const typeRange = findDeclarationTypeRange(lines[decl.line] ?? '', decl.line);
+                pushLintDiagnostic('unknown-type', decl.line, new vscode.Diagnostic(
+                    typeRange,
+                    `Unknown or unresolved type '${typeInfo.baseType}' for declaration '${decl.name}'.`,
+                    severityUndefined
+                ));
+                return;
+            }
+            if (typeStatus === 'metadata_only') {
+                const typeRange = findDeclarationTypeRange(lines[decl.line] ?? '', decl.line);
+                pushLintDiagnostic('unknown-type', decl.line, new vscode.Diagnostic(
+                    typeRange,
+                    `Type '${typeInfo.baseType}' is referenced from metadata-only library context and is not fully verified.`,
+                    vscode.DiagnosticSeverity.Warning
+                ));
+            }
+
+            if (typeInfo.hasInitializer && !typeInfo.initializer) {
+                const typeRange = findDeclarationTypeRange(lines[decl.line] ?? '', decl.line);
+                diagnostics.push(new vscode.Diagnostic(
+                    typeRange,
+                    `Missing initializer expression for declaration '${decl.name}'.`,
+                    vscode.DiagnosticSeverity.Error
+                ));
+                return;
+            }
+
+            if (typeInfo.initializer) {
+                const exprType = inferExpressionPrimitiveType(typeInfo.initializer);
+                if (exprType !== 'UNKNOWN' && !isTypeCompatible(typeInfo.baseType, exprType)) {
+                    const typeRange = findDeclarationTypeRange(lines[decl.line] ?? '', decl.line);
+                    pushLintDiagnostic('type-mismatch', decl.line, new vscode.Diagnostic(
+                        typeRange,
+                        `Type mismatch in declaration '${decl.name}': cannot assign ${exprType} to ${typeInfo.baseType}.`,
+                        severityTypeMismatch
+                    ));
+                }
+            }
+        });
+
+        callableReturnTypes.forEach(callable => {
+            const typeStatus = getDeclarationTypeStatus(callable.typeName);
+            if (typeStatus === 'known') {
+                return;
+            }
+
+            const typeRange = findCallableReturnTypeRange(lines[callable.line] ?? '', callable.line);
+            if (typeStatus === 'metadata_only') {
+                pushLintDiagnostic('unknown-type', callable.line, new vscode.Diagnostic(
+                    typeRange,
+                    `Return type '${callable.typeName}' for ${callable.kind} '${callable.name}' is referenced from metadata-only library context and is not fully verified.`,
+                    vscode.DiagnosticSeverity.Warning
+                ));
+                return;
+            }
+
+            pushLintDiagnostic('unknown-type', callable.line, new vscode.Diagnostic(
+                typeRange,
+                `Unknown or unresolved return type '${callable.typeName}' for ${callable.kind} '${callable.name}'.`,
+                severityUndefined
+            ));
+        });
+
+        // Add inferred type names to reduce false undefined-variable errors
+        // for enum/type-qualified literals (e.g. E_Type.Member).
+        astSymbolTypes.forEach(typeName => {
+            const normalized = normalizeTypeName(typeName);
+            if (/^[A-Z_]\w*$/.test(normalized)) {
+                allKnownVars.add(normalized.toUpperCase());
+            }
+        });
+        astProjectSymbolTypes.forEach(typeName => {
+            const normalized = normalizeTypeName(typeName);
+            if (/^[A-Z_]\w*$/.test(normalized)) {
+                allKnownVars.add(normalized.toUpperCase());
+            }
+        });
+        const localInlineEnumMembers = new Set<string>();
+        ast.declarations.forEach(decl => {
+            parseInlineEnumMembers(decl.type).forEach(memberName => {
+                const upperMemberName = memberName.toUpperCase();
+                localInlineEnumMembers.add(upperMemberName);
+                allKnownVars.add(upperMemberName);
+                allDeclared.add(upperMemberName);
+            });
+        });
+        parseTwinCATTypeDeclarations(text).forEach(typeInfo => {
+            if (typeInfo.kind !== 'enum') {
+                return;
+            }
+            typeInfo.members.forEach((_memberType, memberName) => {
+                allKnownVars.add(memberName.toUpperCase());
+            });
         });
 
         const astUsedIdentifiers = new Set<string>();
         ast.usages.forEach(u => {
-            if (iecStKeywords.includes(u.upper)) return;
+            if (isKnownIecBuiltinIdentifier(u.upper)) return;
+            if (localInlineEnumMembers.has(u.upper)) {
+                astUsedIdentifiers.add(u.upper);
+                return;
+            }
+            if (!allDeclared.has(u.upper)) {
+                const qualifiedGlobalOwners = [...(qualifiedOnlyInfo.globals.get(u.upper) ?? [])];
+                const qualifiedEnumOwners = [...(qualifiedOnlyInfo.enums.get(u.upper) ?? [])];
+                if (qualifiedGlobalOwners.length > 0 || qualifiedEnumOwners.length > 0) {
+                    const ownerParts: string[] = [];
+                    if (qualifiedGlobalOwners.length > 0) {
+                        ownerParts.push(`GVL ${qualifiedGlobalOwners.map(owner => `'${owner}'`).join(', ')}`);
+                    }
+                    if (qualifiedEnumOwners.length > 0) {
+                        ownerParts.push(`enum ${qualifiedEnumOwners.map(owner => `'${owner}'`).join(', ')}`);
+                    }
+                    const qualificationHint = qualifiedGlobalOwners.length > 0
+                        ? `${qualifiedGlobalOwners[0]}.${u.name}`
+                        : `${qualifiedEnumOwners[0]}.${u.name}`;
+                    pushLintDiagnostic('qualified-only', u.line, new vscode.Diagnostic(
+                        new vscode.Range(u.line, u.startCol, u.line, u.endCol),
+                        `'${u.name}' must be qualified because it belongs to ${ownerParts.join(' and ')} marked with {attribute 'qualified_only'}. Use '${qualificationHint}'.`,
+                        severityUndefined
+                    ));
+                    return;
+                }
+            }
             if (allKnownVars.has(u.upper)) {
                 astUsedIdentifiers.add(u.upper);
                 return;
             }
             const suggestion = findClosestMatch(u.name, [...allKnownVars]);
             const suggestionText = suggestion ? ` Did you mean '${suggestion}'?` : '';
-            diagnostics.push(new vscode.Diagnostic(
+            pushLintDiagnostic('undefined-variable', u.line, new vscode.Diagnostic(
                 new vscode.Range(u.line, u.startCol, u.line, u.endCol),
                 `'${u.name}' is undeclared in local scope and project symbols.${suggestionText}`,
                 severityUndefined
@@ -1041,7 +1825,7 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
             const exprType = inferExpressionPrimitiveType(a.expr);
             if (exprType === 'UNKNOWN') return;
             if (!isTypeCompatible(targetType, exprType)) {
-                diagnostics.push(new vscode.Diagnostic(
+                pushLintDiagnostic('type-mismatch', a.line, new vscode.Diagnostic(
                     new vscode.Range(a.line, a.startCol, a.line, a.startCol + a.target.length),
                     `Type mismatch: cannot assign ${exprType} to ${targetType}.`,
                     severityTypeMismatch
@@ -1050,28 +1834,57 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         });
 
         const isLikelyPartialPouMainView =
-            document.uri.scheme === 'twincat' &&
+            !!originalPath &&
+            /\.(tcpou|tcprg|tcapp|tccom)$/i.test(originalPath) &&
             /^\s*(FUNCTION_BLOCK|FUNCTION|PROGRAM)\b/im.test(text) &&
             !/^\s*(METHOD|PROPERTY|ACTION|TRANSITION)\b/im.test(text);
         const wholePouUsageSet = isLikelyPartialPouMainView
-            ? await getWholePouUsageSet(document)
+            ? (
+                target.documentForWholePouUsage
+                    ? await getWholePouUsageSet(target.documentForWholePouUsage)
+                    : originalPath
+                        ? await getWholePouUsageSetForSourcePath(originalPath)
+                        : undefined
+            )
             : undefined;
 
-        astLocalsForUnusedCheck.forEach(local => {
-            const usedInBody = astUsedIdentifiers.has(local.upper) || isIdentifierUsedInBody(text, local.name);
-            const usedInWholePou = wholePouUsageSet ? wholePouUsageSet.has(local.upper) : false;
-            if (!(usedInBody || usedInWholePou)) {
-                diagnostics.push(new vscode.Diagnostic(
-                    new vscode.Range(local.line, local.startCol, local.line, local.endCol),
-                    `Local variable '${local.name}' is declared but never used.`,
-                    severityUnused
-                ));
-            }
-        });
-
-        diagnosticCollection.set(document.uri, diagnostics);
-        return;
+        if (!isGlobalListDocument) {
+            const standardImplicitLocals = getImplicitlyUsedLocalsForDocument(target);
+            astLocalsForUnusedCheck.forEach(local => {
+                if (isTcviewLintRuleSuppressed(tcviewLintPragmas, local.line, 'unused-instance')) {
+                    return;
+                }
+                if (standardImplicitLocals.has(local.upper)) {
+                    return;
+                }
+                const usedInBody = astUsedIdentifiers.has(local.upper) || isIdentifierUsedInBody(text, local.name);
+                const usedInWholePou = wholePouUsageSet ? wholePouUsageSet.has(local.upper) : false;
+                if (!(usedInBody || usedInWholePou)) {
+                    diagnostics.push(new vscode.Diagnostic(
+                        new vscode.Range(local.line, local.startCol, local.line, local.endCol),
+                        `Declaration '${local.name}' is declared but never used.`,
+                        severityUnused
+                    ));
+                }
+            });
         }
+        return diagnostics;
+    };
+
+    const validateDocument = async (document: vscode.TextDocument) => {
+        if (document.languageId !== 'iec-st') return;
+        const sourcePath = getSourcePathForDocument(document);
+        if (sourcePath) {
+            diagnosticCollection.delete(vscode.Uri.file(sourcePath));
+        }
+        const diagnostics = await computeDiagnostics({
+            uri: document.uri,
+            languageId: document.languageId,
+            text: document.getText(),
+            originalPath: sourcePath,
+            documentForWholePouUsage: document
+        });
+        diagnosticCollection.set(document.uri, diagnostics);
     };
 
     
@@ -1124,18 +1937,122 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         }
     });
 
-    const openListener = vscode.workspace.onDidOpenTextDocument(doc => { void validateDocument(doc); });
+    const invalidateSearchCacheForDocument = (doc: vscode.TextDocument) => {
+        if (doc.uri.scheme !== 'file') {
+            return;
+        }
+        workspaceSearchTextCache.delete(doc.uri.toString());
+    };
+
+    const invalidateWholePouUsageCacheForDocument = (doc: vscode.TextDocument) => {
+        const sourcePath = getSourcePathForDocument(doc);
+        if (!sourcePath) {
+            return;
+        }
+        const prefix = `${sourcePath.toLowerCase()}|`;
+        for (const key of [...wholePouUsageCache.keys()]) {
+            if (key.startsWith(prefix)) {
+                wholePouUsageCache.delete(key);
+            }
+        }
+    };
+
+    const openListener = vscode.workspace.onDidOpenTextDocument(doc => {
+        if (!isDocumentVisibleInEditor(doc)) {
+            return;
+        }
+        const source = getSourcePathForDocument(doc);
+        if (source) {
+            diagnosticCollection.delete(vscode.Uri.file(source));
+        }
+        scheduleDocumentValidation(doc, 40);
+    });
     const changeListener = vscode.workspace.onDidChangeTextDocument(e => {
-        void validateDocument(e.document);
         const source = getSourcePathForDocument(e.document);
+        if (source) {
+            diagnosticCollection.delete(vscode.Uri.file(source));
+        }
+        scheduleDocumentValidation(e.document);
+        invalidateSearchCacheForDocument(e.document);
+        invalidateWholePouUsageCacheForDocument(e.document);
         if (source) scheduleRelatedValidation(source);
     });
     const saveListener = vscode.workspace.onDidSaveTextDocument(doc => {
         const source = getSourcePathForDocument(doc);
+        if (source) {
+            diagnosticCollection.delete(vscode.Uri.file(source));
+        }
+        scheduleDocumentValidation(doc, 40);
+        invalidateSearchCacheForDocument(doc);
+        invalidateWholePouUsageCacheForDocument(doc);
         if (source) scheduleRelatedValidation(source);
     });
-    const closeListener = vscode.workspace.onDidCloseTextDocument(doc => diagnosticCollection.delete(doc.uri));
-    const closeCacheListener = vscode.workspace.onDidCloseTextDocument(doc => localSymbolCache.delete(doc.uri.toString()));
+    const closeListener = vscode.workspace.onDidCloseTextDocument(doc => {
+        diagnosticCollection.delete(doc.uri);
+        const key = doc.uri.toString();
+        const timer = documentValidationTimers.get(key);
+        if (timer) {
+            clearTimeout(timer);
+            documentValidationTimers.delete(key);
+        }
+    });
+    const closeCacheListener = vscode.workspace.onDidCloseTextDocument(doc => {
+        localSymbolCache.delete(doc.uri.toString());
+        workspaceSearchTextCache.delete(doc.uri.toString());
+    });
+    const handleAnalyzerRefresh = () => {
+        const docs = vscode.workspace.textDocuments.filter(doc =>
+            doc.languageId === 'iec-st'
+        );
+        for (const doc of docs) {
+            scheduleDocumentValidation(doc, 80);
+            const source = getSourcePathForDocument(doc);
+            if (source) scheduleRelatedValidation(source);
+        }
+    };
+    const visibleEditorsListener = vscode.window.onDidChangeVisibleTextEditors(editors => {
+        for (const editor of editors) {
+            if (editor.document.languageId !== 'iec-st') {
+                continue;
+            }
+            scheduleDocumentValidation(editor.document, 60);
+        }
+    });
+    let activeAnalyzerRefreshDisposable: vscode.Disposable | undefined;
+    const analyzerRefreshListener = onProjectAnalyzerCreated(analyzer => {
+        activeAnalyzerRefreshDisposable?.dispose();
+        activeAnalyzerRefreshDisposable = analyzer.onDidRefreshIndex(() => {
+            handleAnalyzerRefresh();
+            const validationTargets = analyzer.getLastRefreshValidationFiles();
+            if (validationTargets.length > 0) {
+                scheduleBackgroundProjectValidation(250, { paths: validationTargets });
+            }
+        });
+    });
+    const backgroundDiagnosticWatcher = vscode.workspace.createFileSystemWatcher(PROJECT_SCAN_PATTERN);
+    backgroundDiagnosticWatcher.onDidCreate(uri => {
+        void queueProjectScopedBackgroundValidation([uri.fsPath], 350, true);
+    });
+    backgroundDiagnosticWatcher.onDidChange(uri => {
+        if (hasOpenIecStDocumentForSourcePath(uri.fsPath)) {
+            return;
+        }
+        void queueProjectScopedBackgroundValidation([uri.fsPath], 350, false);
+    });
+    backgroundDiagnosticWatcher.onDidDelete(uri => {
+        clearDiagnosticsForSourcePath(uri.fsPath);
+        void queueProjectScopedBackgroundValidation([uri.fsPath], 350, true);
+    });
+    const projectMetadataWatcher = vscode.workspace.createFileSystemWatcher('**/*.{plcproj,tsproj,tspproj,tmc}');
+    projectMetadataWatcher.onDidCreate(uri => {
+        void queueProjectScopedBackgroundValidation([uri.fsPath], 1500, true);
+    });
+    projectMetadataWatcher.onDidChange(uri => {
+        void queueProjectScopedBackgroundValidation([uri.fsPath], 1500, true);
+    });
+    projectMetadataWatcher.onDidDelete(uri => {
+        void queueProjectScopedBackgroundValidation([uri.fsPath], 1500, true);
+    });
 
     // Quick fixes for common diagnostics
     const codeActionProvider = vscode.languages.registerCodeActionsProvider(
@@ -1238,8 +2155,8 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
                         }
                     }
 
-                    // Unused local variable
-                    if (message.startsWith('Local variable ') && message.includes('declared but never used')) {
+                    // Unused declaration
+                    if (message.startsWith('Declaration ') && message.includes('declared but never used')) {
                         const action = new vscode.CodeAction('Remove unused variable declaration line', vscode.CodeActionKind.QuickFix);
                         action.diagnostics = [diagnostic];
                         action.edit = new vscode.WorkspaceEdit();
@@ -1276,8 +2193,14 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         }
     );
     
-    // Validate all open documents
-    vscode.workspace.textDocuments.forEach(doc => { void validateDocument(doc); });
+    // Prioritize visible editors on startup and defer background validation of other
+    // restored documents so extension activation stays responsive.
+    const startupVisibleDocs = new Map<string, vscode.TextDocument>();
+    if (vscode.window.activeTextEditor) {
+        startupVisibleDocs.set(vscode.window.activeTextEditor.document.uri.toString(), vscode.window.activeTextEditor.document);
+    }
+    startupVisibleDocs.forEach(doc => scheduleDocumentValidation(doc, startupValidationDelayMs));
+    scheduleBackgroundProjectValidation(backgroundProjectValidationStartupDelayMs, { full: true });
 
     const validateSyntaxCommand = vscode.commands.registerCommand('tcview.validateSyntax', async () => {
         const editor = vscode.window.activeTextEditor;
@@ -1290,11 +2213,18 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         vscode.window.showInformationMessage(`Validation complete: ${issues} issue(s).`);
     });
 
-    const indexStatsCommand = vscode.commands.registerCommand('tcview.showIndexStats', () => {
+        const indexStatsCommand = vscode.commands.registerCommand('tcview.showIndexStats', async () => {
+        await ensureProjectAnalyzerReady();
         const analyzer = getProjectAnalyzer();
-        const symbols = analyzer.getAllSymbols().size;
+        let symbols = 0;
+        analyzer.forEachAllSymbols(() => {
+            symbols++;
+        });
         const globals = analyzer.getGlobalVariables().size;
-        const types = analyzer.getDataTypes().size;
+        let types = 0;
+        analyzer.forEachDataType(() => {
+            types++;
+        });
         vscode.window.showInformationMessage(`Index stats: ${symbols} symbols, ${globals} globals, ${types} data types.`);
     });
 
@@ -1305,11 +2235,29 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         const suffix = parts ? ` Stats -> ${parts}` : '';
         vscode.window.showInformationMessage(`TcView language features are active (completion, hover, diagnostics, formatting, navigation, code actions).${suffix}`);
     });
+
+    const cacheCleanupDisposable = new vscode.Disposable(() => {
+        documentValidationTimers.forEach(timer => clearTimeout(timer));
+        documentValidationTimers.clear();
+        relatedValidationTimers.forEach(timer => clearTimeout(timer));
+        relatedValidationTimers.clear();
+        if (projectValidationTimer) {
+            clearTimeout(projectValidationTimer);
+            projectValidationTimer = undefined;
+        }
+        backgroundProjectValidationPaths.clear();
+        backgroundProjectValidationRoots.clear();
+        workspaceSearchTextCache.clear();
+        projectCompletionCache.revision = -1;
+        projectCompletionCache.items = [];
+        wholePouUsageCache.clear();
+    });
     
     context.subscriptions.push(
         completionProvider,
         hoverProvider,
         symbolProvider,
+        foldingProvider,
         formattingProvider,
         rangeFormattingProvider,
         definitionProvider,
@@ -1325,50 +2273,81 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         saveListener,
         closeListener,
         closeCacheListener,
+        visibleEditorsListener,
+        analyzerRefreshListener,
+        backgroundDiagnosticWatcher,
+        projectMetadataWatcher,
+        { dispose: () => activeAnalyzerRefreshDisposable?.dispose() },
         validateSyntaxCommand,
         indexStatsCommand,
-        statusCommand
+        statusCommand,
+        cacheCleanupDisposable
     );
 }
 
 // Extract declared variables from VAR sections
 function extractDeclaredVariables(text: string): string[] {
     const declaredVars: string[] = [];
-    const varSectionRegex = /\b(VAR|VAR_INPUT|VAR_OUTPUT|VAR_IN_OUT|VAR_TEMP|VAR_GLOBAL|VAR_INST|VAR_STAT)\b[\s\S]*?\bEND_VAR\b/gi;
-    
-    let sectionMatch;
-    while ((sectionMatch = varSectionRegex.exec(text)) !== null) {
-        const section = sectionMatch[0];
-        // Match variable declarations: "name : type" or "name : type := value"
-        const varDeclRegex = /^\s*([a-zA-Z_]\w*)\s*:/gm;
-        let declMatch;
-        while ((declMatch = varDeclRegex.exec(section)) !== null) {
-            declaredVars.push(declMatch[1].toUpperCase());
-        }
-    }
-    
+    forEachVarDeclaration(text, ({ names }) => {
+        names.forEach(name => declaredVars.push(name.toUpperCase()));
+    });
     return declaredVars;
 }
 
 function extractDeclaredSymbolsWithTypes(text: string): Map<string, { name: string; type: string }> {
     const symbols = new Map<string, { name: string; type: string }>();
-    const varSectionRegex = /\b(VAR|VAR_INPUT|VAR_OUTPUT|VAR_IN_OUT|VAR_TEMP|VAR_GLOBAL|VAR_INST|VAR_STAT)\b[\s\S]*?\bEND_VAR\b/gi;
-
-    let sectionMatch;
-    while ((sectionMatch = varSectionRegex.exec(text)) !== null) {
-        const section = sectionMatch[0];
-        const varDeclRegex = /^\s*([a-zA-Z_]\w*)\s*:\s*([^;]+);/gm;
-        let declMatch;
-
-        while ((declMatch = varDeclRegex.exec(section)) !== null) {
-            const name = declMatch[1];
-            const rawType = declMatch[2];
-            const type = normalizeTypeName(rawType);
+    forEachVarDeclaration(text, ({ names, rawType }) => {
+        const type = normalizeTypeName(rawType);
+        for (const name of names) {
             symbols.set(name.toUpperCase(), { name, type: type || rawType.trim() });
         }
-    }
+    });
 
     return symbols;
+}
+
+function forEachVarDeclaration(
+    text: string,
+    callback: (declaration: { names: string[]; rawType: string }) => void
+): void {
+    const varSectionRegex = /\b(VAR|VAR_INPUT|VAR_OUTPUT|VAR_IN_OUT|VAR_TEMP|VAR_GLOBAL|VAR_INST|VAR_STAT)\b[\s\S]*?\bEND_VAR\b/gi;
+    let sectionMatch: RegExpExecArray | null;
+
+    while ((sectionMatch = varSectionRegex.exec(text)) !== null) {
+        const section = sectionMatch[0].replace(/\r/g, '');
+        const body = section
+            .replace(/^\s*(VAR|VAR_INPUT|VAR_OUTPUT|VAR_IN_OUT|VAR_TEMP|VAR_GLOBAL|VAR_INST|VAR_STAT)\b[^\n]*\n?/i, '')
+            .replace(/\n?\s*END_VAR\b\s*$/i, '');
+
+        const statements = body.split(';');
+        let pending = '';
+
+        for (const fragment of statements) {
+            const cleanFragment = fragment.replace(/\/\/.*$/gm, '').trim();
+            if (!cleanFragment) {
+                continue;
+            }
+
+            const combined = `${pending} ${cleanFragment}`.trim();
+            const stripped = stripLeadingDeclarationPragmas(combined).trim();
+            if (!stripped) {
+                pending = combined;
+                continue;
+            }
+
+            const match = stripped.match(/^([a-zA-Z_]\w*(?:\s*,\s*[a-zA-Z_]\w*)*)(?:\s+AT\s+[^:]+)?\s*:\s*([\s\S]+)$/m);
+            if (!match) {
+                pending = combined;
+                continue;
+            }
+
+            const names = match[1].match(/[a-zA-Z_]\w*/g) ?? [];
+            if (names.length > 0) {
+                callback({ names, rawType: match[2].trim() });
+            }
+            pending = '';
+        }
+    }
 }
 
 function normalizeTypeName(rawType: string): string {
@@ -1377,8 +2356,161 @@ function normalizeTypeName(rawType: string): string {
     cleaned = cleaned.split(':=')[0].trim();
     cleaned = cleaned.replace(/\([^)]*\)/g, '').trim();
     cleaned = cleaned.replace(/\b(CONSTANT|RETAIN|PERSISTENT|AT)\b/g, '').trim();
+    const qualifiedMatch = cleaned.match(/[A-Z_]\w*(?:\.[A-Z_]\w*)+/);
+    if (qualifiedMatch) {
+        const parts = qualifiedMatch[0].split('.');
+        return parts[parts.length - 1];
+    }
     const tokenMatch = cleaned.match(/[A-Z_]\w*/);
     return tokenMatch ? tokenMatch[0] : cleaned;
+}
+
+function parseDeclarationTypeInfo(rawType: string): { baseType: string; initializer?: string; hasInitializer: boolean } {
+    const typeAndInit = rawType.split(':=');
+    const declaredType = (typeAndInit[0] || '').trim();
+    const initializer = typeAndInit.length > 1 ? typeAndInit.slice(1).join(':=').trim() : undefined;
+
+    const baseType = extractBaseTypeName(declaredType);
+    return { baseType, initializer, hasInitializer: typeAndInit.length > 1 };
+}
+
+function extractBaseTypeName(typeExpr: string): string {
+    if (!typeExpr) return '';
+
+    let working = typeExpr.trim();
+    if (working.startsWith('(') && working.endsWith(')')) {
+        return '';
+    }
+    working = working.replace(/\b(CONSTANT|RETAIN|PERSISTENT)\b/gi, '').trim();
+    working = working.replace(/\bAT\s+%[A-Za-z0-9_.]+\b/gi, '').trim();
+
+    const arrayMatch = working.match(/\bARRAY\b[\s\S]*\bOF\s+(.+)$/i);
+    if (arrayMatch) {
+        return extractBaseTypeName(arrayMatch[1]);
+    }
+
+    const refMatch = working.match(/\b(?:REFERENCE|POINTER)\s+TO\s+(.+)$/i);
+    if (refMatch) {
+        return extractBaseTypeName(refMatch[1]);
+    }
+
+    if (/^\s*STRING\s*\(/i.test(working)) return 'STRING';
+    if (/^\s*WSTRING\s*\(/i.test(working)) return 'WSTRING';
+
+    const normalized = normalizeTypeName(working);
+    return normalized;
+}
+
+function parseInlineEnumMembers(typeExpr: string): string[] {
+    if (!typeExpr) {
+        return [];
+    }
+
+    const trimmed = typeExpr.trim();
+    if (!trimmed.startsWith('(') || !trimmed.endsWith(')')) {
+        return [];
+    }
+
+    const members: string[] = [];
+    for (const rawSegment of trimmed.slice(1, -1).split(',')) {
+        const segment = rawSegment
+            .replace(/\/\/.*$/g, '')
+            .replace(/\(\*[\s\S]*?\*\)/g, '')
+            .trim();
+        if (!segment) {
+            continue;
+        }
+
+        const memberName = segment.split(':=')[0].trim();
+        if (/^[A-Za-z_]\w*$/.test(memberName)) {
+            members.push(memberName);
+        }
+    }
+
+    return members;
+}
+
+function stripLeadingDeclarationPragmas(text: string): string {
+    let working = text;
+    while (true) {
+        const next = working.replace(/^\s*\{[\s\S]*?\}\s*/u, '');
+        if (next === working) {
+            return working;
+        }
+        working = next;
+    }
+}
+
+function getImplicitlyUsedLocalsForDocument(target: { uri: vscode.Uri; text: string }): Set<string> {
+    const implicit = new Set<string>();
+    const fragment = (target.uri.fragment || '').toLowerCase();
+    const text = target.text.replace(/\r/g, '');
+    if (fragment === 'method:fb_init' || /^\s*METHOD\b(?:\s+(?:PUBLIC|PRIVATE|PROTECTED|INTERNAL|FINAL|ABSTRACT|OVERRIDE|STATIC))*\s+FB_Init\b/im.test(text)) {
+        implicit.add('BINITRETAINS');
+        implicit.add('BINCOPYCODE');
+    }
+    return implicit;
+}
+
+function findDeclarationTypeRange(lineText: string, lineNumber: number): vscode.Range {
+    const line = lineText.replace(/\r/g, '');
+    const colon = line.indexOf(':');
+    if (colon < 0) {
+        const end = Math.max(1, line.length);
+        return new vscode.Range(lineNumber, 0, lineNumber, end);
+    }
+
+    const afterColon = line.substring(colon + 1);
+    const semicolonRel = afterColon.indexOf(';');
+    const typeStart = colon + 1 + (afterColon.match(/^\s*/)?.[0].length ?? 0);
+    const typeEnd = semicolonRel >= 0 ? colon + 1 + semicolonRel : line.length;
+    const start = Math.max(0, Math.min(typeStart, line.length));
+    const end = Math.max(start + 1, Math.min(typeEnd, line.length));
+    return new vscode.Range(lineNumber, start, lineNumber, end);
+}
+
+function findCallableReturnTypeRange(lineText: string, lineNumber: number): vscode.Range {
+    const line = lineText.replace(/\r/g, '');
+    const colon = line.indexOf(':');
+    if (colon < 0) {
+        const end = Math.max(1, line.length);
+        return new vscode.Range(lineNumber, 0, lineNumber, end);
+    }
+
+    let start = colon + 1;
+    while (start < line.length && /\s/.test(line[start])) {
+        start += 1;
+    }
+
+    let end = start;
+    while (end < line.length && /[A-Za-z0-9_.]/.test(line[end])) {
+        end += 1;
+    }
+
+    const safeStart = Math.max(0, Math.min(start, line.length));
+    const safeEnd = Math.max(safeStart + 1, Math.min(end, line.length));
+    return new vscode.Range(lineNumber, safeStart, lineNumber, safeEnd);
+}
+
+function extractCallableReturnTypes(lines: string[]): Array<{ kind: string; name: string; typeName: string; line: number }> {
+    const results: Array<{ kind: string; name: string; typeName: string; line: number }> = [];
+    const callableHeaderPattern = /^\s*(FUNCTION|METHOD|PROPERTY)\b(?:\s+(?:PUBLIC|PRIVATE|PROTECTED|INTERNAL|FINAL|ABSTRACT))*\s+([A-Za-z_]\w*)\s*:\s*([A-Za-z_][A-Za-z0-9_.]*)/i;
+
+    lines.forEach((lineText, line) => {
+        const match = lineText.match(callableHeaderPattern);
+        if (!match) {
+            return;
+        }
+
+        results.push({
+            kind: match[1].toUpperCase(),
+            name: match[2],
+            typeName: match[3],
+            line
+        });
+    });
+
+    return results;
 }
 
 function getKnownFbMembers(typeName: string): string[] {
@@ -1437,8 +2569,8 @@ function getSystemVariables(): string[] {
 function extractProgramFunctionNames(text: string): string[] {
     const names: string[] = [];
     
-    // Match PROGRAM Name, FUNCTION Name : Type, FUNCTION_BLOCK Name
-    const declRegex = /^\s*(PROGRAM|FUNCTION|FUNCTION_BLOCK)\s+([a-zA-Z_]\w*)/gm;
+    // Match PROGRAM Name, FUNCTION [modifiers] Name : Type, FUNCTION_BLOCK [modifiers] Name
+    const declRegex = /^\s*(PROGRAM|FUNCTION|FUNCTION_BLOCK)\b(?:\s+(?:PUBLIC|PRIVATE|PROTECTED|INTERNAL|FINAL|ABSTRACT|OVERRIDE|STATIC))*\s+([a-zA-Z_]\w*)/gm;
     let match;
     while ((match = declRegex.exec(text)) !== null) {
         names.push(match[2]);
@@ -1626,7 +2758,8 @@ function extractVariableDeclarations(text: string): {
             scopeDeclarations.set(upperName, { line: lineIndex, startCol, endCol });
         }
 
-        if (currentScope.startsWith('VAR@') || currentScope.startsWith('VAR_TEMP@')) {
+        const activeScope = currentScope;
+        if (activeScope && [...unusedDeclarationScopes].some(scope => activeScope.startsWith(`${scope}@`))) {
             localsForUnusedCheck.push({ name, upper: upperName, line: lineIndex, startCol, endCol });
         }
     });
@@ -2078,13 +3211,38 @@ function isIdentifierUsedInBody(text: string, identifier: string): boolean {
     return re.test(body);
 }
 
-async function getWholePouUsageSet(document: vscode.TextDocument): Promise<Set<string> | undefined> {
-    if (document.uri.scheme !== 'twincat') return undefined;
-    const originalPath = decodeURIComponent(document.uri.query || '');
+const wholePouUsageCache = new Map<string, Set<string>>();
+
+async function getWholePouUsageSetForSourcePath(originalPath: string): Promise<Set<string> | undefined> {
     if (!/\.(tcpou|tcprg|tcapp|tccom)$/i.test(originalPath)) return undefined;
 
     try {
-        const xmlBytes = await vscode.workspace.fs.readFile(vscode.Uri.file(originalPath));
+        const sourceUri = vscode.Uri.file(originalPath);
+        const sourceStat = await vscode.workspace.fs.stat(sourceUri);
+        const sourceFingerprint = `${sourceStat.mtime}:${sourceStat.size}`;
+        const openDocFingerprint = vscode.workspace.textDocuments
+            .filter(openDoc =>
+                openDoc.languageId === 'iec-st' &&
+                openDoc.uri.scheme === 'twincat' &&
+                decodeURIComponent(openDoc.uri.query || '').toLowerCase() === originalPath.toLowerCase()
+            )
+            .map(openDoc => `${openDoc.uri.toString()}:${openDoc.version}`)
+            .sort((a, b) => a.localeCompare(b))
+            .join('|');
+        const cacheKey = `${originalPath.toLowerCase()}|${sourceFingerprint}|${openDocFingerprint}`;
+        const cached = wholePouUsageCache.get(cacheKey);
+        if (cached) {
+            return new Set(cached);
+        }
+
+        const stalePrefix = `${originalPath.toLowerCase()}|`;
+        for (const key of [...wholePouUsageCache.keys()]) {
+            if (key.startsWith(stalePrefix) && key !== cacheKey) {
+                wholePouUsageCache.delete(key);
+            }
+        }
+
+        const xmlBytes = await vscode.workspace.fs.readFile(sourceUri);
         const xmlText = Buffer.from(xmlBytes).toString('utf8');
         const parser = new xml2js.Parser({ explicitArray: false, mergeAttrs: true });
         const xmlObj = await parser.parseStringPromise(xmlText);
@@ -2166,10 +3324,17 @@ async function getWholePouUsageSet(document: vscode.TextDocument): Promise<Set<s
         while ((match = regex.exec(combined)) !== null) {
             usage.add(match[0].toUpperCase());
         }
+        wholePouUsageCache.set(cacheKey, usage);
         return usage;
     } catch {
         return undefined;
     }
+}
+
+async function getWholePouUsageSet(document: vscode.TextDocument): Promise<Set<string> | undefined> {
+    if (document.uri.scheme !== 'twincat') return undefined;
+    const originalPath = decodeURIComponent(document.uri.query || '');
+    return getWholePouUsageSetForSourcePath(originalPath);
 }
 
 function getConfiguredSeverity(settingKey: string, fallback: vscode.DiagnosticSeverity): vscode.DiagnosticSeverity {
@@ -2334,4 +3499,3 @@ function applyCreateVariableDeclarationEdit(
     const block = `\nVAR\n    ${name} : BOOL;\nEND_VAR\n`;
     edit.insert(document.uri, new vscode.Position(insertLine, 0), block);
 }
-

@@ -1,2 +1,18 @@
-# Auto detect text files and perform LF normalization
+# Ensure all text files use LF in the repo, convert to native on checkout
 * text=auto
+
+# Force LF endings for source files
+*.ts   text eol=lf
+*.tsx  text eol=lf
+*.js   text eol=lf
+*.jsx  text eol=lf
+
+# Markdown files should also use LF
+*.md   text eol=lf
+
+# Optional: ignore binaries (don’t convert)
+*.png  binary
+*.jpg  binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary
