@@ -5,6 +5,10 @@ import * as xml2js from 'xml2js';
 import { TwinCATXmlConverter } from './tcViewXmlConverter';
 import { TwinCATLibraryRef } from './tcViewTypes';
 import { withPerfMetric } from './tcViewTelemetry';
+import { buildAstAnalysis } from './iecStAst';
+import { isKnownIecBuiltinIdentifier, isKnownIecBuiltinType } from './iecStBuiltins';
+import { extractQualifiedOnlyUsageInfo, type QualifiedOnlyUsageInfo } from './twinCATQualifiedOnly';
+import { parseTwinCATTypeDeclarations } from './twinCATTypeParser';
 
 /**
  * Represents a symbol in the TwinCAT project (variable, type, FB, etc.)
@@ -116,15 +120,29 @@ interface LibraryCatalogFile {
  */
 export class TwinCATProjectAnalyzer {
     private projectRoot: string | undefined;
+    private solutionProjectPath: string | undefined;
     private symbols: Map<string, TwinCATSymbol> = new Map();
     private dataTypes: Map<string, TwinCATDataType> = new Map();
     private globalVars: Map<string, TwinCATSymbol> = new Map();
+    private qualifiedOnlyGlobalMembers = new Map<string, Set<string>>();
+    private qualifiedOnlyEnumMembers = new Map<string, Set<string>>();
     private fileWatcher: vscode.FileSystemWatcher | undefined;
     private libraryMetadataWatcher: vscode.FileSystemWatcher | undefined;
     private globalLibraryMetadataWatcher: vscode.FileSystemWatcher | undefined;
+    private referencedRootWatchers: vscode.Disposable[] = [];
     private converter: TwinCATXmlConverter;
     private scanTimer: NodeJS.Timeout | undefined;
     private libraryRefreshTimer: NodeJS.Timeout | undefined;
+    private libraryRefreshCycle:
+        | {
+            promise: Promise<void>;
+            resolve: () => void;
+            reject: (reason?: unknown) => void;
+        }
+        | undefined;
+    private libraryRefreshExecuting = false;
+    private libraryRefreshDueAt = 0;
+    private lastLibraryRefreshCompletedAt = 0;
     private scanInProgress = false;
     private pendingRescan = false;
     private fileUpdateTimer: NodeJS.Timeout | undefined;
@@ -135,7 +153,11 @@ export class TwinCATProjectAnalyzer {
         symbolKeys: Set<string>;
         dataTypeKeys: Set<string>;
         globalVarKeys: Set<string>;
+        referencedSymbolKeys: Set<string>;
+        qualifiedGlobalEntries: Array<{ memberKey: string; ownerName: string }>;
+        qualifiedEnumEntries: Array<{ memberKey: string; ownerName: string }>;
     }>();
+    private dependentFilesBySymbol = new Map<string, Set<string>>();
     private libraryRefs: TwinCATLibraryRef[] = [];
     private libraryPlaceholderSymbolKeys = new Set<string>();
     private librarySymbols = new Map<string, TwinCATSymbol>();
@@ -147,7 +169,17 @@ export class TwinCATProjectAnalyzer {
     private tmcParseCache = new Map<string, { mtimeMs: number; symbols: TwinCATSymbol[]; dataTypes: TwinCATDataType[] }>();
     private managedLibraryIndex: Map<string, ManagedLibraryMetadata[]> | undefined;
     private managedLibraryIndexPromise: Promise<Map<string, ManagedLibraryMetadata[]>> | undefined;
+    private referencedProjectCache:
+        | {
+            key: string;
+            plcProjPaths: string[];
+            projectRoots: string[];
+            tmcPaths: string[];
+        }
+        | undefined;
     private readonly indexRefreshedEmitter = new vscode.EventEmitter<void>();
+    private lastRefreshAffectedFiles: string[] = [];
+    private lastRefreshAffectedSymbolKeys: string[] = [];
     private indexRevision = 0;
     private initialized = false;
     private initializePromise: Promise<void> | undefined;
@@ -196,6 +228,7 @@ export class TwinCATProjectAnalyzer {
         for (const folder of workspaceFolders) {
             const tsprojFiles = await this.findTsprojFiles(folder.uri.fsPath);
             if (tsprojFiles.length > 0) {
+                this.solutionProjectPath = tsprojFiles[0];
                 this.projectRoot = path.dirname(tsprojFiles[0]);
                 break;
             }
@@ -209,6 +242,7 @@ export class TwinCATProjectAnalyzer {
         if (!this.fileWatcher) {
             this.setupFileWatcher();
         }
+        await this.refreshReferencedRootWatchers();
 
         // Initial scan
         await this.scanProject();
@@ -220,6 +254,10 @@ export class TwinCATProjectAnalyzer {
         } finally {
             this.initializePromise = undefined;
         }
+    }
+
+    public isInitialized(): boolean {
+        return this.initialized;
     }
 
     /**
@@ -248,7 +286,7 @@ export class TwinCATProjectAnalyzer {
     private setupFileWatcher(): void {
         // Watch TwinCAT PLC source plus project/library metadata outputs.
         this.fileWatcher = vscode.workspace.createFileSystemWatcher(
-            '**/*.{TcPOU,TcGVL,TcDUT,TcPRG,TcCOM,TcAPP,TcVAR,TcGDS,TcIO,TcITF,plcproj,tsproj,tspproj,tmc}'
+            '**/*.{TcPOU,TcGVL,TcDUT,TcPRG,TcCOM,TcAPP,TcVAR,TcGDS,TcIO,TcITF,tcpou,tcgvl,tcdut,tcprg,tccom,tcapp,tcvar,tcgds,tcio,tcitf,st,plcproj,tsproj,tspproj,tmc}'
         );
         this.libraryMetadataWatcher = vscode.workspace.createFileSystemWatcher('**/tcview.libraries.json');
         const globalMetadataPath = this.getGlobalLibraryMetadataPath();
@@ -275,10 +313,44 @@ export class TwinCATProjectAnalyzer {
 
         if (this.isLibraryMetadataFile(filePath)) {
             this.invalidateProjectMetadataTextCache(filePath);
-            if (path.extname(filePath).toLowerCase() === '.tmc') {
+            const ext = path.extname(filePath).toLowerCase();
+            if (ext === '.tmc') {
                 this.tmcParseCache.delete(filePath);
             }
+            if (ext === '.plcproj' || ext === '.tsproj' || ext === '.tspproj') {
+                void this.refreshReferencedRootWatchers();
+                this.scheduleScan(150);
+            }
             this.scheduleLibraryRefresh();
+        }
+    }
+
+    private async refreshReferencedRootWatchers(): Promise<void> {
+        this.referencedRootWatchers.forEach(watcher => watcher.dispose());
+        this.referencedRootWatchers = [];
+
+        const workspaceRoots = new Set(
+            (vscode.workspace.workspaceFolders ?? []).map(folder => path.normalize(folder.uri.fsPath).toLowerCase())
+        );
+        const searchRoots = await this.getProjectSearchRoots();
+        const externalRoots = searchRoots.filter(root => !workspaceRoots.has(path.normalize(root).toLowerCase()));
+
+        for (const root of externalRoots) {
+            const sourceWatcher = vscode.workspace.createFileSystemWatcher(
+                new vscode.RelativePattern(root, '**/*.{TcPOU,TcGVL,TcDUT,TcPRG,TcCOM,TcAPP,TcVAR,TcGDS,TcIO,TcITF,tcpou,tcgvl,tcdut,tcprg,tccom,tcapp,tcvar,tcgds,tcio,tcitf,st}')
+            );
+            sourceWatcher.onDidCreate(uri => this.handleWatchedFileEvent(uri.fsPath, 'change'));
+            sourceWatcher.onDidChange(uri => this.handleWatchedFileEvent(uri.fsPath, 'change'));
+            sourceWatcher.onDidDelete(uri => this.handleWatchedFileEvent(uri.fsPath, 'delete'));
+
+            const metadataWatcher = vscode.workspace.createFileSystemWatcher(
+                new vscode.RelativePattern(root, '**/*.{plcproj,tsproj,tspproj,tmc}')
+            );
+            metadataWatcher.onDidCreate(uri => this.handleWatchedFileEvent(uri.fsPath, 'change'));
+            metadataWatcher.onDidChange(uri => this.handleWatchedFileEvent(uri.fsPath, 'change'));
+            metadataWatcher.onDidDelete(uri => this.handleWatchedFileEvent(uri.fsPath, 'delete'));
+
+            this.referencedRootWatchers.push(sourceWatcher, metadataWatcher);
         }
     }
 
@@ -294,14 +366,7 @@ export class TwinCATProjectAnalyzer {
     }
 
     private scheduleLibraryRefresh(delayMs = 250): void {
-        if (this.libraryRefreshTimer) {
-            clearTimeout(this.libraryRefreshTimer);
-        }
-
-        this.libraryRefreshTimer = setTimeout(() => {
-            this.libraryRefreshTimer = undefined;
-            void this.refreshLibraryMetadataOnly();
-        }, delayMs);
+        void this.queueLibraryRefresh(delayMs);
     }
 
     private scheduleFileUpdate(filePath: string, kind: 'change' | 'delete', delayMs = 250): void {
@@ -344,6 +409,14 @@ export class TwinCATProjectAnalyzer {
         const start = Date.now();
         let didMutateIndex = false;
         await withPerfMetric('reindex.incremental', async () => {
+            const previousExportsByFile = new Map<string, Set<string>>();
+            for (const filePath of [...deleted, ...changed]) {
+                const previous = this.fileContributions.get(filePath);
+                if (previous) {
+                    previousExportsByFile.set(filePath, this.getContributionExportKeys(previous));
+                }
+            }
+
             for (const filePath of deleted) {
                 didMutateIndex = this.removeFileContributions(filePath) || didMutateIndex;
             }
@@ -357,6 +430,30 @@ export class TwinCATProjectAnalyzer {
             }
 
             if (didMutateIndex) {
+                const dependencySymbolKeys = new Set<string>();
+                for (const filePath of deleted) {
+                    for (const symbolKey of previousExportsByFile.get(filePath) ?? []) {
+                        dependencySymbolKeys.add(symbolKey);
+                    }
+                }
+                for (const filePath of changed) {
+                    const previousExports = previousExportsByFile.get(filePath) ?? new Set<string>();
+                    const currentExports = this.getContributionExportKeys(
+                        this.fileContributions.get(filePath) ?? this.createEmptyContribution()
+                    );
+                    if (!this.areSetsEqual(previousExports, currentExports)) {
+                        for (const symbolKey of previousExports) {
+                            dependencySymbolKeys.add(symbolKey);
+                        }
+                        for (const symbolKey of currentExports) {
+                            dependencySymbolKeys.add(symbolKey);
+                        }
+                    }
+                }
+
+                this.lastRefreshAffectedFiles = [...new Set([...deleted, ...changed])]
+                    .sort((a, b) => a.localeCompare(b));
+                this.lastRefreshAffectedSymbolKeys = [...dependencySymbolKeys].sort((a, b) => a.localeCompare(b));
                 this.indexRevision++;
                 this.indexRefreshedEmitter.fire();
             }
@@ -391,6 +488,7 @@ export class TwinCATProjectAnalyzer {
                 this.symbols.clear();
                 this.dataTypes.clear();
                 this.globalVars.clear();
+                this.dependentFilesBySymbol.clear();
                 this.librarySymbols.clear();
                 this.libraryDataTypes.clear();
                 this.libraryContextModes.clear();
@@ -403,6 +501,8 @@ export class TwinCATProjectAnalyzer {
                 // Parse files in parallel
                 await Promise.allSettled(plcFiles.map(file => this.parseFile(file)));
                 await this.refreshLibraryMetadata();
+                this.lastRefreshAffectedFiles = [];
+                this.lastRefreshAffectedSymbolKeys = [];
                 this.indexRevision++;
                 this.indexRefreshedEmitter.fire();
             });
@@ -424,22 +524,133 @@ export class TwinCATProjectAnalyzer {
      * Find all PLC files in the project
      */
     private async findPLCFiles(): Promise<string[]> {
-        const files: string[] = [];
-        const pattern = '**/*.{TcPOU,TcGVL,TcDUT,TcPRG,TcCOM,TcAPP,TcVAR,TcGDS,TcIO,TcITF,tcpou,tcgvl,tcdut,tcprg,tccom,tcapp,tcvar,tcgds,tcio,tcitf}';
-        
-        
         try {
-            const foundFiles = await vscode.workspace.findFiles(pattern, '**/node_modules/**');
-            for (const file of foundFiles) {
-                if (file.fsPath.toLowerCase().startsWith(this.projectRoot!.toLowerCase())) {
-                    files.push(file.fsPath);
+            const searchRoots = await this.getProjectSearchRoots();
+            const foundByPath = new Map<string, string>();
+            await Promise.all(searchRoots.map(async root => {
+                const foundFiles = await this.findFilesUnderRoot(root, filePath => this.isPLCFile(filePath));
+                for (const filePath of foundFiles) {
+                    foundByPath.set(filePath.toLowerCase(), filePath);
                 }
-            }
+            }));
+            return [...foundByPath.values()].sort((a, b) => a.localeCompare(b));
         } catch (error) {
             console.error('Error finding PLC files:', error);
+            return [];
+        }
+    }
+
+    public async getProjectSourceFiles(): Promise<string[]> {
+        return this.findPLCFiles();
+    }
+
+    public getIndexedSourceFiles(projectRoots?: string[]): string[] {
+        const rootKeys = (projectRoots ?? [])
+            .map(root => path.normalize(root).toLowerCase())
+            .sort((a, b) => b.length - a.length);
+        const isWithinRoots = (filePath: string) => {
+            if (rootKeys.length === 0) {
+                return true;
+            }
+            const normalizedFilePath = path.normalize(filePath).toLowerCase();
+            return rootKeys.some(rootKey =>
+                normalizedFilePath === rootKey || normalizedFilePath.startsWith(`${rootKey}${path.sep}`)
+            );
+        };
+
+        return [...this.fileContributions.keys()]
+            .filter(isWithinRoots)
+            .sort((a, b) => a.localeCompare(b));
+    }
+
+    private createEmptyContribution() {
+        return {
+            symbolKeys: new Set<string>(),
+            dataTypeKeys: new Set<string>(),
+            globalVarKeys: new Set<string>(),
+            referencedSymbolKeys: new Set<string>(),
+            qualifiedGlobalEntries: [] as Array<{ memberKey: string; ownerName: string }>,
+            qualifiedEnumEntries: [] as Array<{ memberKey: string; ownerName: string }>
+        };
+    }
+
+    private getContributionExportKeys(contribution: {
+        symbolKeys: Set<string>;
+        dataTypeKeys: Set<string>;
+        globalVarKeys: Set<string>;
+    }): Set<string> {
+        return new Set([
+            ...contribution.symbolKeys,
+            ...contribution.dataTypeKeys,
+            ...contribution.globalVarKeys
+        ]);
+    }
+
+    private areSetsEqual(left: Set<string>, right: Set<string>): boolean {
+        if (left.size !== right.size) {
+            return false;
+        }
+        for (const item of left) {
+            if (!right.has(item)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private addContributionDependencies(filePath: string, contribution: {
+        referencedSymbolKeys: Set<string>;
+    }): void {
+        for (const symbolKey of contribution.referencedSymbolKeys) {
+            const existing = this.dependentFilesBySymbol.get(symbolKey) ?? new Set<string>();
+            existing.add(filePath);
+            this.dependentFilesBySymbol.set(symbolKey, existing);
+        }
+    }
+
+    private removeContributionDependencies(filePath: string, contribution: {
+        referencedSymbolKeys: Set<string>;
+    }): void {
+        for (const symbolKey of contribution.referencedSymbolKeys) {
+            const existing = this.dependentFilesBySymbol.get(symbolKey);
+            if (!existing) {
+                continue;
+            }
+            existing.delete(filePath);
+            if (existing.size === 0) {
+                this.dependentFilesBySymbol.delete(symbolKey);
+            }
+        }
+    }
+
+    private addDependencyTypeReference(rawType: string | undefined, target: Set<string>): void {
+        if (!rawType) {
+            return;
+        }
+        const normalizedType = this.normalizeDeclarationType(rawType).toUpperCase();
+        if (!normalizedType || isKnownIecBuiltinType(normalizedType)) {
+            return;
+        }
+        target.add(normalizedType);
+    }
+
+    private collectReferencedSymbolKeys(stContent: string): Set<string> {
+        const ast = buildAstAnalysis(stContent);
+        const localDeclarations = new Set(ast.declarations.map(declaration => declaration.upper));
+        const referenced = new Set<string>();
+
+        for (const declaration of ast.declarations) {
+            this.addDependencyTypeReference(declaration.type, referenced);
         }
 
-        return files;
+        for (const usage of ast.usages) {
+            if (localDeclarations.has(usage.upper) || isKnownIecBuiltinIdentifier(usage.upper)) {
+                continue;
+            }
+            referenced.add(usage.upper);
+        }
+
+        return referenced;
     }
 
     /**
@@ -459,11 +670,7 @@ export class TwinCATProjectAnalyzer {
 
             const ext = path.extname(filePath).toLowerCase();
             const content = await fs.promises.readFile(filePath, 'utf-8');
-            const contribution = {
-                symbolKeys: new Set<string>(),
-                dataTypeKeys: new Set<string>(),
-                globalVarKeys: new Set<string>()
-            };
+            const contribution = this.createEmptyContribution();
 
             this.removeFileContributions(filePath);
 
@@ -483,6 +690,7 @@ export class TwinCATProjectAnalyzer {
             }
 
             this.fileContributions.set(filePath, contribution);
+            this.addContributionDependencies(filePath, contribution);
             if (fingerprint) {
                 this.fileFingerprints.set(filePath, fingerprint);
             }
@@ -496,7 +704,14 @@ export class TwinCATProjectAnalyzer {
     /**
      * Parse GVL (Global Variable List) file
      */
-    private async parseGVLFile(filePath: string, content: string, contribution: { symbolKeys: Set<string>; dataTypeKeys: Set<string>; globalVarKeys: Set<string> }): Promise<void> {
+    private async parseGVLFile(filePath: string, content: string, contribution: {
+        symbolKeys: Set<string>;
+        dataTypeKeys: Set<string>;
+        globalVarKeys: Set<string>;
+        referencedSymbolKeys: Set<string>;
+        qualifiedGlobalEntries: Array<{ memberKey: string; ownerName: string }>;
+        qualifiedEnumEntries: Array<{ memberKey: string; ownerName: string }>;
+    }): Promise<void> {
         try {
             // Convert XML to ST to extract variable declarations
             const stContent = await this.converter.convertXmlToST(content);
@@ -521,6 +736,18 @@ export class TwinCATProjectAnalyzer {
                 const varSection = varGlobalMatch[1];
                 this.extractVariables(varSection, filePath, 'global', contribution);
             }
+
+            const qualifiedOnlyInfo = extractQualifiedOnlyUsageInfo(stContent, filePath);
+            qualifiedOnlyInfo.globals.forEach((owners, memberKey) => {
+                owners.forEach(ownerName => {
+                    const existing = this.qualifiedOnlyGlobalMembers.get(memberKey) ?? new Set<string>();
+                    existing.add(ownerName);
+                    this.qualifiedOnlyGlobalMembers.set(memberKey, existing);
+                    contribution.qualifiedGlobalEntries.push({ memberKey, ownerName });
+                });
+            });
+
+            contribution.referencedSymbolKeys = this.collectReferencedSymbolKeys(stContent);
         } catch (error) {
             console.error(`Error parsing GVL file ${filePath}:`, error);
         }
@@ -529,67 +756,60 @@ export class TwinCATProjectAnalyzer {
     /**
      * Parse DUT (Data Type Unit) file for STRUCT/ENUM definitions
      */
-    private async parseDUTFile(filePath: string, content: string, contribution: { symbolKeys: Set<string>; dataTypeKeys: Set<string>; globalVarKeys: Set<string> }): Promise<void> {
+    private async parseDUTFile(filePath: string, content: string, contribution: {
+        symbolKeys: Set<string>;
+        dataTypeKeys: Set<string>;
+        globalVarKeys: Set<string>;
+        referencedSymbolKeys: Set<string>;
+        qualifiedGlobalEntries: Array<{ memberKey: string; ownerName: string }>;
+        qualifiedEnumEntries: Array<{ memberKey: string; ownerName: string }>;
+    }): Promise<void> {
         try {
             const stContent = await this.converter.convertXmlToST(content);
-            
-            // Extract STRUCT definition
-            const structMatch = stContent.match(/TYPE\s+(\w+)\s*:\s*STRUCT\s*([\s\S]*?)\s*END_STRUCT\s*;/i);
-            if (structMatch) {
-                const typeName = structMatch[1];
-                const structBody = structMatch[2];
-                
-                const members = new Map<string, string>();
-                const memberRegex = /(\w+)\s*:\s*(\w+);/g;
-                let match;
-                while ((match = memberRegex.exec(structBody)) !== null) {
-                    members.set(match[1], match[2]);
-                }
+            for (const declaration of parseTwinCATTypeDeclarations(stContent)) {
+                const upperName = declaration.name.toUpperCase();
+                const symbolType = declaration.kind === 'struct'
+                    ? 'STRUCT'
+                    : declaration.kind === 'enum'
+                        ? 'ENUM'
+                        : declaration.aliasTarget ?? 'ALIAS';
 
-                this.dataTypes.set(typeName.toUpperCase(), {
-                    name: typeName,
-                    kind: 'struct',
-                    members,
+                this.dataTypes.set(upperName, {
+                    name: declaration.name,
+                    kind: declaration.kind,
+                    members: declaration.members,
                     source: filePath
                 });
-                contribution.dataTypeKeys.add(typeName.toUpperCase());
+                contribution.dataTypeKeys.add(upperName);
 
-                // Also add as a symbol
-                this.symbols.set(typeName.toUpperCase(), {
-                    name: typeName,
-                    type: 'STRUCT',
+                this.symbols.set(upperName, {
+                    name: declaration.name,
+                    type: symbolType,
                     kind: 'type',
                     source: filePath
                 });
-                contribution.symbolKeys.add(typeName.toUpperCase());
+                contribution.symbolKeys.add(upperName);
+
+                if (declaration.aliasTarget) {
+                    this.addDependencyTypeReference(declaration.aliasTarget, contribution.referencedSymbolKeys);
+                }
+                for (const memberType of declaration.members.values()) {
+                    this.addDependencyTypeReference(memberType, contribution.referencedSymbolKeys);
+                }
             }
 
-            // Extract ENUM definition
-            const enumMatch = stContent.match(/TYPE\s+(\w+)\s*:\s*\(([\s\S]*?)\)\s*;/i);
-            if (enumMatch) {
-                const typeName = enumMatch[1];
-                const enumValues = enumMatch[2].split(',').map((v: string) => v.trim());
-
-                const members = new Map<string, string>();
-                enumValues.forEach((val: string, idx: number) => {
-                    members.set(val, 'INT');
+            const qualifiedOnlyInfo = extractQualifiedOnlyUsageInfo(stContent, filePath);
+            qualifiedOnlyInfo.enums.forEach((owners, memberKey) => {
+                owners.forEach(ownerName => {
+                    const existing = this.qualifiedOnlyEnumMembers.get(memberKey) ?? new Set<string>();
+                    existing.add(ownerName);
+                    this.qualifiedOnlyEnumMembers.set(memberKey, existing);
+                    contribution.qualifiedEnumEntries.push({ memberKey, ownerName });
                 });
+            });
 
-                this.dataTypes.set(typeName.toUpperCase(), {
-                    name: typeName,
-                    kind: 'enum',
-                    members,
-                    source: filePath
-                });
-                contribution.dataTypeKeys.add(typeName.toUpperCase());
-
-                this.symbols.set(typeName.toUpperCase(), {
-                    name: typeName,
-                    type: 'ENUM',
-                    kind: 'type',
-                    source: filePath
-                });
-                contribution.symbolKeys.add(typeName.toUpperCase());
+            for (const symbolKey of this.collectReferencedSymbolKeys(stContent)) {
+                contribution.referencedSymbolKeys.add(symbolKey);
             }
         } catch (error) {
             console.error(`Error parsing DUT file ${filePath}:`, error);
@@ -599,27 +819,34 @@ export class TwinCATProjectAnalyzer {
     /**
      * Parse POU (Program/Function/FB) file
      */
-    private async parsePOUFile(filePath: string, content: string, contribution: { symbolKeys: Set<string>; dataTypeKeys: Set<string>; globalVarKeys: Set<string> }): Promise<void> {
+    private async parsePOUFile(filePath: string, content: string, contribution: {
+        symbolKeys: Set<string>;
+        dataTypeKeys: Set<string>;
+        globalVarKeys: Set<string>;
+        referencedSymbolKeys: Set<string>;
+        qualifiedGlobalEntries: Array<{ memberKey: string; ownerName: string }>;
+        qualifiedEnumEntries: Array<{ memberKey: string; ownerName: string }>;
+    }): Promise<void> {
         try {
             const stContent = await this.converter.convertXmlToST(content);
             
             // Extract declaration type and name
-            const declMatch = stContent.match(/^\s*(PROGRAM|FUNCTION|FUNCTION_BLOCK)\s+(\w+)/im);
-            if (declMatch) {
-                const kind = declMatch[1].toUpperCase();
-                const name = declMatch[2];
-                
+            const declMatch = stContent.match(/^\s*(PROGRAM|FUNCTION|FUNCTION_BLOCK)\b(?:\s+(?:PUBLIC|PRIVATE|PROTECTED|INTERNAL|FINAL|ABSTRACT|OVERRIDE|STATIC))*\s+([A-Za-z_]\w*)/im);
+            const declarationInfo = declMatch
+                ? { kind: declMatch[1].toUpperCase(), name: declMatch[2] }
+                : this.extractPouDeclarationInfoFromXml(content);
+            if (declarationInfo) {
                 let symbolKind: TwinCATSymbol['kind'] = 'program';
-                if (kind === 'FUNCTION_BLOCK') symbolKind = 'functionBlock';
-                if (kind === 'FUNCTION') symbolKind = 'function';
+                if (declarationInfo.kind === 'FUNCTION_BLOCK') symbolKind = 'functionBlock';
+                if (declarationInfo.kind === 'FUNCTION') symbolKind = 'function';
 
-                this.symbols.set(name.toUpperCase(), {
-                    name,
-                    type: kind,
+                this.symbols.set(declarationInfo.name.toUpperCase(), {
+                    name: declarationInfo.name,
+                    type: declarationInfo.kind,
                     kind: symbolKind,
                     source: filePath
                 });
-                contribution.symbolKeys.add(name.toUpperCase());
+                contribution.symbolKeys.add(declarationInfo.name.toUpperCase());
             }
 
             // Extract local variables
@@ -630,6 +857,7 @@ export class TwinCATProjectAnalyzer {
 
             // Also index POU members declared in XML (methods/properties/actions/transitions).
             this.indexPouMembersFromXmlText(filePath, content, contribution);
+            contribution.referencedSymbolKeys = this.collectReferencedSymbolKeys(stContent);
         } catch (error) {
             console.error(`Error parsing POU file ${filePath}:`, error);
         }
@@ -648,15 +876,103 @@ export class TwinCATProjectAnalyzer {
         const start = Date.now();
         await withPerfMetric('reindex.libraryMetadata', async () => {
             await this.refreshLibraryMetadata();
+            this.lastRefreshAffectedFiles = [];
+            this.lastRefreshAffectedSymbolKeys = [];
             this.indexRevision++;
             this.indexRefreshedEmitter.fire();
         });
+        this.lastLibraryRefreshCompletedAt = Date.now();
         if (this.isPerfLoggingEnabled()) {
             console.log(`[TcView Perf] Library metadata refresh: ${Date.now() - start} ms`);
         }
     }
 
-    private indexPouMembersFromXmlText(filePath: string, content: string, contribution: { symbolKeys: Set<string>; dataTypeKeys: Set<string>; globalVarKeys: Set<string> }): void {
+    private queueLibraryRefresh(delayMs = 0): Promise<void> {
+        if (!this.projectRoot) {
+            return Promise.resolve();
+        }
+
+        const now = Date.now();
+        if (
+            !this.libraryRefreshExecuting &&
+            !this.libraryRefreshTimer &&
+            this.lastLibraryRefreshCompletedAt > 0 &&
+            now - this.lastLibraryRefreshCompletedAt < delayMs
+        ) {
+            return Promise.resolve();
+        }
+
+        if (!this.libraryRefreshCycle) {
+            let resolve!: () => void;
+            let reject!: (reason?: unknown) => void;
+            const promise = new Promise<void>((res, rej) => {
+                resolve = res;
+                reject = rej;
+            });
+            this.libraryRefreshCycle = { promise, resolve, reject };
+        }
+
+        const requestedDueAt = now + delayMs;
+        this.libraryRefreshDueAt = this.libraryRefreshDueAt === 0
+            ? requestedDueAt
+            : Math.min(this.libraryRefreshDueAt, requestedDueAt);
+
+        if (!this.libraryRefreshExecuting) {
+            this.armLibraryRefreshTimer();
+        }
+
+        return this.libraryRefreshCycle.promise;
+    }
+
+    private armLibraryRefreshTimer(): void {
+        if (this.libraryRefreshExecuting || !this.libraryRefreshCycle || this.libraryRefreshDueAt === 0) {
+            return;
+        }
+
+        if (this.libraryRefreshTimer) {
+            clearTimeout(this.libraryRefreshTimer);
+        }
+
+        const delayMs = Math.max(0, this.libraryRefreshDueAt - Date.now());
+        this.libraryRefreshTimer = setTimeout(() => {
+            this.libraryRefreshTimer = undefined;
+            void this.flushQueuedLibraryRefresh();
+        }, delayMs);
+    }
+
+    private async flushQueuedLibraryRefresh(): Promise<void> {
+        if (!this.libraryRefreshCycle) {
+            return;
+        }
+
+        const activeCycle = this.libraryRefreshCycle;
+        this.libraryRefreshExecuting = true;
+        this.libraryRefreshDueAt = 0;
+
+        try {
+            await this.refreshLibraryMetadataOnly();
+            activeCycle.resolve();
+        } catch (error) {
+            activeCycle.reject(error);
+            throw error;
+        } finally {
+            this.libraryRefreshExecuting = false;
+            if (this.libraryRefreshCycle === activeCycle) {
+                this.libraryRefreshCycle = undefined;
+            }
+            if (this.libraryRefreshCycle) {
+                this.armLibraryRefreshTimer();
+            }
+        }
+    }
+
+    private indexPouMembersFromXmlText(filePath: string, content: string, contribution: {
+        symbolKeys: Set<string>;
+        dataTypeKeys: Set<string>;
+        globalVarKeys: Set<string>;
+        qualifiedGlobalEntries: Array<{ memberKey: string; ownerName: string }>;
+        qualifiedEnumEntries: Array<{ memberKey: string; ownerName: string }>;
+    }): void {
         const registerMember = (name: string, type: string, kind: TwinCATSymbol['kind']) => {
             const clean = name.trim();
             if (!clean) return;
@@ -696,35 +1012,145 @@ export class TwinCATProjectAnalyzer {
     /**
      * Extract variable declarations from a VAR section
      */
-    private extractVariables(varSection: string, source: string, kind: TwinCATSymbol['kind'], contribution: { symbolKeys: Set<string>; dataTypeKeys: Set<string>; globalVarKeys: Set<string> }): void {
-        // Match variable declarations: name : type;
-        const varRegex = /(\w+)\s*:\s*(\w+)(?:\s*\(.*?\))?\s*(?::=.*?)?;/g;
-        let match;
-        
-        while ((match = varRegex.exec(varSection)) !== null) {
-            const name = match[1];
-            const type = match[2];
-            
-            const symbol: TwinCATSymbol = {
-                name,
-                type,
-                kind,
-                source
-            };
+    private extractVariables(varSection: string, source: string, kind: TwinCATSymbol['kind'], contribution: {
+        symbolKeys: Set<string>;
+        dataTypeKeys: Set<string>;
+        globalVarKeys: Set<string>;
+        referencedSymbolKeys: Set<string>;
+        qualifiedGlobalEntries: Array<{ memberKey: string; ownerName: string }>;
+        qualifiedEnumEntries: Array<{ memberKey: string; ownerName: string }>;
+    }): void {
+        for (const declaration of this.parseVarDeclarations(varSection)) {
+            for (const name of declaration.names) {
+                const symbol: TwinCATSymbol = {
+                    name,
+                    type: declaration.type,
+                    kind,
+                    source
+                };
 
-            if (kind === 'global') {
-                this.globalVars.set(name.toUpperCase(), symbol);
-                contribution.globalVarKeys.add(name.toUpperCase());
-            } else {
-                this.symbols.set(name.toUpperCase(), symbol);
-                contribution.symbolKeys.add(name.toUpperCase());
+                if (kind === 'global') {
+                    this.globalVars.set(name.toUpperCase(), symbol);
+                    contribution.globalVarKeys.add(name.toUpperCase());
+                } else {
+                    this.symbols.set(name.toUpperCase(), symbol);
+                    contribution.symbolKeys.add(name.toUpperCase());
+                }
             }
         }
+    }
+
+    private parseVarDeclarations(varSection: string): Array<{ names: string[]; type: string }> {
+        const section = varSection.replace(/\r/g, '');
+        const body = section
+            .replace(/^\s*(VAR|VAR_INPUT|VAR_OUTPUT|VAR_IN_OUT|VAR_TEMP|VAR_GLOBAL|VAR_INST|VAR_STAT)\b[^\n]*\n?/i, '')
+            .replace(/\n?\s*END_VAR\b\s*$/i, '');
+        const statements = body.split(';');
+        const declarations: Array<{ names: string[]; type: string }> = [];
+        let pending = '';
+
+        for (const fragment of statements) {
+            const cleanFragment = fragment.replace(/\/\/.*$/gm, '').trim();
+            if (!cleanFragment) {
+                continue;
+            }
+
+            const combined = `${pending} ${cleanFragment}`.trim();
+            const stripped = this.stripLeadingDeclarationPragmas(combined).trim();
+            if (!stripped) {
+                pending = combined;
+                continue;
+            }
+
+            const match = stripped.match(/^([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)(?:\s+AT\s+[^:]+)?\s*:\s*([\s\S]+)$/m);
+            if (!match) {
+                pending = combined;
+                continue;
+            }
+
+            const names = match[1].match(/[A-Za-z_]\w*/g) ?? [];
+            const type = this.normalizeDeclarationType(match[2]);
+            if (names.length > 0) {
+                declarations.push({ names, type });
+            }
+            pending = '';
+        }
+
+        return declarations;
+    }
+
+    private normalizeDeclarationType(rawType: string): string {
+        const cleaned = rawType
+            .split(':=')[0]
+            .replace(/\(\*[\s\S]*?\*\)/g, ' ')
+            .replace(/\b(CONSTANT|RETAIN|PERSISTENT)\b/gi, ' ')
+            .trim();
+
+        const arrayMatch = cleaned.match(/\bARRAY\b[\s\S]*\bOF\s+(.+)$/i);
+        if (arrayMatch) {
+            return this.normalizeDeclarationType(arrayMatch[1]);
+        }
+
+        const refMatch = cleaned.match(/\b(?:REFERENCE|POINTER)\s+TO\s+(.+)$/i);
+        if (refMatch) {
+            return this.normalizeDeclarationType(refMatch[1]);
+        }
+
+        if (/^\s*STRING\s*\(/i.test(cleaned)) return 'STRING';
+        if (/^\s*WSTRING\s*\(/i.test(cleaned)) return 'WSTRING';
+
+        const qualified = cleaned.match(/[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+/);
+        if (qualified) {
+            const parts = qualified[0].split('.');
+            return parts[parts.length - 1];
+        }
+
+        const token = cleaned.match(/[A-Za-z_]\w*/);
+        return token ? token[0] : cleaned;
+    }
+
+    private stripLeadingDeclarationPragmas(text: string): string {
+        let working = text;
+        while (true) {
+            const next = working.replace(/^\s*\{[\s\S]*?\}\s*/u, '');
+            if (next === working) {
+                return working;
+            }
+            working = next;
+        }
+    }
+
+    private extractPouDeclarationInfoFromXml(content: string): { kind: 'PROGRAM' | 'FUNCTION' | 'FUNCTION_BLOCK'; name: string } | undefined {
+        const pouTag = content.match(/<POU\b([^>]*)>/i);
+        if (!pouTag) {
+            return undefined;
+        }
+
+        const attrs = pouTag[1];
+        const nameMatch = attrs.match(/\bName\s*=\s*["']([^"']+)["']/i);
+        if (!nameMatch) {
+            return undefined;
+        }
+
+        const typeMatch = attrs.match(/\bPOUType\s*=\s*["']([^"']+)["']/i);
+        const declarationText = content.match(/<Declaration>\s*<!\[CDATA\[([\s\S]*?)\]\]>\s*<\/Declaration>/i)?.[1] ?? '';
+        const declarationKindMatch = declarationText.match(/^\s*(PROGRAM|FUNCTION|FUNCTION_BLOCK)\b/im);
+        const rawKind = (typeMatch?.[1] ?? declarationKindMatch?.[1] ?? '').trim().toUpperCase();
+        if (rawKind !== 'PROGRAM' && rawKind !== 'FUNCTION' && rawKind !== 'FUNCTION_BLOCK') {
+            return undefined;
+        }
+
+        return {
+            kind: rawKind,
+            name: nameMatch[1].trim()
+        };
     }
 
     private removeFileContributions(filePath: string): boolean {
         const previous = this.fileContributions.get(filePath);
         if (!previous) return false;
+
+        this.removeContributionDependencies(filePath, previous);
 
         for (const key of previous.symbolKeys) {
             const symbol = this.symbols.get(key);
@@ -744,6 +1170,28 @@ export class TwinCATProjectAnalyzer {
             const globalVar = this.globalVars.get(key);
             if (globalVar?.source === filePath) {
                 this.globalVars.delete(key);
+            }
+        }
+
+        for (const entry of previous.qualifiedGlobalEntries) {
+            const owners = this.qualifiedOnlyGlobalMembers.get(entry.memberKey);
+            if (!owners) {
+                continue;
+            }
+            owners.delete(entry.ownerName);
+            if (owners.size === 0) {
+                this.qualifiedOnlyGlobalMembers.delete(entry.memberKey);
+            }
+        }
+
+        for (const entry of previous.qualifiedEnumEntries) {
+            const owners = this.qualifiedOnlyEnumMembers.get(entry.memberKey);
+            if (!owners) {
+                continue;
+            }
+            owners.delete(entry.ownerName);
+            if (owners.size === 0) {
+                this.qualifiedOnlyEnumMembers.delete(entry.memberKey);
             }
         }
 
@@ -780,6 +1228,9 @@ export class TwinCATProjectAnalyzer {
         const ext = path.extname(filePath).toLowerCase();
         if (ext === '.plcproj' || ext === '.tsproj' || ext === '.tspproj') {
             this.projectMetadataTextCache.delete(this.getMetadataCacheKey(filePath));
+            if (filePath.toLowerCase() === this.solutionProjectPath?.toLowerCase()) {
+                this.referencedProjectCache = undefined;
+            }
         }
     }
 
@@ -820,7 +1271,11 @@ export class TwinCATProjectAnalyzer {
             return;
         }
 
-        const plcProjFiles = await this.findProjectFiles('**/*.plcproj');
+        const referencedProjects = await this.getReferencedTwinCATProjects();
+        const plcProjFiles = [...new Set([
+            ...await this.findProjectFiles('**/*.plcproj'),
+            ...referencedProjects.plcProjPaths.filter(filePath => fs.existsSync(filePath))
+        ])].sort((a, b) => a.localeCompare(b));
         const tmcInventory = await this.collectAvailableTmcFiles();
         const managedLibraryIndex = await this.getManagedLibraryIndex();
         const libraryCatalog = await this.loadLibraryCatalogEntries();
@@ -898,14 +1353,138 @@ export class TwinCATProjectAnalyzer {
         }
 
         try {
-            const foundFiles = await vscode.workspace.findFiles(pattern, '**/node_modules/**');
-            return foundFiles
-                .map(file => file.fsPath)
-                .filter(filePath => filePath.toLowerCase().startsWith(this.projectRoot!.toLowerCase()))
-                .sort((a, b) => a.localeCompare(b));
+            const searchRoots = await this.getProjectSearchRoots();
+            const foundByPath = new Map<string, string>();
+            const extensions = this.getExtensionsForGlob(pattern);
+            await Promise.all(searchRoots.map(async root => {
+                const foundFiles = await this.findFilesUnderRoot(
+                    root,
+                    filePath => extensions.some(ext => filePath.toLowerCase().endsWith(ext))
+                );
+                for (const filePath of foundFiles) {
+                    foundByPath.set(filePath.toLowerCase(), filePath);
+                }
+            }));
+            return [...foundByPath.values()].sort((a, b) => a.localeCompare(b));
         } catch {
             return [];
         }
+    }
+
+    private getExtensionsForGlob(pattern: string): string[] {
+        const braceMatch = pattern.match(/\{([^}]+)\}/);
+        if (braceMatch) {
+            return braceMatch[1]
+                .split(',')
+                .map(part => part.trim().replace(/^\*?/, ''))
+                .filter(Boolean)
+                .map(ext => ext.startsWith('.') ? ext.toLowerCase() : `.${ext.toLowerCase()}`);
+        }
+
+        const simpleMatch = pattern.match(/\.([A-Za-z0-9]+)$/);
+        return simpleMatch ? [`.${simpleMatch[1].toLowerCase()}`] : [];
+    }
+
+    private async findFilesUnderRoot(root: string, predicate: (filePath: string) => boolean): Promise<string[]> {
+        const results: string[] = [];
+        const pending: string[] = [root];
+
+        while (pending.length > 0) {
+            const current = pending.pop()!;
+            let entries: fs.Dirent[];
+            try {
+                entries = await fs.promises.readdir(current, { withFileTypes: true });
+            } catch {
+                continue;
+            }
+
+            for (const entry of entries) {
+                if (entry.name === 'node_modules' || entry.name === '.git') {
+                    continue;
+                }
+
+                const fullPath = path.join(current, entry.name);
+                if (entry.isDirectory()) {
+                    pending.push(fullPath);
+                    continue;
+                }
+
+                if (entry.isFile() && predicate(fullPath)) {
+                    results.push(fullPath);
+                }
+            }
+        }
+
+        return results;
+    }
+
+    public async getProjectSearchRoots(): Promise<string[]> {
+        const referencedProjects = await this.getReferencedTwinCATProjects();
+        return [...new Set([
+            this.projectRoot,
+            ...referencedProjects.projectRoots
+        ].filter((value): value is string => !!value && fs.existsSync(value)))];
+    }
+
+    private async getReferencedTwinCATProjects(): Promise<{ plcProjPaths: string[]; projectRoots: string[]; tmcPaths: string[] }> {
+        if (!this.solutionProjectPath) {
+            return { plcProjPaths: [], projectRoots: [], tmcPaths: [] };
+        }
+
+        const text = await this.readProjectMetadataText(this.solutionProjectPath);
+        if (!text) {
+            return { plcProjPaths: [], projectRoots: [], tmcPaths: [] };
+        }
+
+        const cacheKey = `${this.solutionProjectPath.toLowerCase()}::${text.length}`;
+        if (this.referencedProjectCache?.key === cacheKey) {
+            return {
+                plcProjPaths: [...this.referencedProjectCache.plcProjPaths],
+                projectRoots: [...this.referencedProjectCache.projectRoots],
+                tmcPaths: [...this.referencedProjectCache.tmcPaths]
+            };
+        }
+
+        const projectDir = path.dirname(this.solutionProjectPath);
+        const plcProjPaths = new Set<string>();
+        const projectRoots = new Set<string>();
+        const tmcPaths = new Set<string>();
+        const projectBlockRegex = /<Project\b[^>]*?(?:\/>|>[\s\S]*?<\/Project>)/gi;
+        let match: RegExpExecArray | null;
+
+        while ((match = projectBlockRegex.exec(text)) !== null) {
+            const block = match[0];
+            const rawPrjPath = block.match(/\bPrjFilePath\s*=\s*"([^"]+)"/i)?.[1]
+                ?? block.match(/<PrjFilePath>\s*([^<]+?)\s*<\/PrjFilePath>/i)?.[1];
+            const rawTmcPath = block.match(/\bTmcFilePath\s*=\s*"([^"]+)"/i)?.[1]
+                ?? block.match(/<TmcFilePath>\s*([^<]+?)\s*<\/TmcFilePath>/i)?.[1]
+                ?? block.match(/\bTmcPath\s*=\s*"([^"]+)"/i)?.[1]
+                ?? block.match(/<TmcPath>\s*([^<]+?)\s*<\/TmcPath>/i)?.[1];
+
+            if (rawPrjPath?.trim()) {
+                const plcProjPath = path.normalize(path.isAbsolute(rawPrjPath) ? rawPrjPath : path.join(projectDir, rawPrjPath.trim()));
+                plcProjPaths.add(plcProjPath);
+                projectRoots.add(path.dirname(plcProjPath));
+            }
+
+            if (rawTmcPath?.trim()) {
+                const tmcPath = path.normalize(path.isAbsolute(rawTmcPath) ? rawTmcPath : path.join(projectDir, rawTmcPath.trim()));
+                tmcPaths.add(tmcPath);
+            }
+        }
+
+        this.referencedProjectCache = {
+            key: cacheKey,
+            plcProjPaths: [...plcProjPaths].sort((a, b) => a.localeCompare(b)),
+            projectRoots: [...projectRoots].sort((a, b) => a.localeCompare(b)),
+            tmcPaths: [...tmcPaths].sort((a, b) => a.localeCompare(b))
+        };
+
+        return {
+            plcProjPaths: [...this.referencedProjectCache.plcProjPaths],
+            projectRoots: [...this.referencedProjectCache.projectRoots],
+            tmcPaths: [...this.referencedProjectCache.tmcPaths]
+        };
     }
 
     private async readProgramBuildFromPlcProj(plcProjPath: string): Promise<number> {
@@ -928,8 +1507,10 @@ export class TwinCATProjectAnalyzer {
 
     private async collectAvailableTmcFiles(): Promise<{ names: Set<string>; files: string[] }> {
         const configuredRoots = vscode.workspace.getConfiguration('twincat').get<string[]>('backend.tmcRoots', []);
+        const referencedProjects = await this.getReferencedTwinCATProjects();
         const roots = [...new Set([
             this.projectRoot,
+            ...referencedProjects.projectRoots,
             ...configuredRoots
         ].filter((value): value is string => !!value && fs.existsSync(value)))];
         const tmcNames = new Set<string>();
@@ -937,6 +1518,14 @@ export class TwinCATProjectAnalyzer {
 
         for (const root of roots) {
             await this.collectTmcNamesFromRoot(root, tmcNames, tmcFiles);
+        }
+
+        for (const tmcPath of referencedProjects.tmcPaths) {
+            if (!fs.existsSync(tmcPath)) {
+                continue;
+            }
+            tmcFiles.add(tmcPath);
+            tmcNames.add(this.normalizeLookupName(path.basename(tmcPath, '.tmc')));
         }
 
         return {
@@ -1273,43 +1862,60 @@ export class TwinCATProjectAnalyzer {
         );
 
         if (tc3GlobalTypesEntry) {
-            const systemRef = this.createImplicitSystemLibraryRef('Tc3_GlobalTypes', tc3GlobalTypesEntry);
+            const systemRef = this.createImplicitCatalogLibraryRef('Tc3_GlobalTypes', tc3GlobalTypesEntry, 'system_global');
             refsByKey.set(`${systemRef.name.toUpperCase()}|${(systemRef.vendor ?? '').toUpperCase()}|${systemRef.version}`, systemRef);
             this.implicitSystemLibraries.add(this.normalizeLookupName(systemRef.name));
         }
 
-        if (systemGlobalEntries.length === 0) {
-            return;
+        if (systemGlobalEntries.length > 0) {
+            const supportsVirtualLibraries = this.projectBuildNumber >= 4026;
+            for (const entry of systemGlobalEntries) {
+                if (entry.name.localeCompare('Tc3_GlobalTypes', undefined, { sensitivity: 'accent' }) === 0) {
+                    continue;
+                }
+
+                this.implicitSystemLibraries.add(this.normalizeLookupName(entry.name));
+                if (!supportsVirtualLibraries) {
+                    continue;
+                }
+
+                const systemRef = this.createImplicitCatalogLibraryRef(entry.name, entry, 'system_global');
+                refsByKey.set(`${systemRef.name.toUpperCase()}|${(systemRef.vendor ?? '').toUpperCase()}|${systemRef.version}`, systemRef);
+            }
         }
 
-        const supportsVirtualLibraries = this.projectBuildNumber >= 4026;
-        for (const entry of systemGlobalEntries) {
-            if (entry.name.localeCompare('Tc3_GlobalTypes', undefined, { sensitivity: 'accent' }) === 0) {
+        for (const libraryName of this.standardLibraries) {
+            const catalogEntry = this.resolveCatalogLibraryMetadata(catalog, libraryName);
+            if (!catalogEntry) {
                 continue;
             }
 
-            this.implicitSystemLibraries.add(this.normalizeLookupName(entry.name));
-            if (!supportsVirtualLibraries) {
-                continue;
-            }
-
-            const systemRef = this.createImplicitSystemLibraryRef(entry.name, entry);
-            refsByKey.set(`${systemRef.name.toUpperCase()}|${(systemRef.vendor ?? '').toUpperCase()}|${systemRef.version}`, systemRef);
+            const standardRef = this.createImplicitCatalogLibraryRef(libraryName, catalogEntry, 'built_in');
+            refsByKey.set(`${standardRef.name.toUpperCase()}|${(standardRef.vendor ?? '').toUpperCase()}|${standardRef.version}`, standardRef);
+            this.implicitSystemLibraries.add(this.normalizeLookupName(standardRef.name));
         }
     }
 
-    private createImplicitSystemLibraryRef(name: string, catalogEntry: LibraryCatalogEntry): TwinCATLibraryRef {
+    private createImplicitCatalogLibraryRef(
+        name: string,
+        catalogEntry: LibraryCatalogEntry,
+        metadataSource: TwinCATLibraryRef['metadataSource'] = 'system_global'
+    ): TwinCATLibraryRef {
         return {
             name,
             version: catalogEntry.version ?? (this.projectBuildNumber > 0 ? `3.1.${this.projectBuildNumber}` : 'system'),
             vendor: catalogEntry.vendor ?? 'Beckhoff Automation GmbH',
             path: this.projectRoot ?? '',
             mode: 'public_symbols',
-            metadataSource: 'system_global',
+            metadataSource,
             infoUrl: catalogEntry.infoUrl,
-            category: catalogEntry.category ?? 'System',
+            category: catalogEntry.category ?? (metadataSource === 'system_global' ? 'System' : 'Base'),
             suppliedWith: catalogEntry.suppliedWith ?? 'TwinCAT 3',
-            summary: catalogEntry.summary ?? 'TwinCAT system-provided global type library.'
+            summary: catalogEntry.summary ?? (
+                metadataSource === 'system_global'
+                    ? 'TwinCAT system-provided global type library.'
+                    : 'TwinCAT standard library metadata.'
+            )
         };
     }
 
@@ -1320,7 +1926,7 @@ export class TwinCATProjectAnalyzer {
                 .filter(libraryKey => !this.libraryRefs.some(ref => this.normalizeLookupName(ref.name) === libraryKey))
                 .map(libraryKey => {
                     const matchingEntry = [...catalog.values()].flat().find(entry => this.normalizeLookupName(entry.name) === libraryKey);
-                    return matchingEntry ? this.createImplicitSystemLibraryRef(matchingEntry.name, matchingEntry) : undefined;
+                    return matchingEntry ? this.createImplicitCatalogLibraryRef(matchingEntry.name, matchingEntry, 'built_in') : undefined;
                 })
                 .filter((ref): ref is TwinCATLibraryRef => !!ref)
         ];
@@ -1768,6 +2374,29 @@ export class TwinCATProjectAnalyzer {
         return this.dataTypes.get(name.toUpperCase()) || this.libraryDataTypes.get(name.toUpperCase());
     }
 
+    public getQualifiedOnlyOwners(name: string): { globals: string[]; enums: string[] } {
+        const key = name.toUpperCase();
+        return {
+            globals: [...(this.qualifiedOnlyGlobalMembers.get(key) ?? [])].sort((a, b) => a.localeCompare(b)),
+            enums: [...(this.qualifiedOnlyEnumMembers.get(key) ?? [])].sort((a, b) => a.localeCompare(b))
+        };
+    }
+
+    public getQualifiedOnlyUsageInfo(): QualifiedOnlyUsageInfo {
+        const cloneMap = (source: Map<string, Set<string>>): Map<string, Set<string>> => {
+            const result = new Map<string, Set<string>>();
+            source.forEach((owners, memberName) => {
+                result.set(memberName, new Set(owners));
+            });
+            return result;
+        };
+
+        return {
+            globals: cloneMap(this.qualifiedOnlyGlobalMembers),
+            enums: cloneMap(this.qualifiedOnlyEnumMembers)
+        };
+    }
+
     /**
      * Get all global variables
      */
@@ -1816,22 +2445,32 @@ export class TwinCATProjectAnalyzer {
         return [...this.libraryRefs];
     }
 
-    public getLibraryApi(libraryName: string): {
+    public getLibraryApi(libraryName: string, aliases: string[] = []): {
         reference?: TwinCATLibraryRef;
         symbols: TwinCATSymbol[];
         dataTypes: TwinCATDataType[];
     } {
-        const reference = this.libraryRefs.find(lib => lib.name.localeCompare(libraryName, undefined, { sensitivity: 'accent' }) === 0);
-        const normalizedLibrary = this.normalizeLookupName(libraryName);
+        const candidateNames = [...new Set([libraryName, ...aliases].map(value => value?.trim()).filter((value): value is string => !!value))];
+        const normalizedCandidates = new Set(candidateNames.map(value => this.normalizeLookupName(value)));
+        const reference =
+            this.libraryRefs.find(lib =>
+                candidateNames.some(candidate => lib.name.localeCompare(candidate, undefined, { sensitivity: 'accent' }) === 0)
+            )
+            ?? this.libraryRefs.find(lib => normalizedCandidates.has(this.normalizeLookupName(lib.name)));
+
+        if (reference) {
+            normalizedCandidates.add(this.normalizeLookupName(reference.name));
+        }
+
         const symbols = [...this.librarySymbols.values()]
-            .filter(symbol => symbol.library && this.normalizeLookupName(symbol.library) === normalizedLibrary)
+            .filter(symbol => symbol.library && normalizedCandidates.has(this.normalizeLookupName(symbol.library)))
             .sort((a, b) => {
                 const byKind = a.kind.localeCompare(b.kind);
                 if (byKind !== 0) return byKind;
                 return a.name.localeCompare(b.name);
             });
         const dataTypes = [...this.libraryDataTypes.values()]
-            .filter(typeInfo => typeInfo.library && this.normalizeLookupName(typeInfo.library) === normalizedLibrary)
+            .filter(typeInfo => typeInfo.library && normalizedCandidates.has(this.normalizeLookupName(typeInfo.library)))
             .sort((a, b) => {
                 const byKind = a.kind.localeCompare(b.kind);
                 if (byKind !== 0) return byKind;
@@ -1861,7 +2500,7 @@ export class TwinCATProjectAnalyzer {
             return;
         }
 
-        await this.refreshLibraryMetadataOnly();
+        await this.queueLibraryRefresh();
     }
 
     public getTypeResolutionStatus(typeName: string): 'known' | 'metadata_only' | 'unknown' {
@@ -1960,6 +2599,9 @@ export class TwinCATProjectAnalyzer {
             clearTimeout(this.libraryRefreshTimer);
             this.libraryRefreshTimer = undefined;
         }
+        this.libraryRefreshCycle = undefined;
+        this.libraryRefreshExecuting = false;
+        this.libraryRefreshDueAt = 0;
         if (this.fileUpdateTimer) {
             clearTimeout(this.fileUpdateTimer);
             this.fileUpdateTimer = undefined;
@@ -1973,11 +2615,16 @@ export class TwinCATProjectAnalyzer {
         if (this.globalLibraryMetadataWatcher) {
             this.globalLibraryMetadataWatcher.dispose();
         }
+        this.referencedRootWatchers.forEach(watcher => watcher.dispose());
+        this.referencedRootWatchers = [];
         this.initialized = false;
         this.initializePromise = undefined;
         this.libraryPlaceholderSymbolKeys.clear();
         this.tmcParseCache.clear();
         this.projectMetadataTextCache.clear();
+        this.dependentFilesBySymbol.clear();
+        this.lastRefreshAffectedFiles = [];
+        this.lastRefreshAffectedSymbolKeys = [];
         this.managedLibraryIndex = undefined;
         this.managedLibraryIndexPromise = undefined;
         this.indexRefreshedEmitter.dispose();
@@ -1985,6 +2632,24 @@ export class TwinCATProjectAnalyzer {
 
     public onDidRefreshIndex(listener: () => void): vscode.Disposable {
         return this.indexRefreshedEmitter.event(listener);
+    }
+
+    public getLastRefreshAffectedFiles(): string[] {
+        return [...this.lastRefreshAffectedFiles];
+    }
+
+    public getLastRefreshValidationFiles(): string[] {
+        const files = new Set(this.lastRefreshAffectedFiles);
+        for (const symbolKey of this.lastRefreshAffectedSymbolKeys) {
+            const dependents = this.dependentFilesBySymbol.get(symbolKey);
+            if (!dependents) {
+                continue;
+            }
+            for (const filePath of dependents) {
+                files.add(filePath);
+            }
+        }
+        return [...files].sort((a, b) => a.localeCompare(b));
     }
 }
 
@@ -1997,6 +2662,10 @@ export function getProjectAnalyzer(): TwinCATProjectAnalyzer {
         analyzer = new TwinCATProjectAnalyzer();
         analyzerCreatedEmitter.fire(analyzer);
     }
+    return analyzer;
+}
+
+export function peekProjectAnalyzer(): TwinCATProjectAnalyzer | undefined {
     return analyzer;
 }
 
@@ -2024,4 +2693,3 @@ export function disposeProjectAnalyzer(): void {
     analyzer.dispose();
     analyzer = undefined;
 }
-

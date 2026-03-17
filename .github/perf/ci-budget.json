@@ -6,8 +6,8 @@
     "minTotalConversions": 880,
     "minFragmentChecks": 160,
     "minSaveChecks": 240,
-    "expectedDigest": "7fddd5bc2a2dcff6b1bc28b5763aef2e6ee57640986cbfac2efdf35a69b30880",
+    "expectedDigest": "89f20dcc8d228cc3b5d95c2777856cdc56c2344b52794a21e18f64560ebb6bb5",
     "expectedFragmentDigest": "b55b9eea4849d08466d51f6e57ed9384533ba82adf3455e0cafc7fab2c6f1cf5",
-    "expectedSaveDigest": "f4e3ebc7a874a02b91624255d80272b5b89f055bef89852b883e1d68ea9b73ea"
+    "expectedSaveDigest": "2e9561a8f91a2c621861cb37c1e2b203d3f9b4462504ddcfe4700bea6ebef299"
   }
 }

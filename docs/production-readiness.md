@@ -56,7 +56,7 @@
 
 ## 6. Packaging
 
-- `PASS` VSIX contents are now controlled by a `files` whitelist in [package.json](c:/Users/TwinCAT/Documents/MyStuff/TcView/package.json)
+- `PASS` VSIX contents are now controlled by a `files` whitelist in [package.json](../package.json)
 - `PASS` Dev-heavy sources/docs/test assets are not required in the shipped runtime package
 - `PASS` Windows alpha VSIX packaging includes the release backend output for Automation Interface commands
 - `PASS` Local validation now checks that bundled backend files exist both in build output and inside the packaged VSIX
@@ -66,9 +66,9 @@
 ## 7. Alpha Operations
 
 - `PASS` Windows CI runs compile, regression tests, integration smoke tests, performance guardrails, and VSIX packaging validation
-- `PASS` Alpha release checklist exists in [alpha-release-checklist.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/alpha-release-checklist.md)
-- `PASS` Tester troubleshooting guide exists in [alpha-troubleshooting.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/alpha-troubleshooting.md)
-- `PASS` Initial support matrix exists in [support-matrix.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/support-matrix.md)
+- `PASS` Alpha release checklist exists in [alpha-release-checklist.md](./alpha-release-checklist.md)
+- `PASS` Tester troubleshooting guide exists in [alpha-troubleshooting.md](./alpha-troubleshooting.md)
+- `PASS` Initial support matrix exists in [support-matrix.md](./support-matrix.md)
 - `PASS` GitHub issue templates exist for alpha bug and performance reports under `.github/ISSUE_TEMPLATE`
 - `PASS` Repo-local governance files now exist for code ownership, PR validation checklist, and recommended GitHub ruleset settings
 - `PASS` Local tests now cover bundled-backend resolution, stale override fallback, and missing-runtime guidance paths

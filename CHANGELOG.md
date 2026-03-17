@@ -6,14 +6,22 @@ The format is based on Keep a Changelog and this project uses Semantic Versionin
 
 ## [Unreleased]
 
+## [1.0.0-alpha.3] - 2026-03-16
+
 ### Added
 - Added repo-local GitFlow helper tooling for bootstrapping `develop` and creating `feature/*`, `release/*`, and `hotfix/*` branches from the correct base branch
 - Added GitHub automation for GitFlow PR target validation and automatic release tag/VSIX/GitHub Release publication from `main`
 - Added tracked GitHub repository settings and protected branch/tag ruleset payloads for `main`, `develop`, optional `support/*` maintenance branches, and immutable `v*` release tags
+- Added a runtime baseline comparison helper for reviewing multiple exported workspace baselines together
 
 ### Changed
 - Expanded CI branch coverage from `main` only to the GitFlow branch families used for day-to-day development and release stabilization
 - Replaced the previous linear-history `main` ruleset guidance with merge-commit-based protection that matches standard GitFlow
+- Reduced TcView startup and explorer refresh latency through targeted tree-cache reuse, cached TwinCAT root and `.tsproj` resolution, slimmer webview refresh payloads, and narrower validation work
+- Improved project-scoped/background diagnostics refresh behavior so external/add-remove dependency changes clear more reliably without full-workspace rescans
+- Updated README and performance/architecture roadmap docs to reflect the current webview explorer, authoring flows, and tracked runtime baseline workflow
+- Cleaned public-facing documentation links so repo docs use portable relative paths instead of machine-local filesystem references
+- Refreshed the synthetic large-workspace performance guardrail digests to the currently validated save/conversion outputs
 
 ## [1.0.0-alpha.2] - 2026-03-10
 

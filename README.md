@@ -24,8 +24,11 @@ Use TwinCAT XAE for device engineering, configuration activation, runtime contro
 
 - Open supported TwinCAT XML artifacts as editable ST
 - Save ST changes back to the original XML source
-- Browse TwinCAT projects in a `SYSTEM` / `PLC` / `I/O` tree
+- Browse TwinCAT projects in the TcView Explorer grouped into `SYSTEM` / `PLC` / `I/O`
+- Use the Explorer to create TwinCAT files and folders, rename items, delete items, and copy/cut/paste supported TwinCAT artifacts
+- Add methods, properties, actions, and transitions directly from the Explorer for supported POU-like files
 - Show per-PLC `References` and open library references in an API-style viewer
+- Show warning/error breadcrumbs on files, folders, and top-level Explorer groups for both open and background-validated files
 - Build the active TwinCAT solution with MSBuild
 - Run language features in the editor:
   - diagnostics
@@ -33,6 +36,7 @@ Use TwinCAT XAE for device engineering, configuration activation, runtime contro
   - hover
   - rename/references
   - symbols/folding/code actions
+- Suppress selected TcView lint rules with `tcview` pragmas and supported Beckhoff analysis pragmas
 - Recognize libraries from layered metadata:
   - current PLC `.tmc`
   - installed Managed Libraries metadata
@@ -42,6 +46,35 @@ Use TwinCAT XAE for device engineering, configuration activation, runtime contro
 - Update or remove user library metadata entries from the TcView metadata catalog when project-source metadata changes
 - Prune unused user library metadata entries for the current workspace or selected PLC project
 - Use optional TwinCAT Automation Interface commands for add/remove library reference through the bundled backend
+
+## Using TcView
+
+### Quick Start
+
+1. Open a real TwinCAT solution root (`.sln` plus `.tsproj`/`.tspproj`) or a standalone PLC project root (`.plcproj`).
+2. Open the `TcView` activity bar container.
+3. Use the `Explorer` view to browse `SYSTEM`, `PLC`, and `I/O`.
+4. Open TwinCAT XML-backed source files in TcView and edit them as Structured Text.
+5. Save normally to write your ST changes back into the original TwinCAT XML file.
+
+### Common Workflows
+
+- Open and edit:
+  - open `.TcPOU`, `.TcPRG`, `.TcDUT`, `.TcGVL`, `.TcITF`, `.TcIO`, and related TwinCAT source artifacts as ST
+- Browse and inspect:
+  - expand folders and PLC project nodes
+  - inspect `References`
+  - open a library reference in the API-style viewer
+- Author from the Explorer:
+  - create folders and TwinCAT files
+  - add methods, properties, actions, and transitions where supported
+  - rename, delete, copy, cut, and paste supported items
+- Validate and navigate:
+  - review diagnostics in the editor and Explorer
+  - use completion, hover, rename, references, symbols, and code actions
+- Build and inspect performance:
+  - run `Build TwinCAT Solution`
+  - export runtime telemetry with `Export TcView Performance Baseline` and `Export TcView Performance Trace`
 
 ## Supported Roots
 
@@ -135,7 +168,10 @@ For details, see [Library Metadata](docs/library-metadata.md).
 
 - [Architecture](docs/architecture.md)
 - [Library Metadata](docs/library-metadata.md)
+- [Lint Pragmas](docs/lint-pragmas.md)
 - [Development](docs/development.md)
+- [Performance Baselines](docs/performance-baselines.md)
+- [Performance Trace Triage](docs/performance-trace-triage.md)
 - [Production Readiness](docs/production-readiness.md)
 - [GitFlow](docs/gitflow.md)
 - [Roadmap](docs/roadmap.md)

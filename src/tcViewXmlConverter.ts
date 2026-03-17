@@ -277,14 +277,7 @@ export class TwinCATXmlConverter {
     private buildInterfaceDeclaration(itfData: any): string {
         const declaration = this.getTextContent(itfData?.Declaration).trim();
         if (declaration) {
-            const firstLine = declaration
-                .replace(/\r/g, '\n')
-                .split('\n')
-                .map(line => line.trim())
-                .find(Boolean);
-            if (firstLine) {
-                return firstLine;
-            }
+            return declaration;
         }
 
         const name = itfData?.Name
@@ -298,8 +291,17 @@ export class TwinCATXmlConverter {
     }
 
     private generatePOUStructure(pouData: any, type: string): string {
+        const declaration = this.getTextContent(pouData.Declaration).trim();
+        const implementation = pouData.Implementation
+            ? this.generateImplementation(pouData.Implementation).trim()
+            : '';
+
+        if (declaration) {
+            return [declaration, implementation].filter(Boolean).join('\n\n').trim() + '\n';
+        }
+
         let stCode = '';
-        
+
         // Get name - can be child element or attribute
         let name = 'Main';
         if (pouData.Name) {
@@ -307,7 +309,7 @@ export class TwinCATXmlConverter {
         } else if (pouData.$ && pouData.$.Name) {
             name = pouData.$.Name;
         }
-        
+
         // Get type (PROGRAM, FUNCTION_BLOCK, FUNCTION)
         let pouType = 'PROGRAM';
         if (pouData.Type) {
@@ -315,26 +317,26 @@ export class TwinCATXmlConverter {
         } else if (pouData.$ && pouData.$.Type) {
             pouType = pouData.$.Type;
         }
-        
+
         // Get comment
         let comment = '';
         if (pouData.Comment) {
             comment = this.getTextContent(pouData.Comment);
         }
-        
+
         const commentStr = comment ? ` // ${comment}` : '';
         stCode += `${pouType} ${name}${commentStr}\n\n`;
-        
+
         // Generate variable sections from Interface
         if (pouData.Interface) {
             stCode += this.generateInterface(pouData.Interface);
         }
-        
+
         // Generate implementation
         if (pouData.Implementation) {
             stCode += this.generateImplementation(pouData.Implementation);
         }
-        
+
         return stCode;
     }
 
@@ -350,27 +352,25 @@ export class TwinCATXmlConverter {
     }
 
     private generateGVLStructure(gvlData: any): string {
+        if (gvlData.Declaration) {
+            const declaration = this.getTextContent(gvlData.Declaration).trim();
+            if (declaration) {
+                return declaration.endsWith('\n') ? declaration : `${declaration}\n`;
+            }
+        }
+
         let stCode = '';
-        
         let name = 'GlobalVars';
         if (gvlData.Name) {
             name = this.getTextContent(gvlData.Name) || 'GlobalVars';
         } else if (gvlData.$ && gvlData.$.Name) {
             name = gvlData.$.Name;
         }
-        
+
         stCode += `// Global Variable List: ${name}\n\n`;
         stCode += `VAR_GLOBAL\n`;
-        
-        if (gvlData.Declaration) {
-            const decl = this.getTextContent(gvlData.Declaration);
-            const match = decl.match(/VAR_GLOBAL([\s\S]*?)END_VAR/);
-            if (match) {
-                stCode += match[1].trim() + '\n';
-            } else {
-                stCode += decl + '\n';
-            }
-        } else if (gvlData.Variables && gvlData.Variables.Variable) {
+
+        if (gvlData.Variables && gvlData.Variables.Variable) {
             const vars = this.ensureArray(gvlData.Variables.Variable);
             for (const variable of vars) {
                 const varName = variable.Name ? this.getTextContent(variable.Name) : (variable.$?.Name || 'unnamed');
@@ -387,7 +387,8 @@ export class TwinCATXmlConverter {
     }
 
     private generateInterfaceObjectStructure(itfData: any): string {
-        return `${this.buildInterfaceDeclaration(itfData)}\n`;
+        const declaration = this.buildInterfaceDeclaration(itfData).trim();
+        return declaration ? `${declaration}\n` : '';
     }
 
     private generateInterface(interfaceData: any): string {
@@ -612,22 +613,13 @@ export class TwinCATXmlConverter {
             } else if (pouData.TcPlcObject_POU_Implementation_ST) {
                 implementation = this.getTextContent(pouData.TcPlcObject_POU_Implementation_ST);
             }
-            
-            // Extract POU header from declaration
-            let pouHeader = 'FUNCTION_BLOCK Main';
-            const headerMatch = declaration.match(/(PROGRAM|FUNCTION_BLOCK|FUNCTION)\s+(\w+)/);
-            if (headerMatch) {
-                pouHeader = `${headerMatch[1]} ${headerMatch[2]}`;
-            }
-            
-            stCode += `${pouHeader}\n\n`;
-            
-            // Extract VAR sections from declaration
-            const varSections = declaration.match(/VAR[\s\S]*?END_VAR/g);
-            if (varSections) {
-                for (const section of varSections) {
-                    stCode += `${section}\n\n`;
+
+            if (declaration.trim()) {
+                stCode += declaration.trim();
+                if (implementation.trim()) {
+                    stCode += `\n\n${implementation.trim()}`;
                 }
+                return stCode.trimEnd() + '\n';
             }
             
             // Add implementation

@@ -36,9 +36,18 @@ Optional: export a machine-readable performance snapshot from the large-workspac
 
 Performance process documents:
 
-- [performance-baselines.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/performance-baselines.md)
-- [performance-trace-triage.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/performance-trace-triage.md)
+- [performance-baselines.md](./performance-baselines.md)
+- [performance-trace-triage.md](./performance-trace-triage.md)
 - Backend validation helper: `npm run test:backend:validate`
+
+Curated tracked runtime baselines live under:
+
+- `.tests/perf/runtime/fo_standard_runtime-baseline.json`
+- `.tests/perf/runtime/libraryDev_runtime-baseline.json`
+
+Ad hoc local exports can still use:
+
+- `.tests/perf/runtime/runtime-baseline.json`
 
 ## Extension Development Host
 
@@ -59,11 +68,11 @@ The development host is the fastest way to test:
 
 The backend project lives in:
 
-- [backend/TcView.Backend](c:/Users/TwinCAT/Documents/MyStuff/TcView/backend/TcView.Backend)
+- [backend/TcView.Backend](../backend/TcView.Backend)
 
 Supporting solution:
 
-- [TcView.sln](c:/Users/TwinCAT/Documents/MyStuff/TcView/TcView.sln)
+- [TcView.sln](../TcView.sln)
 
 Use this when working on TwinCAT Automation Interface features such as:
 
@@ -80,7 +89,7 @@ Current reality:
 
 ## Packaging
 
-The extension now uses a `files` whitelist in [package.json](c:/Users/TwinCAT/Documents/MyStuff/TcView/package.json) to keep the VSIX focused on runtime assets.
+The extension now uses a `files` whitelist in [package.json](../package.json) to keep the VSIX focused on runtime assets.
 
 That means the shipped package contains:
 
@@ -93,19 +102,19 @@ and does not need to rely on a large ignore-only package layout.
 
 ## Documentation Layout
 
-- [README.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/README.md): user-facing overview and install/use guidance
-- [architecture.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/architecture.md): implementation structure and boundaries
-- [library-metadata.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/library-metadata.md): metadata model and library recognition
-- [performance-baselines.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/performance-baselines.md): baseline capture process and CI guardrail inputs
-- [performance-trace-triage.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/performance-trace-triage.md): runtime trace triage checklist for alpha issues
-- [alpha-release-checklist.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/alpha-release-checklist.md): pre-alpha ship checklist with build/install/function/perf gates
-- [alpha-troubleshooting.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/alpha-troubleshooting.md): tester troubleshooting and environment capture guide
-- [backend-validation.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/backend-validation.md): backend success/failure validation runbook for alpha machines
-- [support-matrix.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/support-matrix.md): initial alpha support boundary
-- [gitflow.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/gitflow.md): branch model, local helper commands, release tags, and back-merge policy
-- [github-rulesets.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/github-rulesets.md): protected-branch and repository-settings baseline for GitFlow
-- [production-readiness.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/production-readiness.md): release gates and remaining risk areas
-- [roadmap.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/roadmap.md): roadmap and planned work
+- [README.md](../README.md): user-facing overview and install/use guidance
+- [architecture.md](./architecture.md): implementation structure and boundaries
+- [library-metadata.md](./library-metadata.md): metadata model and library recognition
+- [performance-baselines.md](./performance-baselines.md): baseline capture process and CI guardrail inputs
+- [performance-trace-triage.md](./performance-trace-triage.md): runtime trace triage checklist for alpha issues
+- [alpha-release-checklist.md](./alpha-release-checklist.md): pre-alpha ship checklist with build/install/function/perf gates
+- [alpha-troubleshooting.md](./alpha-troubleshooting.md): tester troubleshooting and environment capture guide
+- [backend-validation.md](./backend-validation.md): backend success/failure validation runbook for alpha machines
+- [support-matrix.md](./support-matrix.md): initial alpha support boundary
+- [gitflow.md](./gitflow.md): branch model, local helper commands, release tags, and back-merge policy
+- [github-rulesets.md](./github-rulesets.md): protected-branch and repository-settings baseline for GitFlow
+- [production-readiness.md](./production-readiness.md): release gates and remaining risk areas
+- [roadmap.md](./roadmap.md): roadmap and planned work
 
 ## Cleanup Notes
 

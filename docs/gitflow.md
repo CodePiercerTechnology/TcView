@@ -31,7 +31,7 @@ Create working branches from the correct base:
 
 Helper script:
 
-- [gitflow.js](c:/Users/TwinCAT/Documents/MyStuff/TcView/scripts/gitflow.js)
+- [gitflow.js](../scripts/gitflow.js)
 
 Notes:
 
@@ -49,12 +49,12 @@ Notes:
 
 GitHub validates these pairings in:
 
-- [gitflow-pr-policy.yml](c:/Users/TwinCAT/Documents/MyStuff/TcView/.github/workflows/gitflow-pr-policy.yml)
+- [gitflow-pr-policy.yml](../.github/workflows/gitflow-pr-policy.yml)
 
 ## Release Flow
 
 1. Branch `release/<version>` from `develop`
-2. Bump `package.json` version and update [CHANGELOG.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/CHANGELOG.md)
+2. Bump `package.json` version and update [CHANGELOG.md](../CHANGELOG.md)
 3. Merge `release/<version>` into `main`
 4. GitHub creates tag `v<version>` if it does not already exist
 5. GitHub builds the VSIX and publishes a GitHub Release for that tag
@@ -62,7 +62,7 @@ GitHub validates these pairings in:
 
 Workflow:
 
-- [release-on-main.yml](c:/Users/TwinCAT/Documents/MyStuff/TcView/.github/workflows/release-on-main.yml)
+- [release-on-main.yml](../.github/workflows/release-on-main.yml)
 
 ## Maintenance Branches
 

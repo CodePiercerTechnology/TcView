@@ -28,7 +28,7 @@ This distinction matters because:
 
 TcView ships with a built-in metadata catalog at:
 
-- [library-metadata.json](c:/Users/TwinCAT/Documents/MyStuff/TcView/resources/library-metadata.json)
+- [library-metadata.json](../resources/library-metadata.json)
 
 Current built-in Beckhoff coverage includes core libraries such as:
 

@@ -178,6 +178,22 @@ export class TwinCATFileSystemProvider implements vscode.FileSystemProvider {
         data.sourceMtimeMs = await this.getSourceMtimeMs(data.originalPath);
     }
 
+    invalidateOriginalPath(originalPath: string) {
+        const normalized = path.normalize(originalPath);
+        const changedUris: vscode.Uri[] = [];
+        for (const [key, entry] of this.fileMap.entries()) {
+            if (path.normalize(entry.originalPath) !== normalized) {
+                continue;
+            }
+            this.fileMap.delete(key);
+            changedUris.push(vscode.Uri.parse(key));
+        }
+
+        if (changedUris.length > 0) {
+            this._onDidChangeFile.fire(changedUris.map(uri => ({ type: vscode.FileChangeType.Changed, uri })));
+        }
+    }
+
     rename(oldUri: vscode.Uri, newUri: vscode.Uri, options: { overwrite: boolean }): void {
         throw vscode.FileSystemError.NoPermissions();
     }

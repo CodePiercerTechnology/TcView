@@ -36,3 +36,12 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+
+#Test files
+*.test*
+!.tests/
+!.tests/perf/
+!.tests/perf/runtime/
+.tests/perf/runtime/*
+!.tests/perf/runtime/fo_standard_runtime-baseline.json
+!.tests/perf/runtime/libraryDev_runtime-baseline.json
