@@ -1,0 +1,124 @@
+{
+  "version": 1,
+  "suite": "runtime-baseline",
+  "description": "Runtime performance service levels for representative local Windows workspaces. ideal = healthy target, acceptable = okay for alpha, bad = investigate before shipping.",
+  "levels": {
+    "ideal": "Healthy target for day-to-day developer use on a representative local workspace.",
+    "acceptable": "Usable for alpha. Keep tracking, but not necessarily a blocker by itself.",
+    "bad": "Investigate. Repeated results in this band should block release or trigger targeted perf work."
+  },
+  "metrics": {
+    "tree.discovery.resolveRoot": {
+      "label": "Explorer startup root discovery",
+      "unit": "ms",
+      "stat": "maxMs",
+      "ideal": 400,
+      "acceptable": 900
+    },
+    "tree.webview.refresh": {
+      "label": "Explorer first visible refresh",
+      "unit": "ms",
+      "stat": "maxMs",
+      "ideal": 300,
+      "acceptable": 800
+    },
+    "tree.webview.refresh.postMessage.roots": {
+      "label": "Explorer initial structure payload",
+      "unit": "ms",
+      "stat": "maxMs",
+      "ideal": 120,
+      "acceptable": 300
+    },
+    "tree.webview.refresh.postMessage.state": {
+      "label": "Explorer state payload",
+      "unit": "ms",
+      "stat": "maxMs",
+      "ideal": 120,
+      "acceptable": 300
+    },
+    "tree.refresh.topLevelGroups": {
+      "label": "Explorer top-level group expansion",
+      "unit": "ms",
+      "stat": "maxMs",
+      "ideal": 150,
+      "acceptable": 400
+    },
+    "tree.refresh.folderContents": {
+      "label": "Explorer folder expansion",
+      "unit": "ms",
+      "stat": "maxMs",
+      "ideal": 20,
+      "acceptable": 60
+    },
+    "reindex.full": {
+      "label": "Full analyzer rebuild",
+      "unit": "ms",
+      "stat": "maxMs",
+      "ideal": 800,
+      "acceptable": 1600
+    },
+    "reindex.incremental": {
+      "label": "Incremental analyzer update",
+      "unit": "ms",
+      "stat": "maxMs",
+      "ideal": 40,
+      "acceptable": 120
+    },
+    "reindex.libraryMetadata": {
+      "label": "Library metadata refresh burst item",
+      "unit": "ms",
+      "stat": "maxMs",
+      "ideal": 120,
+      "acceptable": 300
+    },
+    "open.file.preload": {
+      "label": "Open file preload",
+      "unit": "ms",
+      "stat": "maxMs",
+      "ideal": 20,
+      "acceptable": 60
+    },
+    "open.file.document": {
+      "label": "Open file document materialization",
+      "unit": "ms",
+      "stat": "maxMs",
+      "ideal": 10,
+      "acceptable": 30
+    },
+    "open.file.editor": {
+      "label": "Open file editor reveal",
+      "unit": "ms",
+      "stat": "maxMs",
+      "ideal": 75,
+      "acceptable": 150
+    },
+    "open.fragment.preload": {
+      "label": "Open fragment preload",
+      "unit": "ms",
+      "stat": "maxMs",
+      "ideal": 20,
+      "acceptable": 50
+    },
+    "open.fragment.document": {
+      "label": "Open fragment document materialization",
+      "unit": "ms",
+      "stat": "maxMs",
+      "ideal": 40,
+      "acceptable": 100
+    },
+    "open.fragment.editor": {
+      "label": "Open fragment editor reveal",
+      "unit": "ms",
+      "stat": "maxMs",
+      "ideal": 80,
+      "acceptable": 180
+    },
+    "save.toOriginalXml": {
+      "label": "Save ST back to TwinCAT XML",
+      "unit": "ms",
+      "stat": "maxMs",
+      "ideal": 80,
+      "acceptable": 180
+    }
+  }
+}

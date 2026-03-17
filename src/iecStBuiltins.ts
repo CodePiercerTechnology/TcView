@@ -21,7 +21,7 @@ export const iecBuiltinFunctions = [
     'TRUNC', 'ROUND', 'CEIL', 'FLOOR', 'BCD_TO_INT', 'INT_TO_BCD'
 ] as const;
 
-export const iecBuiltinNamespaces = ['_SYSTEM', '__SYSTEM'] as const;
+export const iecBuiltinNamespaces = ['_SYSTEM', '__SYSTEM', 'TwinCAT_SystemInfoVarList'] as const;
 
 const iecBuiltInTypeSet = new Set(iecBuiltinTypes.map(k => k.toUpperCase()));
 const iecBuiltInFunctionSet = new Set(iecBuiltinFunctions.map(k => k.toUpperCase()));

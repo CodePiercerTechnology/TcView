@@ -6,23 +6,23 @@ This repo now tracks the protected-branch baseline needed for GitFlow. GitHub st
 
 Protected branches:
 
-- [main.json](c:/Users/TwinCAT/Documents/MyStuff/TcView/.github/rulesets/main.json)
-- [develop.json](c:/Users/TwinCAT/Documents/MyStuff/TcView/.github/rulesets/develop.json)
-- [support.json](c:/Users/TwinCAT/Documents/MyStuff/TcView/.github/rulesets/support.json)
+- [main.json](../.github/rulesets/main.json)
+- [develop.json](../.github/rulesets/develop.json)
+- [support.json](../.github/rulesets/support.json)
 
 Protected tags:
 
-- [tags.json](c:/Users/TwinCAT/Documents/MyStuff/TcView/.github/rulesets/tags.json)
+- [tags.json](../.github/rulesets/tags.json)
 
 Repository merge/deletion settings:
 
-- [repository.json](c:/Users/TwinCAT/Documents/MyStuff/TcView/.github/settings/repository.json)
+- [repository.json](../.github/settings/repository.json)
 
 Apply scripts:
 
-- [apply-github-ruleset.js](c:/Users/TwinCAT/Documents/MyStuff/TcView/scripts/apply-github-ruleset.js)
-- [apply-github-rulesets.js](c:/Users/TwinCAT/Documents/MyStuff/TcView/scripts/apply-github-rulesets.js)
-- [apply-github-repo-settings.js](c:/Users/TwinCAT/Documents/MyStuff/TcView/scripts/apply-github-repo-settings.js)
+- [apply-github-ruleset.js](../scripts/apply-github-ruleset.js)
+- [apply-github-rulesets.js](../scripts/apply-github-rulesets.js)
+- [apply-github-repo-settings.js](../scripts/apply-github-repo-settings.js)
 
 ## Protected Branch Policy
 
@@ -61,15 +61,15 @@ Current required checks:
 
 Supporting workflow files:
 
-- [windows-ci.yml](c:/Users/TwinCAT/Documents/MyStuff/TcView/.github/workflows/windows-ci.yml)
-- [gitflow-pr-policy.yml](c:/Users/TwinCAT/Documents/MyStuff/TcView/.github/workflows/gitflow-pr-policy.yml)
-- [release-on-main.yml](c:/Users/TwinCAT/Documents/MyStuff/TcView/.github/workflows/release-on-main.yml)
+- [windows-ci.yml](../.github/workflows/windows-ci.yml)
+- [gitflow-pr-policy.yml](../.github/workflows/gitflow-pr-policy.yml)
+- [release-on-main.yml](../.github/workflows/release-on-main.yml)
 
 Supporting governance files:
 
-- [CODEOWNERS](c:/Users/TwinCAT/Documents/MyStuff/TcView/.github/CODEOWNERS)
-- [PULL_REQUEST_TEMPLATE.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/.github/PULL_REQUEST_TEMPLATE.md)
-- [config.yml](c:/Users/TwinCAT/Documents/MyStuff/TcView/.github/ISSUE_TEMPLATE/config.yml)
+- [CODEOWNERS](../.github/CODEOWNERS)
+- [PULL_REQUEST_TEMPLATE.md](../.github/PULL_REQUEST_TEMPLATE.md)
+- [config.yml](../.github/ISSUE_TEMPLATE/config.yml)
 
 ## Repository Settings
 

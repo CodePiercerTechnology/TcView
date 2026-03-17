@@ -1,0 +1,119 @@
+{
+  "generatedAt": "2026-03-16T02:50:30.342Z",
+  "metrics": {
+    "open.file.document": {
+      "count": 1,
+      "totalMs": 7,
+      "maxMs": 7,
+      "lastMs": 7,
+      "errors": 0
+    },
+    "open.file.editor": {
+      "count": 1,
+      "totalMs": 50,
+      "maxMs": 50,
+      "lastMs": 50,
+      "errors": 0
+    },
+    "open.file.preload": {
+      "count": 1,
+      "totalMs": 3,
+      "maxMs": 3,
+      "lastMs": 3,
+      "errors": 0
+    },
+    "reindex.full": {
+      "count": 1,
+      "totalMs": 4104,
+      "maxMs": 4104,
+      "lastMs": 4104,
+      "errors": 0
+    },
+    "tree.discovery.resolveRoot": {
+      "count": 1,
+      "totalMs": 4981,
+      "maxMs": 4981,
+      "lastMs": 4981,
+      "errors": 0
+    },
+    "tree.refresh.folderContents": {
+      "count": 60,
+      "totalMs": 428,
+      "maxMs": 50,
+      "lastMs": 1,
+      "errors": 0
+    },
+    "tree.refresh.topLevelGroups": {
+      "count": 13,
+      "totalMs": 1846,
+      "maxMs": 1726,
+      "lastMs": 1,
+      "errors": 0
+    },
+    "tree.webview.refresh": {
+      "count": 160,
+      "totalMs": 7384,
+      "maxMs": 2290,
+      "lastMs": 4,
+      "errors": 0
+    },
+    "tree.webview.refresh.postMessage.roots": {
+      "count": 59,
+      "totalMs": 5372,
+      "maxMs": 2289,
+      "lastMs": 1,
+      "errors": 0
+    },
+    "tree.webview.refresh.roots": {
+      "count": 160,
+      "totalMs": 24,
+      "maxMs": 7,
+      "lastMs": 0,
+      "errors": 0
+    },
+    "tree.webview.refresh.scm": {
+      "count": 157,
+      "totalMs": 19,
+      "maxMs": 3,
+      "lastMs": 0,
+      "errors": 0
+    },
+    "tree.webview.refresh.serialize": {
+      "count": 160,
+      "totalMs": 1914,
+      "maxMs": 376,
+      "lastMs": 3,
+      "errors": 0
+    }
+  },
+  "baselines": {
+    "open": {
+      "operations": 3,
+      "totalCount": 3,
+      "avgMs": 20,
+      "maxMs": 50,
+      "errorCount": 0
+    },
+    "reindex": {
+      "operations": 1,
+      "totalCount": 1,
+      "avgMs": 4104,
+      "maxMs": 4104,
+      "errorCount": 0
+    },
+    "treeRefresh": {
+      "operations": 8,
+      "totalCount": 770,
+      "avgMs": 29,
+      "maxMs": 4981,
+      "errorCount": 0
+    },
+    "save": {
+      "operations": 0,
+      "totalCount": 0,
+      "avgMs": 0,
+      "maxMs": 0,
+      "errorCount": 0
+    }
+  }
+}

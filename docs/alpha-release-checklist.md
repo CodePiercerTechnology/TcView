@@ -7,7 +7,7 @@ Use this checklist before publishing an alpha VSIX to testers.
 - candidate commit: `<sha>`
 - candidate VSIX: `<path>`
 - release notes/changelog updated: `yes` / `no`
-- support matrix reviewed: [support-matrix.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/support-matrix.md)
+- support matrix reviewed: [support-matrix.md](./support-matrix.md)
 
 ## 1. Build and Package
 
@@ -53,13 +53,13 @@ If backend commands are included in test scope:
 
 For runtime baseline and trace capture, follow:
 
-- [performance-baselines.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/performance-baselines.md)
-- [performance-trace-triage.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/performance-trace-triage.md)
+- [performance-baselines.md](./performance-baselines.md)
+- [performance-trace-triage.md](./performance-trace-triage.md)
 
 ## 5. Tester-Facing Artifacts
 
-- `PASS` / `FAIL` troubleshooting guide reviewed: [alpha-troubleshooting.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/alpha-troubleshooting.md)
-- `PASS` / `FAIL` support matrix reviewed: [support-matrix.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/support-matrix.md)
+- `PASS` / `FAIL` troubleshooting guide reviewed: [alpha-troubleshooting.md](./alpha-troubleshooting.md)
+- `PASS` / `FAIL` support matrix reviewed: [support-matrix.md](./support-matrix.md)
 - `PASS` / `FAIL` GitHub issue templates present for bug and performance reports
 
 ## Signoff

@@ -68,6 +68,7 @@ interface ParsedLine {
     raw: string;
     code: string;
     semicolonCode: string;
+    declarationCode: string;
     tokens: Token[];
     parenDepthStart: number;
     parenDelta: number;
@@ -113,12 +114,15 @@ export function buildAstAnalysis(text: string): AstAnalysis {
     const assignments: AstAssignment[] = [];
 
     let inBlockComment = false;
+    let inDeclarationComment = false;
     let parenBalance = 0;
 
     for (let i = 0; i < lines.length; i++) {
         const raw = lines[i];
         const lexed = lexLine(raw, inBlockComment);
+        const declarationLexed = stripCommentsPreserveStrings(raw, inDeclarationComment);
         inBlockComment = lexed.inBlockComment;
+        inDeclarationComment = declarationLexed.inBlockComment;
         if (lexed.unclosedString) {
             stringErrors.push({
                 line: i,
@@ -134,7 +138,8 @@ export function buildAstAnalysis(text: string): AstAnalysis {
                 line: i,
                 raw,
                 code: lexed.code,
-                semicolonCode: stripLineCommentPreserveStrings(raw),
+                semicolonCode: lexed.code,
+                declarationCode: declarationLexed.code,
                 tokens: [],
                 parenDepthStart: parenBalance,
                 parenDelta: 0,
@@ -160,7 +165,8 @@ export function buildAstAnalysis(text: string): AstAnalysis {
             line: i,
             raw,
             code: lexed.code,
-            semicolonCode: stripLineCommentPreserveStrings(raw),
+            semicolonCode: lexed.code,
+            declarationCode: declarationLexed.code,
             tokens: lexed.tokens,
             parenDepthStart,
             parenDelta,
@@ -183,6 +189,14 @@ export function buildAstAnalysis(text: string): AstAnalysis {
     let inEnumList = false;
     let varScopeKind: string | undefined;
     let scopeDecls = new Map<string, AstVariableDecl>();
+    let callableScopeDecls = new Map<string, AstVariableDecl>();
+    let pendingVarDeclaration:
+        | {
+            line: number;
+            startCode: string;
+            text: string;
+        }
+        | undefined;
 
     for (let i = 0; i < parsedLines.length; i++) {
         const pl = parsedLines[i];
@@ -230,18 +244,40 @@ export function buildAstAnalysis(text: string): AstAnalysis {
         if (VAR_SCOPE_OPENERS.has(t0)) {
             varScopeKind = t0;
             scopeDecls = new Map<string, AstVariableDecl>();
+            pendingVarDeclaration = undefined;
             continue;
         }
         if (t0 === 'END_VAR') {
             varScopeKind = undefined;
             scopeDecls = new Map<string, AstVariableDecl>();
+            pendingVarDeclaration = undefined;
             continue;
+        }
+
+        const callableDecl = parseCallableReturnDeclarationLine(pl);
+        if (callableDecl) {
+            declarations.push(callableDecl);
+            const existing = callableScopeDecls.get(callableDecl.upper);
+            if (existing) {
+                duplicates.push({
+                    name: callableDecl.name,
+                    line: callableDecl.line,
+                    startCol: callableDecl.startCol,
+                    endCol: callableDecl.endCol
+                });
+            } else {
+                callableScopeDecls.set(callableDecl.upper, callableDecl);
+            }
         }
 
         // parse declarations in var scope
         if (varScopeKind) {
-            const decl = parseVarDeclarationLine(pl);
-            if (decl) {
+            const declarationState = accumulateVarDeclaration(pl, pendingVarDeclaration);
+            pendingVarDeclaration = declarationState.pending;
+            const decls = declarationState.completed
+                ? parseVarDeclarationText(declarationState.completed.text, declarationState.completed.line, declarationState.completed.startCode)
+                : [];
+            for (const decl of decls) {
                 declarations.push({ ...decl, scopeKind: varScopeKind });
                 const existing = scopeDecls.get(decl.upper);
                 if (existing) {
@@ -314,19 +350,125 @@ function inTypeLikeContext(trimmed: string): boolean {
     return /^(TYPE|END_TYPE|STRUCT|END_STRUCT|ENUM|END_ENUM)\b/i.test(trimmed);
 }
 
-function parseVarDeclarationLine(pl: ParsedLine): Omit<AstVariableDecl, 'scopeKind'> | undefined {
+function parseVarDeclarationLine(pl: ParsedLine): Array<Omit<AstVariableDecl, 'scopeKind'>> {
+    return parseVarDeclarationText(pl.declarationCode.trim(), pl.line, pl.raw);
+}
+
+function parseVarDeclarationText(
+    text: string,
+    line: number,
+    startCode: string
+): Array<Omit<AstVariableDecl, 'scopeKind'>> {
+    const code = stripLeadingDeclarationPragmas(text).trim();
+    const m = code.match(/^([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)(?:\s+AT\s+[^:]+)?\s*:\s*([\s\S]+?);?$/i);
+    if (!m) return [];
+
+    const namesPart = m[1];
+    const type = m[2].trim();
+    const declarations: Array<Omit<AstVariableDecl, 'scopeKind'>> = [];
+    const nameRegex = /[A-Za-z_]\w*/g;
+    let nameMatch: RegExpExecArray | null;
+
+    while ((nameMatch = nameRegex.exec(namesPart)) !== null) {
+        const name = nameMatch[0];
+        const start = startCode.indexOf(name, Math.max(0, nameMatch.index));
+        declarations.push({
+            name,
+            upper: name.toUpperCase(),
+            type,
+            line,
+            startCol: Math.max(0, start),
+            endCol: Math.max(0, start) + name.length
+        });
+    }
+
+    return declarations;
+}
+
+function accumulateVarDeclaration(
+    pl: ParsedLine,
+    pending:
+        | {
+            line: number;
+            startCode: string;
+            text: string;
+        }
+        | undefined
+): {
+    pending:
+        | {
+            line: number;
+            startCode: string;
+            text: string;
+        }
+        | undefined;
+    completed?:
+        | {
+            line: number;
+            startCode: string;
+            text: string;
+        };
+} {
+    const trimmed = pl.declarationCode.trim();
+    const declarationText = stripLeadingDeclarationPragmas(trimmed).trim();
+    if (!trimmed) {
+        return { pending };
+    }
+
+    if (pending) {
+        const next = {
+            ...pending,
+            text: `${pending.text} ${trimmed}`
+        };
+        if (declarationText.includes(';')) {
+            return { pending: undefined, completed: next };
+        }
+        return { pending: next };
+    }
+
+    if (!declarationText.includes(':')) {
+        return { pending: undefined };
+    }
+
+    const start = {
+        line: pl.line,
+        startCode: pl.raw,
+        text: trimmed
+    };
+    if (declarationText.includes(';')) {
+        return { pending: undefined, completed: start };
+    }
+    return { pending: start };
+}
+
+function stripLeadingDeclarationPragmas(text: string): string {
+    let working = text;
+    while (true) {
+        const next = working.replace(/^\s*\{[\s\S]*?\}\s*/u, '');
+        if (next === working) {
+            return working;
+        }
+        working = next;
+    }
+}
+
+function parseCallableReturnDeclarationLine(pl: ParsedLine): AstVariableDecl | undefined {
     const code = pl.semicolonCode.trim();
-    const m = code.match(/^([A-Za-z_]\w*)\s*:\s*([^;]+);?$/);
-    if (!m) return undefined;
-    const name = m[1];
+    const match = code.match(/^(FUNCTION)\b(?:\s+(?:PUBLIC|PRIVATE|PROTECTED|INTERNAL|FINAL|ABSTRACT|OVERRIDE|STATIC))*\s+([A-Za-z_]\w*)\s*:\s*([^;]+)$/i);
+    if (!match) {
+        return undefined;
+    }
+
+    const name = match[2];
     const start = pl.semicolonCode.indexOf(name);
     return {
         name,
         upper: name.toUpperCase(),
-        type: m[2].trim(),
+        type: match[3].trim(),
         line: pl.line,
         startCol: Math.max(0, start),
-        endCol: Math.max(0, start) + name.length
+        endCol: Math.max(0, start) + name.length,
+        scopeKind: 'FUNCTION'
     };
 }
 
@@ -383,8 +525,11 @@ function collectUsagesAndAssignments(pl: ParsedLine, usages: AstIdentifierOccurr
 function shouldSkipSemicolonLine(trimmed: string, typeLike: boolean, caseDepth: number): boolean {
     if (!trimmed) return true;
     if (/^\{.*\}$/.test(trimmed)) return true;
+    if (/^\(\*[\s\S]*\*\)\s*$/.test(trimmed)) return true;
     if (/^(PROGRAM|END_PROGRAM|FUNCTION|END_FUNCTION|FUNCTION_BLOCK|END_FUNCTION_BLOCK|INTERFACE|END_INTERFACE|METHOD|END_METHOD|PROPERTY|END_PROPERTY|ACTION|END_ACTION|TRANSITION|END_TRANSITION|GET|END_GET|SET|END_SET)\b/i.test(trimmed)) return true;
     if (/^(VAR|VAR_INPUT|VAR_OUTPUT|VAR_IN_OUT|VAR_TEMP|VAR_GLOBAL|VAR_INST|VAR_STAT|END_VAR)\b/i.test(trimmed)) return true;
+    if (/^(VAR|VAR_INPUT|VAR_OUTPUT|VAR_IN_OUT|VAR_TEMP|VAR_GLOBAL|VAR_INST|VAR_STAT)(\s+(CONSTANT|INTERNAL|PUBLIC|PRIVATE|PROTECTED|FINAL|ABSTRACT|RETAIN|PERSISTENT))*\s*$/i.test(trimmed)) return true;
+    if (/^(CONSTANT|INTERNAL|PUBLIC|PRIVATE|PROTECTED|FINAL|ABSTRACT|RETAIN|PERSISTENT)(\s+(CONSTANT|INTERNAL|PUBLIC|PRIVATE|PROTECTED|FINAL|ABSTRACT|RETAIN|PERSISTENT))*\s*$/i.test(trimmed)) return true;
     if (/^(IF\b.*\bTHEN|ELSIF\b.*\bTHEN|CASE\b.*\bOF|FOR\b.*\bDO|WHILE\b.*\bDO|REPEAT\b)\s*$/i.test(trimmed)) return true;
     if (/^(IF\b.*\bTHEN[\s\S]*\bEND_IF|FOR\b.*\bDO[\s\S]*\bEND_FOR|WHILE\b.*\bDO[\s\S]*\bEND_WHILE|REPEAT\b[\s\S]*\bEND_REPEAT|CASE\b.*\bOF[\s\S]*\bEND_CASE)\s*;?$/i.test(trimmed)) return true;
     if (/^(THEN|ELSE|ELSIF|OF|DO|UNTIL|END_IF|END_FOR|END_WHILE|END_REPEAT|END_CASE|END_STRUCT|END_INTERFACE|END_METHOD|END_PROPERTY|END_ACTION|END_TRANSITION)\b/i.test(trimmed)) return true;
@@ -502,6 +647,60 @@ function lexLine(line: string, inBlockCommentStart: boolean): { code: string; to
     return { code, tokens, inBlockComment, unclosedString };
 }
 
+function stripCommentsPreserveStrings(line: string, inBlockCommentStart: boolean): { code: string; inBlockComment: boolean } {
+    let code = '';
+    let inBlockComment = inBlockCommentStart;
+    let inSingle = false;
+    let inDouble = false;
+
+    for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        const next = i + 1 < line.length ? line[i + 1] : '';
+
+        if (inBlockComment) {
+            if (ch === '*' && next === ')') {
+                inBlockComment = false;
+                i++;
+            }
+            continue;
+        }
+
+        if (!inSingle && !inDouble && ch === '/' && next === '/') {
+            break;
+        }
+        if (!inSingle && !inDouble && ch === '(' && next === '*') {
+            inBlockComment = true;
+            i++;
+            continue;
+        }
+
+        if (!inDouble && ch === '\'') {
+            if (inSingle && next === '\'') {
+                code += '\'\'';
+                i++;
+                continue;
+            }
+            inSingle = !inSingle;
+            code += ch;
+            continue;
+        }
+        if (!inSingle && ch === '"') {
+            if (inDouble && next === '"') {
+                code += '""';
+                i++;
+                continue;
+            }
+            inDouble = !inDouble;
+            code += ch;
+            continue;
+        }
+
+        code += ch;
+    }
+
+    return { code, inBlockComment };
+}
+
 function tokenizeCode(code: string, out: Token[]): void {
     // Keep IEC time literals (e.g. T#100ms, TIME#1h30m) as a single token.
     const re = /\s+|:=|=>|<=|>=|<>|[(){}\[\],;:.+\-*/=<>]|(?:T|TIME)#(?:[+-]?\d+(?:\.\d+)?(?:D|H|M|S|MS|US|NS))+|16#[0-9A-Fa-f_]+|2#[01_]+|8#[0-7_]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[A-Za-z_]\w*/gi;
@@ -552,6 +751,15 @@ function stripLineCommentPreserveStrings(line: string): string {
 
         if (!inSingle && !inDouble && ch === '/' && next === '/') {
             return out;
+        }
+
+        if (!inSingle && !inDouble && ch === '(' && next === '*') {
+            const end = line.indexOf('*)', i + 2);
+            if (end === -1) {
+                return out;
+            }
+            i = end + 1;
+            continue;
         }
 
         if (!inSingle && !inDouble && ch === '{') {

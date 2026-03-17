@@ -21,16 +21,17 @@ Primary implementation lives in the TypeScript extension.
 
 Key files:
 
-- [extension.ts](c:/Users/TwinCAT/Documents/MyStuff/TcView/src/extension.ts)
-- [tcViewFileExplorerProvider.ts](c:/Users/TwinCAT/Documents/MyStuff/TcView/src/tcViewFileExplorerProvider.ts)
-- [tcViewFileSystemProvider.ts](c:/Users/TwinCAT/Documents/MyStuff/TcView/src/tcViewFileSystemProvider.ts)
-- [tcViewProjectAnalyzer.ts](c:/Users/TwinCAT/Documents/MyStuff/TcView/src/tcViewProjectAnalyzer.ts)
-- [iecStLanguageFeatures.ts](c:/Users/TwinCAT/Documents/MyStuff/TcView/src/iecStLanguageFeatures.ts)
+- [extension.ts](../src/extension.ts)
+- [tcViewFileExplorerProvider.ts](../src/tcViewFileExplorerProvider.ts)
+- [tcViewWebviewExplorerProvider.ts](../src/tcViewWebviewExplorerProvider.ts)
+- [tcViewFileSystemProvider.ts](../src/tcViewFileSystemProvider.ts)
+- [tcViewProjectAnalyzer.ts](../src/tcViewProjectAnalyzer.ts)
+- [iecStLanguageFeatures.ts](../src/iecStLanguageFeatures.ts)
 
 Responsibilities:
 
 - workspace/root detection
-- tree view population
+- tree model population and webview explorer state
 - virtual ST file handling
 - save-back to XML
 - diagnostics, completion, hover, rename, references, folding, semantic tokens
@@ -50,9 +51,9 @@ Flow:
 
 Key files:
 
-- [tcViewXmlConverter.ts](c:/Users/TwinCAT/Documents/MyStuff/TcView/src/tcViewXmlConverter.ts)
-- [tcViewFragmentCodec.ts](c:/Users/TwinCAT/Documents/MyStuff/TcView/src/tcViewFragmentCodec.ts)
-- [tcViewFileSystemProvider.ts](c:/Users/TwinCAT/Documents/MyStuff/TcView/src/tcViewFileSystemProvider.ts)
+- [tcViewXmlConverter.ts](../src/tcViewXmlConverter.ts)
+- [tcViewFragmentCodec.ts](../src/tcViewFragmentCodec.ts)
+- [tcViewFileSystemProvider.ts](../src/tcViewFileSystemProvider.ts)
 
 ### Project Analyzer
 
@@ -69,7 +70,7 @@ Sources merged by the analyzer:
 
 Key file:
 
-- [tcViewProjectAnalyzer.ts](c:/Users/TwinCAT/Documents/MyStuff/TcView/src/tcViewProjectAnalyzer.ts)
+- [tcViewProjectAnalyzer.ts](../src/tcViewProjectAnalyzer.ts)
 
 ### Optional Backend
 
@@ -83,8 +84,8 @@ Current backend usage is limited to TwinCAT Automation Interface operations:
 
 Key files:
 
-- [tcViewBackendClient.ts](c:/Users/TwinCAT/Documents/MyStuff/TcView/src/backend/tcViewBackendClient.ts)
-- [Program.cs](c:/Users/TwinCAT/Documents/MyStuff/TcView/backend/TcView.Backend/Program.cs)
+- [tcViewBackendClient.ts](../src/backend/tcViewBackendClient.ts)
+- [Program.cs](../backend/TcView.Backend/Program.cs)
 
 Current packaging note:
 
@@ -115,6 +116,13 @@ TcView groups detected TwinCAT content into:
 - `PLC`
 - `I/O`
 
+The current `TcView` sidebar Explorer is a webview-backed tree that renders state provided by the extension host.
+
+In practice:
+
+- `TwinCATFileExplorerProvider` remains the source of truth for structure, file metadata, and aggregated diagnostics
+- `TwinCATWebviewExplorerProvider` handles rendering, expansion state, selection state, and lightweight UI interactions
+
 Rules:
 
 - solution-like roots show all three groups, even when empty
@@ -130,10 +138,11 @@ Each PLC project folder can expose:
 
 - explicit `.plcproj` placeholder references
 - synthetic system-global libraries such as `Tc3_GlobalTypes` family entries
+- extension-host-derived diagnostic and SCM state that is pushed into the webview for rendering
 
 ## Library Recognition Model
 
-TcView treats library knowledge as layered provenance, not a single binary “known/unknown” state.
+TcView treats library knowledge as layered provenance, not a single binary "known/unknown" state.
 
 Important provenance categories:
 
@@ -161,7 +170,7 @@ That boundary is deliberate.
 
 ## Why the Repo Still Contains a Backend Solution
 
-[TcView.sln](c:/Users/TwinCAT/Documents/MyStuff/TcView/TcView.sln) exists to support backend development in Visual Studio.
+[TcView.sln](../TcView.sln) exists to support backend development in Visual Studio.
 
 It is not the main build entrypoint for the VS Code extension itself.
 
@@ -169,3 +178,4 @@ Extension build/test remains:
 
 - `npm run compile`
 - `npm test`
+

@@ -227,7 +227,7 @@ static object HandleRunPipeline(JsonObject request)
         object? sysManager = null;
         try
         {
-            sysManager = CreateAutomationInterfaceInstance(resolvedProgId, progIdType, diagnostics);
+            sysManager = CreateAutomationInterfaceInstance(resolvedProgId!, progIdType, diagnostics);
             if (sysManager is null)
             {
                 diagnostics.Add("runPipeline: failed to create SysManager instance.");
@@ -536,7 +536,7 @@ static IReadOnlyList<LibraryRef> ScanLibrariesViaAutomationInterface(string proj
     {
         try
         {
-            var sysManager = CreateAutomationInterfaceInstance(resolvedProgId, progIdType, diagnostics);
+            var sysManager = CreateAutomationInterfaceInstance(resolvedProgId!, progIdType, diagnostics);
             if (sysManager is null)
             {
                 diagnostics.Add("Automation Interface scan failed: could not create SysManager instance.");
@@ -1775,7 +1775,7 @@ static bool TryBuildProjectForTmc(string projectPath, List<string> diagnostics)
     {
         try
         {
-            var sysManager = CreateAutomationInterfaceInstance(progId, progIdType, diagnostics);
+            var sysManager = CreateAutomationInterfaceInstance(progId!, progIdType, diagnostics);
             if (sysManager is null) return;
 
             if (!TryInvoke(sysManager, "OpenConfiguration", tsproj) &&

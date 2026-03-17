@@ -24,7 +24,7 @@
 
 If your change touches TwinCAT Automation Interface commands, also validate the backend project:
 
-- [backend/TcView.Backend](c:/Users/TwinCAT/Documents/MyStuff/TcView/backend/TcView.Backend)
+- [backend/TcView.Backend](../backend/TcView.Backend)
 
 Current note:
 

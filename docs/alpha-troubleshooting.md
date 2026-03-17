@@ -95,8 +95,8 @@ Capture:
 
 Then compare using:
 
-- [performance-baselines.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/performance-baselines.md)
-- [performance-trace-triage.md](c:/Users/TwinCAT/Documents/MyStuff/TcView/docs/performance-trace-triage.md)
+- [performance-baselines.md](./performance-baselines.md)
+- [performance-trace-triage.md](./performance-trace-triage.md)
 
 ## Report Checklist
 
