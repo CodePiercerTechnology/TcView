@@ -1,7 +1,7 @@
 # TcView
 
 <p align="center">
-  <img src="media/readme-brandmark.png" alt="TcView brand mark" width="128" height="128" />
+  <img src="media/logo-screenshot.png" alt="TcView logo" width="420" />
 </p>
 
 TcView is a Windows-only VS Code extension for viewing and editing TwinCAT XML-backed PLC source as IEC Structured Text.
@@ -15,7 +15,6 @@ It is built as a code-first companion to TwinCAT XAE, not a replacement for it. 
 - [Why TcView](#why-tcview)
 - [Key Features](#key-features)
 - [Quick Start](#quick-start)
-- [Screenshots](#screenshots)
 - [Common Workflows](#common-workflows)
 - [Supported Roots](#supported-roots)
 - [Supported File Types](#supported-file-types)
@@ -84,14 +83,6 @@ TcView is currently in public alpha.
 3. Use the `Explorer` view to browse `SYSTEM`, `PLC`, and `I/O`.
 4. Open supported TwinCAT source files and edit them as Structured Text.
 5. Save normally to write changes back into the original TwinCAT XML file.
-
-## Screenshots
-
-<p align="center">
-  <img src="media/Sample_Screenshot.png" alt="TcView Explorer and editor screenshot" width="1100" />
-</p>
-
-The current UI combines a TwinCAT-aware Explorer with a code-first Structured Text editing experience inside VS Code.
 
 ## Common Workflows
 

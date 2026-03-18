@@ -1,0 +1,11 @@
+<svg width="1024" height="1024" fill="none" version="1.1" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+ <g transform="scale(42.667)">
+  <rect width="24" height="24" ry="2.0018" fill="#2f204f"/>
+  <g transform="translate(12 12)">
+   <path d="m-10 0c4-4 7-6 10-6s6 2 10 6c-4 4-7 6-10 6s-6-2-10-6z" fill="none" stroke="#6e548f" stroke-linejoin="round" stroke-width="2"/>
+   <circle r="2.6" fill="#6e548f"/>
+  </g>
+  <text x="0.87133789" y="6.9516602" fill="#ddb3eb" font-family="'Segoe UI', sans-serif" font-size="8.5px" font-weight="775">Tc</text>
+  <text x="3.9584963" y="23.021219" fill="#ddb3eb" font-family="'Segoe UI', sans-serif" font-size="8.5px" font-weight="775" stroke-opacity=".4" stroke-width=".61082" xml:space="preserve"><tspan x="3.9584963" y="23.021219" fill="#ddb3eb" font-family="'Segoe UI', sans-serif" font-size="8.5px" font-weight="775" stroke-width=".61082">View</tspan></text>
+ </g>
+</svg>
