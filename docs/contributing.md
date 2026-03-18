@@ -1,6 +1,10 @@
 # Contributing to TcView
 
-## Development Setup
+Thanks for contributing.
+
+TcView is a code-first companion to TwinCAT XAE, so the most helpful changes usually improve editing, navigation, diagnostics, metadata recognition, and lightweight build workflows inside VS Code.
+
+## Getting Started
 
 1. Install Node.js 20+
 2. Run `npm install`
@@ -9,37 +13,44 @@
 5. Run `npm run test:integration`
 6. Press `F5` in VS Code to launch an Extension Development Host
 
-## Before Opening a PR
+## Pull Requests
 
-- keep the change focused
-- target `develop` for normal feature/fix work; only `release/*` and `hotfix/*` should open PRs into `main`
-- add or update tests when behavior changes
-- update docs when commands, settings, or user-visible behavior changes
-- make sure these pass:
-  - `npm run compile`
-  - `npm test`
-  - `npm run test:integration` (or note why it could not run in your environment)
+- Keep each change focused and reviewable
+- Target `develop` for normal feature and fix work
+- Use `release/*` and `hotfix/*` only for release-management flows
+- Add or update tests when behavior changes
+- Update user-facing docs when commands, settings, or visible behavior change
 
-## Backend Work
+Before opening a PR, the expected checks are:
 
-If your change touches TwinCAT Automation Interface commands, also validate the backend project:
+- `npm run compile`
+- `npm test`
+- `npm run test:integration`
+
+If an integration run is not practical in your environment, note that clearly in the PR.
+
+## Backend Changes
+
+Changes that touch TwinCAT Automation Interface behavior should also validate the backend project:
 
 - [backend/TcView.Backend](../backend/TcView.Backend)
 
-Current note:
+Useful context:
 
-- backend features are optional
-- the VSIX now ships the release backend for Windows alpha builds
-- validate backend-powered commands against the bundled backend path first
-- only use `twincat.backend.executablePath` when testing an override scenario
+- backend-powered features are optional
+- the VSIX ships the release backend for Windows builds
+- `twincat.backend.executablePath` is mainly for override and test scenarios
 
-## Scope Discipline
+## Scope
 
-TcView is intentionally a supplemental TwinCAT tool, not a full XAE replacement.
+TcView intentionally stays focused on code-centric TwinCAT workflows.
 
-When proposing changes:
+Changes are most likely to fit well when they improve:
 
-- prefer code editing, navigation, library recognition, and lightweight build workflows
-- avoid expanding casually into runtime/configuration/device-engineering scope
+- ST editing and save-back
+- project browsing and navigation
+- diagnostics and semantic understanding
+- metadata-backed library inspection
+- lightweight build workflows
 
-If a change moves toward XAE-style workflows, document the scope tradeoff explicitly.
+Changes that move toward full XAE-style runtime, configuration, or device-engineering workflows should explain that tradeoff clearly.

@@ -48,7 +48,7 @@ TcView is currently in public alpha.
 
 - Windows only
 - Built for TwinCAT development workflows inside VS Code
-- Intended for real project use, with some features still best treated as alpha-quality edge cases
+- Suitable for early real-world use, with some features still maturing as the alpha continues
 
 ## Why TcView
 
@@ -73,7 +73,7 @@ TcView is currently in public alpha.
 - Update, remove, and prune user library metadata entries
 - Use optional Automation Interface-backed commands to add or remove TwinCAT library references
 - Build the active TwinCAT solution with MSBuild
-- Export runtime performance baselines and traces for troubleshooting
+- Export optional runtime performance baselines and traces for troubleshooting
 
 ## Quick Start
 
@@ -99,8 +99,8 @@ TcView is currently in public alpha.
 - Use completion, hover, rename, references, symbols, and code actions
 - Suppress selected lint rules with supported `tcview` and Beckhoff analysis pragmas
 - Run `Build TwinCAT Solution`
-- Export runtime telemetry with `Export TcView Performance Baseline`
-- Export traces with `Export TcView Performance Trace`
+- Capture troubleshooting artifacts with `Export TcView Performance Baseline`
+- Capture runtime traces with `Export TcView Performance Trace`
 
 ## Supported Roots
 
@@ -150,7 +150,7 @@ The bundled backend is only required for TwinCAT Automation Interface operations
 - `Add TwinCAT Library To Project`
 - `Remove TwinCAT Library From Project`
 
-Important notes:
+Notes:
 
 - The packaged extension ships with a bundled backend.
 - The bundled backend currently targets `net8.0-windows`.
@@ -193,6 +193,7 @@ For more detail, see [Library Metadata](docs/library-metadata.md).
 
 - [Architecture](docs/architecture.md)
 - [Branch Protection](docs/branch-protection.md)
+- [Contributing](docs/contributing.md)
 - [Library Metadata](docs/library-metadata.md)
 - [Lint Pragmas](docs/lint-pragmas.md)
 - [Development](docs/development.md)
@@ -201,7 +202,6 @@ For more detail, see [Library Metadata](docs/library-metadata.md).
 - [Support Matrix](docs/support-matrix.md)
 - [GitFlow](docs/gitflow.md)
 - [Roadmap](docs/roadmap.md)
-- [Contributing](docs/contributing.md)
 - [Security Policy](docs/security.md)
 - [Code of Conduct](docs/code-of-conduct.md)
 - [Changelog](CHANGELOG.md)
