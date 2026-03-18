@@ -2,4 +2,4 @@ blank_issues_enabled: false
 contact_links:
   - name: TcView Documentation
     url: https://github.com/CodePiercerTechnology/TcView/tree/main/docs
-    about: Check TcView docs for setup, alpha troubleshooting, and production-readiness guidance before filing an issue.
+    about: Check TcView docs for setup, troubleshooting, support scope, and collaboration guidance before filing an issue.

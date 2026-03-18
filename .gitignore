@@ -45,3 +45,6 @@ Thumbs.db
 .tests/perf/runtime/*
 !.tests/perf/runtime/fo_standard_runtime-baseline.json
 !.tests/perf/runtime/libraryDev_runtime-baseline.json
+
+# Local maintainer notes
+.private-docs/

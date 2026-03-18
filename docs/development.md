@@ -107,13 +107,10 @@ and does not need to rely on a large ignore-only package layout.
 - [library-metadata.md](./library-metadata.md): metadata model and library recognition
 - [performance-baselines.md](./performance-baselines.md): baseline capture process and CI guardrail inputs
 - [performance-trace-triage.md](./performance-trace-triage.md): runtime trace triage checklist for alpha issues
-- [alpha-release-checklist.md](./alpha-release-checklist.md): pre-alpha ship checklist with build/install/function/perf gates
 - [alpha-troubleshooting.md](./alpha-troubleshooting.md): tester troubleshooting and environment capture guide
-- [backend-validation.md](./backend-validation.md): backend success/failure validation runbook for alpha machines
 - [support-matrix.md](./support-matrix.md): initial alpha support boundary
 - [gitflow.md](./gitflow.md): branch model, local helper commands, release tags, and back-merge policy
-- [github-rulesets.md](./github-rulesets.md): protected-branch and repository-settings baseline for GitFlow
-- [production-readiness.md](./production-readiness.md): release gates and remaining risk areas
+- [branch-protection.md](./branch-protection.md): tracked branch and release governance model
 - [roadmap.md](./roadmap.md): roadmap and planned work
 
 ## Cleanup Notes

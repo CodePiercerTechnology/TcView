@@ -198,7 +198,7 @@ For more detail, see [Library Metadata](docs/library-metadata.md).
 - [Development](docs/development.md)
 - [Performance Baselines](docs/performance-baselines.md)
 - [Performance Trace Triage](docs/performance-trace-triage.md)
-- [Production Readiness](docs/production-readiness.md)
+- [Support Matrix](docs/support-matrix.md)
 - [GitFlow](docs/gitflow.md)
 - [Roadmap](docs/roadmap.md)
 - [Contributing](docs/contributing.md)

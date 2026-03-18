@@ -1,6 +1,6 @@
 # GitFlow
 
-TcView now tracks a standard GitFlow-style branch model in source so the branch lifecycle is repeatable instead of living only in repo settings or tribal knowledge.
+TcView tracks a GitFlow-style branch model in source so the branch lifecycle is visible and repeatable.
 
 ## Branch Model
 
@@ -16,15 +16,12 @@ Tag format:
 - `v<package.json version>`
 - examples: `v1.0.0`, `v1.0.0-alpha.3`
 
-## Local Helper Commands
+## Helper Commands
 
-Bootstrap `develop` from `main`:
+The repository includes helper commands for creating branches from the intended base:
 
 - `npm run gitflow -- bootstrap`
 - `npm run gitflow -- bootstrap --push`
-
-Create working branches from the correct base:
-
 - `npm run gitflow -- start feature webview-perf`
 - `npm run gitflow -- start release 1.0.0-alpha.3`
 - `npm run gitflow -- start hotfix 1.0.1`
@@ -51,12 +48,12 @@ GitHub validates these pairings in:
 
 - [gitflow-pr-policy.yml](../.github/workflows/gitflow-pr-policy.yml)
 
-Important:
+In this model:
 
-- do not use `develop` as the normal release PR source branch into `main`
-- use `release/<version>` for the release PR, then sync `main` back into `develop`
-- this avoids accidental deletion of `develop` when GitHub is configured to auto-delete merged head branches
-- treat `release/*` and `hotfix/*` as maintainer-managed branches, not general-purpose shared working branches
+- `release/<version>` is the normal release PR source branch into `main`
+- `main` is synchronized back into `develop` after each release
+- this keeps `develop` from being treated like a disposable release branch
+- `release/*` and `hotfix/*` are maintainer-managed branches rather than general-purpose shared working branches
 
 ## Release Flow
 
@@ -81,25 +78,9 @@ Protection note:
 
 The current remote branch names `v1.0` and `v2.0` do not match GitFlow naming.
 
-If those are meant to stay as maintained release lines, rename them to:
+If those are meant to stay as maintained release lines, the GitFlow naming form is:
 
 - `support/1.0`
 - `support/2.0`
 
-If they were temporary branches, remove them after the new flow is in place.
-
-## One-Time Migration
-
-1. Create and push `develop` from `main`:
-   - `npm run gitflow -- bootstrap --push`
-2. Apply GitHub repository settings:
-   - `npm run github:repo-settings`
-   - `npm run github:repo-settings:apply`
-3. Apply tracked rulesets:
-   - `npm run github:rulesets`
-   - `npm run github:rulesets:apply`
-4. Rename or retire non-standard maintenance branches such as `v1.0` and `v2.0`
-
-The apply commands require `GITHUB_TOKEN` with repository `Administration: write`.
-
-For the exact GitHub settings and click-through checklist, see [Branch Protection](./branch-protection.md).
+Temporary branches outside that naming scheme can be retired once the branch model is fully in use.
