@@ -2,6 +2,8 @@
 
 This repo now tracks the protected-branch baseline needed for GitFlow. GitHub still has to apply those payloads through the repository API or settings UI.
 
+For the practical branch-protection policy and the GitHub UI checklist, see [Branch Protection](./branch-protection.md).
+
 ## Tracked Payloads
 
 Protected branches:
@@ -51,6 +53,7 @@ Important:
 - `required_linear_history` is intentionally not used because standard GitFlow depends on merge commits between long-lived branches.
 - `release/*` and `hotfix/*` are intentionally left unprotected so they can be stabilized directly, but CI still runs on them.
 - release tags are protected from deletion and retargeting after publication.
+- long-lived branches such as `develop` should not be used as disposable PR head branches for releases
 
 ## Required Status Checks
 
@@ -78,7 +81,7 @@ Tracked repository settings align GitHub merge behavior with GitFlow:
 - allow merge commits
 - disable squash merge
 - disable rebase merge
-- delete merged branches automatically
+- do not delete merged branches automatically
 - allow GitHub's update-branch action for stale PRs
 
 ## Run It

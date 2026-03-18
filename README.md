@@ -192,6 +192,7 @@ For more detail, see [Library Metadata](docs/library-metadata.md).
 ## Documentation
 
 - [Architecture](docs/architecture.md)
+- [Branch Protection](docs/branch-protection.md)
 - [Library Metadata](docs/library-metadata.md)
 - [Lint Pragmas](docs/lint-pragmas.md)
 - [Development](docs/development.md)

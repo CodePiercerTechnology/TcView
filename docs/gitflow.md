@@ -51,6 +51,12 @@ GitHub validates these pairings in:
 
 - [gitflow-pr-policy.yml](../.github/workflows/gitflow-pr-policy.yml)
 
+Important:
+
+- do not use `develop` as the normal release PR source branch into `main`
+- use `release/<version>` for the release PR, then sync `main` back into `develop`
+- this avoids accidental deletion of `develop` when GitHub is configured to auto-delete merged head branches
+
 ## Release Flow
 
 1. Branch `release/<version>` from `develop`
@@ -88,3 +94,5 @@ If they were temporary branches, remove them after the new flow is in place.
 4. Rename or retire non-standard maintenance branches such as `v1.0` and `v2.0`
 
 The apply commands require `GITHUB_TOKEN` with repository `Administration: write`.
+
+For the exact GitHub settings and click-through checklist, see [Branch Protection](./branch-protection.md).
