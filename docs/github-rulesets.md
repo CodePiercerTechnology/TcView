@@ -10,6 +10,8 @@ Protected branches:
 
 - [main.json](../.github/rulesets/main.json)
 - [develop.json](../.github/rulesets/develop.json)
+- [release.json](../.github/rulesets/release.json)
+- [hotfix.json](../.github/rulesets/hotfix.json)
 - [support.json](../.github/rulesets/support.json)
 
 Protected tags:
@@ -32,10 +34,12 @@ Rulesets are intended for:
 
 - `main`
 - `develop`
+- `release/*`
+- `hotfix/*`
 - `support/*`
 - `v*` release tags
 
-Each protected branch should:
+Long-lived branches such as `main`, `develop`, and `support/*` should:
 
 1. Block direct deletion
 2. Block force pushes
@@ -48,10 +52,19 @@ Each protected branch should:
 9. Require CI to pass before merge
 10. Allow merge commits only
 
+Release-management branches such as `release/*` and `hotfix/*` should:
+
+1. Block direct deletion
+2. Block force pushes
+3. Require CI to pass
+4. Remain practical for direct release stabilization work
+
 Important:
 
 - `required_linear_history` is intentionally not used because standard GitFlow depends on merge commits between long-lived branches.
-- `release/*` and `hotfix/*` are intentionally left unprotected so they can be stabilized directly, but CI still runs on them.
+- `release/*` and `hotfix/*` are protected from deletion and force-push, and they require CI to stay green.
+- `release/*` and `hotfix/*` intentionally do not require PRs for every update because release stabilization still needs to be practical.
+- if you want to limit who can create `release/*` or `hotfix/*`, add actor-based creation restrictions in GitHub after the release-manager team or users are known.
 - release tags are protected from deletion and retargeting after publication.
 - long-lived branches such as `develop` should not be used as disposable PR head branches for releases
 

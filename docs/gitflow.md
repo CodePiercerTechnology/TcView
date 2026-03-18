@@ -56,6 +56,7 @@ Important:
 - do not use `develop` as the normal release PR source branch into `main`
 - use `release/<version>` for the release PR, then sync `main` back into `develop`
 - this avoids accidental deletion of `develop` when GitHub is configured to auto-delete merged head branches
+- treat `release/*` and `hotfix/*` as maintainer-managed branches, not general-purpose shared working branches
 
 ## Release Flow
 
@@ -69,6 +70,12 @@ Important:
 Workflow:
 
 - [release-on-main.yml](../.github/workflows/release-on-main.yml)
+
+Protection note:
+
+- tracked rulesets now apply stricter protection to `release/*` and `hotfix/*`
+- they block deletion and force-push and require CI
+- they intentionally do not require PRs for every stabilization commit on those branches
 
 ## Maintenance Branches
 

@@ -36,12 +36,14 @@ Protect these branches:
 
 - `main`
 - `develop`
+- `release/*`
+- `hotfix/*`
 
 Optional protected maintenance branches:
 
 - `support/*`
 
-Temporary branches such as `feature/*`, `release/*`, and `hotfix/*` do not need the same long-lived protections, but CI and PR policy should still run on them.
+Normal working branches such as `feature/*`, `docs/*`, and `perf/*` do not need the same protections as long-lived or release-management branches.
 
 ## `main` Protection
 
@@ -98,6 +100,57 @@ Recommended required checks:
 - `perf/*` -> `develop`
 - `main` -> `develop` after each release or hotfix lands
 
+## `release/*` Protection
+
+`release/*` branches should be protected fairly strictly, but still remain practical for release stabilization work.
+
+Recommended settings for `release/*`:
+
+- Block deletions
+- Block force pushes
+- Require status checks to pass
+- Keep merge-commit-based GitFlow enabled
+- Do not require pull requests for every update to the release branch itself
+
+Why PRs are not required for every `release/*` update:
+
+- release branches are often stabilized with a small number of direct versioning or release-candidate fixes
+- requiring a pull request for every update to the release branch adds friction without much additional safety
+- the actual promotion into `main` still happens through a PR
+
+Recommended required checks:
+
+- `Build, Test, Package`
+- `Validate GitFlow PR policy`
+
+Creation restriction note:
+
+- if you want only release managers to create `release/*` branches, configure actor-based creation restrictions in GitHub
+- that requires repository-specific team or user IDs, so it is documented rather than hard-coded in the tracked JSON
+
+Recommended operational rule:
+
+- only maintainers or release managers should create and push `release/*`
+- everyone else should contribute fixes through PRs targeting the release branch if needed
+
+## `hotfix/*` Protection
+
+`hotfix/*` branches should follow the same model as `release/*`:
+
+- block deletions
+- block force pushes
+- require CI to stay green
+- allow practical stabilization work before promotion into `main`
+
+Recommended required checks:
+
+- `Build, Test, Package`
+- `Validate GitFlow PR policy`
+
+Creation restriction note:
+
+- if only a small maintainer group should create `hotfix/*`, set actor-based creation restrictions in GitHub once the maintainer team is defined
+
 ## Correct Release Flow
 
 Use this sequence for normal releases:
@@ -125,7 +178,9 @@ Use this checklist when configuring the repo in GitHub:
 3. Open `Settings` -> `Rules` -> `Rulesets`
 4. Ensure a ruleset exists for `main`
 5. Ensure a ruleset exists for `develop`
-6. For both rulesets, confirm:
+6. Ensure a ruleset exists for `release/*`
+7. Ensure a ruleset exists for `hotfix/*`
+8. For `main` and `develop`, confirm:
    - deletion blocked
    - non-fast-forward pushes blocked
    - pull requests required
@@ -134,11 +189,17 @@ Use this checklist when configuring the repo in GitHub:
    - code owner review required
    - review thread resolution required
    - required status checks configured
-7. Confirm required checks include:
+9. For `release/*` and `hotfix/*`, confirm:
+   - deletion blocked
+   - non-fast-forward pushes blocked
+   - required status checks configured
+   - pull requests are still required when promoting into `main`
+10. Confirm required checks include:
    - `Build, Test, Package`
    - `Validate GitFlow PR policy`
-8. Verify `develop` is not used as a disposable release branch
-9. Verify the next release will use `release/<version>` -> `main`
+11. If desired, add actor-based creation restrictions for `release/*` and `hotfix/*`
+12. Verify `develop` is not used as a disposable release branch
+13. Verify the next release will use `release/<version>` -> `main`
 
 ## Tracked Repo Automation
 
@@ -147,6 +208,8 @@ This repo already tracks the intended GitHub settings in source:
 - [repository.json](../.github/settings/repository.json)
 - [main.json](../.github/rulesets/main.json)
 - [develop.json](../.github/rulesets/develop.json)
+- [release.json](../.github/rulesets/release.json)
+- [hotfix.json](../.github/rulesets/hotfix.json)
 - [support.json](../.github/rulesets/support.json)
 - [tags.json](../.github/rulesets/tags.json)
 
