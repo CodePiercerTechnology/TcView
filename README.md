@@ -1,84 +1,110 @@
 # TcView
 
-TcView is a Windows-only VS Code extension for working with TwinCAT PLC artifacts in Structured Text instead of raw TwinCAT XML.
+<p align="center">
+  <img src="media/logo-screenshot.png" alt="TcView logo" width="420" />
+</p>
 
-It is intended to be a supplemental code-centric tool alongside TwinCAT XAE, not a replacement for XAE.
+TcView is a Windows-only VS Code extension for viewing and editing TwinCAT XML-backed PLC source as IEC Structured Text.
 
-## What TcView Is
+It is built as a code-first companion to TwinCAT XAE, not a replacement for it. TcView is strongest when you want faster editing, navigation, diagnostics, metadata inspection, and build workflows from inside VS Code.
+
+## Table Of Contents
+
+- [Overview](#overview)
+- [Current Status](#current-status)
+- [Why TcView](#why-tcview)
+- [Key Features](#key-features)
+- [Quick Start](#quick-start)
+- [Common Workflows](#common-workflows)
+- [Supported Roots](#supported-roots)
+- [Supported File Types](#supported-file-types)
+- [Install](#install)
+- [Bundled Backend](#bundled-backend)
+- [Key Settings](#key-settings)
+- [Library Metadata](#library-metadata)
+- [Documentation](#documentation)
+- [License](#license)
+
+## Overview
+
+### What TcView Is
 
 - An ST-first editor for TwinCAT XML-backed PLC source files
-- A TwinCAT-aware tree view for valid TwinCAT solutions and PLC project roots
-- A lightweight code-navigation and library-inspection tool
-- A quick way to build the active TwinCAT solution from VS Code
+- A TwinCAT-aware explorer for valid TwinCAT solutions and PLC project roots
+- A navigation and diagnostics tool for TwinCAT source authoring
+- A quick way to inspect libraries and build the active TwinCAT solution from VS Code
 
-## What TcView Is Not
+### What TcView Is Not
 
 - Not a full TwinCAT XAE replacement
-- Not a device/configuration engineering environment
+- Not a device or configuration engineering environment
 - Not a runtime administration or online-debugging workstation
 
-Use TcView for editing, navigation, metadata-backed recognition, and quick inspection.
-Use TwinCAT XAE for device engineering, configuration activation, runtime control, and full compiler/runtime truth.
+Use TcView for day-to-day code work. Use TwinCAT XAE for device engineering, activation, deployment, runtime control, and full compiler/runtime truth.
 
-## Current Feature Set
+## Current Status
 
-- Open supported TwinCAT XML artifacts as editable ST
-- Save ST changes back to the original XML source
-- Browse TwinCAT projects in the TcView Explorer grouped into `SYSTEM` / `PLC` / `I/O`
-- Use the Explorer to create TwinCAT files and folders, rename items, delete items, and copy/cut/paste supported TwinCAT artifacts
-- Add methods, properties, actions, and transitions directly from the Explorer for supported POU-like files
+TcView is currently in public alpha.
+
+- Windows only
+- Built for TwinCAT development workflows inside VS Code
+- Intended for real project use, with some features still best treated as alpha-quality edge cases
+
+## Why TcView
+
+- Edit TwinCAT XML-backed source as readable Structured Text instead of raw XML
+- Work from a TwinCAT-aware Explorer grouped into `SYSTEM`, `PLC`, and `I/O`
+- Keep diagnostics, navigation, and library inspection close to the code
+- Build the active TwinCAT solution without leaving VS Code
+
+## Key Features
+
+- Open supported TwinCAT XML artifacts as editable Structured Text
+- Save ST changes back into the original TwinCAT XML source
+- Browse TwinCAT projects grouped into `SYSTEM`, `PLC`, and `I/O`
+- Create TwinCAT files and folders from the Explorer
+- Rename, delete, copy, cut, and paste supported TwinCAT items
+- Add methods, properties, actions, and transitions for supported POU-like files
+- Show diagnostics on files, folders, and top-level Explorer groups
+- Navigate with completion, hover, rename, references, symbols, folding, and code actions
 - Show per-PLC `References` and open library references in an API-style viewer
-- Show warning/error breadcrumbs on files, folders, and top-level Explorer groups for both open and background-validated files
+- Resolve libraries from project, `.tmc`, managed-library, built-in, and user metadata layers
+- Import library project metadata from a selected `.plcproj` or project folder
+- Update, remove, and prune user library metadata entries
+- Use optional Automation Interface-backed commands to add or remove TwinCAT library references
 - Build the active TwinCAT solution with MSBuild
-- Run language features in the editor:
-  - diagnostics
-  - completion
-  - hover
-  - rename/references
-  - symbols/folding/code actions
-- Suppress selected TcView lint rules with `tcview` pragmas and supported Beckhoff analysis pragmas
-- Recognize libraries from layered metadata:
-  - current PLC `.tmc`
-  - installed Managed Libraries metadata
-  - built-in Beckhoff catalog metadata
-  - per-user and optional workspace metadata files
-- Import library project metadata by scanning a selected `.plcproj` or project folder and storing the extracted public API in TcView's global metadata catalog
-- Update or remove user library metadata entries from the TcView metadata catalog when project-source metadata changes
-- Prune unused user library metadata entries for the current workspace or selected PLC project
-- Use optional TwinCAT Automation Interface commands for add/remove library reference through the bundled backend
+- Export runtime performance baselines and traces for troubleshooting
 
-## Using TcView
+## Quick Start
 
-### Quick Start
-
-1. Open a real TwinCAT solution root (`.sln` plus `.tsproj`/`.tspproj`) or a standalone PLC project root (`.plcproj`).
-2. Open the `TcView` activity bar container.
+1. Open a real TwinCAT root:
+   a solution root with `.sln` plus `.tsproj` or `.tspproj`, or a standalone PLC project root with `.plcproj`.
+2. Open the `TcView` activity bar container in VS Code.
 3. Use the `Explorer` view to browse `SYSTEM`, `PLC`, and `I/O`.
-4. Open TwinCAT XML-backed source files in TcView and edit them as Structured Text.
-5. Save normally to write your ST changes back into the original TwinCAT XML file.
+4. Open supported TwinCAT source files and edit them as Structured Text.
+5. Save normally to write changes back into the original TwinCAT XML file.
 
-### Common Workflows
+## Common Workflows
 
-- Open and edit:
-  - open `.TcPOU`, `.TcPRG`, `.TcDUT`, `.TcGVL`, `.TcITF`, `.TcIO`, and related TwinCAT source artifacts as ST
-- Browse and inspect:
-  - expand folders and PLC project nodes
-  - inspect `References`
-  - open a library reference in the API-style viewer
-- Author from the Explorer:
-  - create folders and TwinCAT files
-  - add methods, properties, actions, and transitions where supported
-  - rename, delete, copy, cut, and paste supported items
-- Validate and navigate:
-  - review diagnostics in the editor and Explorer
-  - use completion, hover, rename, references, symbols, and code actions
-- Build and inspect performance:
-  - run `Build TwinCAT Solution`
-  - export runtime telemetry with `Export TcView Performance Baseline` and `Export TcView Performance Trace`
+- Open `.TcPOU`, `.TcPRG`, `.TcDUT`, `.TcGVL`, `.TcITF`, `.TcIO`, and related artifacts as ST
+- Edit them in a code-first view instead of raw TwinCAT XML
+- Save changes back to the original TwinCAT source file
+- Expand PLC project nodes and folders
+- Inspect `References`
+- Open a library reference in the API-style viewer
+- Create TwinCAT folders and files
+- Add methods, properties, actions, and transitions where supported
+- Rename, delete, copy, cut, and paste supported items
+- Review diagnostics in the editor and Explorer
+- Use completion, hover, rename, references, symbols, and code actions
+- Suppress selected lint rules with supported `tcview` and Beckhoff analysis pragmas
+- Run `Build TwinCAT Solution`
+- Export runtime telemetry with `Export TcView Performance Baseline`
+- Export traces with `Export TcView Performance Trace`
 
 ## Supported Roots
 
-TcView activates on real TwinCAT roots only:
+TcView activates on real TwinCAT roots only.
 
 - TwinCAT solution root:
   - contains `.sln` plus `.tsproj` or `.tspproj`
@@ -86,7 +112,6 @@ TcView activates on real TwinCAT roots only:
   - contains `.plcproj`
 
 A plain `.sln` without a `.tsproj` or `.tspproj` is not treated as a TwinCAT solution.
-The `Open TwinCAT Solution` command only opens `.sln` files.
 
 ## Supported File Types
 
@@ -104,35 +129,35 @@ The `Open TwinCAT Solution` command only opens `.sln` files.
 
 ## Install
 
+### From VSIX
+
+1. Build or download a `.vsix` package.
+2. In VS Code, run `Extensions: Install from VSIX...`.
+3. Select the TcView `.vsix`.
+
 ### From Source
 
-1. `npm install`
-2. `npm run compile`
-3. Press `F5` in VS Code
-
-### Package As VSIX
-
-1. `npm install -g @vscode/vsce`
-2. `vsce package`
-3. Install the generated `.vsix` in VS Code
+1. Run `npm install`.
+2. Run `npm run compile`.
+3. Press `F5` in VS Code.
 
 ## Bundled Backend
 
-Most TcView features run entirely in the VS Code extension host.
+Most TcView features run entirely inside the VS Code extension host.
 
-The backend is only needed for TwinCAT Automation Interface operations such as:
+The bundled backend is only required for TwinCAT Automation Interface operations such as:
 
 - `Add TwinCAT Library To Project`
 - `Remove TwinCAT Library From Project`
 
-Important:
+Important notes:
 
-- The packaged extension ships a bundled backend for these commands.
+- The packaged extension ships with a bundled backend.
 - The bundled backend currently targets `net8.0-windows`.
-- `twincat.backend.executablePath` is an override for advanced/custom backend scenarios, not a normal user requirement.
-- If the bundled backend cannot launch, verify the required .NET runtime is installed and capture the exact error text.
+- `twincat.backend.executablePath` is an advanced override, not a normal setup step.
+- If the backend cannot launch, verify the required .NET runtime is installed and capture the exact error text.
 
-## Settings You Will Likely Care About
+## Key Settings
 
 | Setting | Purpose |
 | --- | --- |
@@ -146,23 +171,23 @@ Important:
 
 TcView resolves libraries from several sources in order of confidence:
 
-1. Project/local source
+1. Project or local source
 2. Current PLC `.tmc`
-3. Installed Managed Libraries metadata
+3. Installed managed-library metadata
 4. Built-in catalog metadata
-5. User/workspace metadata
+5. User or workspace metadata
 
 In practice:
 
 - some core Beckhoff libraries already ship with built-in metadata
 - project-local or internal libraries usually need manual metadata import from source
-- `.tmc` only reflects what the current consuming project has compiled/exposed, not a complete external library catalog
+- `.tmc` reflects what the current consuming project has compiled or exposed, not a complete external library catalog
 
 Global user metadata lives at:
 
 - `%APPDATA%\\TcView\\tcview.libraries.json`
 
-For details, see [Library Metadata](docs/library-metadata.md).
+For more detail, see [Library Metadata](docs/library-metadata.md).
 
 ## Documentation
 
