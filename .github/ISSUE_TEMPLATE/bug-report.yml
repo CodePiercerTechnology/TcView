@@ -1,15 +1,13 @@
-name: Alpha Performance Report
-description: Report a slow or high-churn TcView workflow with baseline/trace artifacts.
-title: "[Alpha Perf]: "
+name: Bug report
+description: Report a TcView issue with reproduction details and environment metadata.
+title: "[Bug]: "
 labels:
-  - alpha
-  - performance
+  - bug
 body:
   - type: markdown
     attributes:
       value: |
-        Use this template for slow open, tree refresh, reindex, or save behavior.
-        Attach exported baseline/trace files when possible.
+        Use this template for functional or correctness issues in TcView.
   - type: input
     id: tcview_version
     attributes:
@@ -36,40 +34,45 @@ body:
       options:
         - Solution (.sln + .tsproj/.tspproj + .plcproj)
         - Standalone PLC project (.plcproj)
-        - Large multi-project solution
         - Other
     validations:
       required: true
-  - type: textarea
-    id: scenario
+  - type: dropdown
+    id: backend_configured
     attributes:
-      label: Slow scenario
-      placeholder: |
-        Opening a TcPOU file takes ~4 seconds after workspace load.
+      label: Backend configured
+      options:
+        - No
+        - Yes
     validations:
       required: true
   - type: textarea
-    id: reproduction
+    id: reproduce
     attributes:
       label: Reproduction steps
       placeholder: |
-        1. Open workspace
-        2. Wait for TcView tree
-        3. Open file ...
+        1. Open ...
+        2. Run ...
+        3. Observe ...
     validations:
       required: true
   - type: textarea
-    id: observed
+    id: expected
     attributes:
-      label: Observed timing or symptoms
-      description: Include measured duration if known, or describe the visible slowdown.
+      label: Expected behavior
     validations:
       required: true
   - type: textarea
-    id: perf_artifacts
+    id: actual
     attributes:
-      label: Baseline and trace artifacts
-      description: Attach `runtime-baseline.json`, `runtime-trace.json`, or `.test-results/perf/large-workspace.json` when available.
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: artifacts
+    attributes:
+      label: Logs, screenshots, sample files
+      description: Include minimal sample files, screenshots, or exact error text when possible.
   - type: textarea
     id: additional
     attributes:

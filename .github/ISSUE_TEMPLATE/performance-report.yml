@@ -1,14 +1,14 @@
-name: Alpha Bug Report
-description: Report an alpha issue with reproduction details and environment metadata.
-title: "[Alpha Bug]: "
+name: Performance report
+description: Report a slow or high-churn TcView workflow with baseline or trace artifacts.
+title: "[Perf]: "
 labels:
-  - alpha
-  - bug
+  - performance
 body:
   - type: markdown
     attributes:
       value: |
-        Use this template for functional or correctness issues seen during alpha testing.
+        Use this template for slow open, tree refresh, reindex, or save behavior.
+        Attach exported baseline/trace files when possible.
   - type: input
     id: tcview_version
     attributes:
@@ -35,45 +35,40 @@ body:
       options:
         - Solution (.sln + .tsproj/.tspproj + .plcproj)
         - Standalone PLC project (.plcproj)
+        - Large multi-project solution
         - Other
     validations:
       required: true
-  - type: dropdown
-    id: backend_configured
+  - type: textarea
+    id: scenario
     attributes:
-      label: Backend configured
-      options:
-        - No
-        - Yes
+      label: Slow scenario
+      placeholder: |
+        Opening a TcPOU file takes ~4 seconds after workspace load.
     validations:
       required: true
   - type: textarea
-    id: reproduce
+    id: reproduction
     attributes:
       label: Reproduction steps
       placeholder: |
-        1. Open ...
-        2. Run ...
-        3. Observe ...
+        1. Open workspace
+        2. Wait for TcView tree
+        3. Open file ...
     validations:
       required: true
   - type: textarea
-    id: expected
+    id: observed
     attributes:
-      label: Expected behavior
+      label: Observed timing or symptoms
+      description: Include measured duration if known, or describe the visible slowdown.
     validations:
       required: true
   - type: textarea
-    id: actual
+    id: perf_artifacts
     attributes:
-      label: Actual behavior
-    validations:
-      required: true
-  - type: textarea
-    id: artifacts
-    attributes:
-      label: Logs, screenshots, sample files
-      description: Include minimal sample files or exact error text when possible.
+      label: Baseline and trace artifacts
+      description: Attach `runtime-baseline.json`, `runtime-trace.json`, or `.test-results/perf/large-workspace.json` when available.
   - type: textarea
     id: additional
     attributes:
