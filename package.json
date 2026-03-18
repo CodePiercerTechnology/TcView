@@ -1,9 +1,13 @@
 {
   "name": "tcview",
   "displayName": "TcView",
-  "description": "TcView: view and edit TwinCAT XML files as IEC Structured Text (ST).",
+  "description": "Windows-first VS Code extension for viewing and editing TwinCAT PLC source as IEC Structured Text.",
   "version": "1.0.0-alpha.3",
   "publisher": "CodePiercerTechnology",
+  "homepage": "https://github.com/CodePiercerTechnology/TcView#readme",
+  "bugs": {
+    "url": "https://github.com/CodePiercerTechnology/TcView/issues"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/CodePiercerTechnology/TcView.git"
@@ -744,11 +748,14 @@
   "license": "MIT",
   "icon": "media/icon.png",
   "keywords": [
-    "TcView",
-    "TwinCAT",
-    "IEC 61131-3",
-    "Structured Text",
-    "PLC"
+    "twincat",
+    "beckhoff",
+    "iec61131-3",
+    "structured-text",
+    "plc",
+    "iec-st",
+    "industrial-automation",
+    "vscode-extension"
   ],
   "files": [
     "out/**",

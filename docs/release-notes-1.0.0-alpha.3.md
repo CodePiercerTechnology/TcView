@@ -1,18 +1,18 @@
 # TcView 1.0.0-alpha.3
 
-Public alpha focused on startup performance, explorer responsiveness, and release readiness.
+Public alpha focused on startup performance, explorer responsiveness, and a cleaner first-time experience.
 
 ## Highlights
 
 - Faster startup and first paint for representative TwinCAT workspaces
+- Smoother Explorer refresh behavior and authoring interactions
 - Narrower background validation and incremental refresh work
-- Webview explorer polish for authoring and state updates
+- Cleaner public documentation, onboarding, and issue-reporting surfaces
 - Tracked representative runtime baselines for recurring workspace profiles
-- Public-repo documentation cleanup and GitFlow/release automation preparation
 
 ## What Changed
 
-### Performance
+### Performance And Responsiveness
 
 - reduced TwinCAT root and `.tsproj` startup overhead with cached and persisted structure reuse
 - reduced tree refresh churn by separating structural refreshes from content/state refreshes
@@ -25,15 +25,15 @@ Public alpha focused on startup performance, explorer responsiveness, and releas
 - Explorer supports TwinCAT-aware authoring flows such as create, rename, delete, copy/cut/paste, and member creation for supported items
 - diagnostics are reflected more consistently in the Explorer, including background-validated files and aggregated parent nodes
 
-### Repo And Release Prep
+### Public Alpha Polish
 
 - tracked curated runtime baselines for representative workspaces:
   - `FO_Standard`
   - `LibraryDev`
-- cleaned documentation links so public repo docs use portable relative paths
-- prepared GitFlow-aligned public release/tag workflow around `release/<version>` and `v<version>` tags
+- cleaned public documentation links so the repo reads cleanly outside the original development environment
+- tightened README, contributing guidance, support materials, and issue templates for outside users and collaborators
 
-## Validation Snapshot
+## Validation
 
 - `npm run compile`
 - `npm test`
@@ -41,7 +41,7 @@ Public alpha focused on startup performance, explorer responsiveness, and releas
 - `npm run test:perf:guardrails`
 - `npm run test:packaging:backend -- --vsix tcview-1.0.0-alpha.3.vsix`
 
-## Known Scope Boundaries
+## Scope For This Alpha
 
 - Windows-only
 - intended as a TwinCAT XAE companion, not an XAE replacement
