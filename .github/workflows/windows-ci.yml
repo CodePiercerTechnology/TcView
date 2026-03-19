@@ -112,9 +112,6 @@ jobs:
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
 
-      - name: Build packaged extension assets
-        run: npm run vscode:prepublish
-
       - name: Package VSIX
         run: npm exec --package @vscode/vsce -- vsce package --out tcview-ci.vsix
 

@@ -88,7 +88,6 @@ function runIntegrationLane() {
 }
 
 function runPackageLane() {
-  runStep('Build packaged extension assets', 'npm', ['run', 'vscode:prepublish']);
   runStep(
     'Package VSIX',
     'npm',
