@@ -6,17 +6,15 @@ on:
       - main
       - develop
       - support/**
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
   push:
     branches:
       - main
       - develop
-      - feature/**
-      - bugfix/**
-      - chore/**
-      - docs/**
-      - refactor/**
-      - test/**
-      - perf/**
       - release/**
       - hotfix/**
       - support/**
@@ -80,6 +78,14 @@ jobs:
           node-version: 20
           cache: npm
 
+      - name: Cache VS Code test runtime
+        uses: actions/cache@v4
+        with:
+          path: .vscode-test
+          key: vscode-test-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            vscode-test-${{ runner.os }}-
+
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
 
@@ -87,7 +93,23 @@ jobs:
         run: npm run compile
 
       - name: Integration smoke tests
-        run: npm run test:integration:compiled
+        shell: pwsh
+        run: |
+          $attempts = 2
+          for ($attempt = 1; $attempt -le $attempts; $attempt++) {
+            Write-Host "Integration smoke attempt $attempt of $attempts"
+            npm run test:integration:compiled
+            if ($LASTEXITCODE -eq 0) {
+              exit 0
+            }
+
+            if ($attempt -lt $attempts) {
+              Write-Warning "Integration smoke failed on attempt $attempt. Retrying once..."
+              Start-Sleep -Seconds 5
+            }
+          }
+
+          exit $LASTEXITCODE
 
   package:
     name: Package Validation

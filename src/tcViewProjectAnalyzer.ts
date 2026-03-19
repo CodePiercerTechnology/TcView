@@ -696,9 +696,22 @@ export class TwinCATProjectAnalyzer {
             }
             return true;
         } catch (error) {
+            if (this.isMissingFileError(error)) {
+                this.removeFileContributions(filePath);
+                this.fileFingerprints.delete(filePath);
+                return false;
+            }
             console.error(`Error parsing ${filePath}:`, error);
             return false;
         }
+    }
+
+    private isMissingFileError(error: unknown): boolean {
+        if (!(error instanceof Error)) {
+            return false;
+        }
+        const code = (error as NodeJS.ErrnoException).code;
+        return code === 'ENOENT';
     }
 
     /**

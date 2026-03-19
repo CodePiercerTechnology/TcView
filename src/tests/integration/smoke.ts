@@ -20,6 +20,18 @@ function closeActiveEditorIfAny(): Thenable<void> {
     return Promise.resolve();
 }
 
+function tryReadUtf8(filePath: string): string | undefined {
+    try {
+        return fs.readFileSync(filePath, 'utf8');
+    } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === 'ENOENT') {
+            return undefined;
+        }
+        throw error;
+    }
+}
+
 async function runLargeWorkspaceTreeRefreshCheck(workspaceRoot: string): Promise<void> {
     const tempFolder = path.join(workspaceRoot, '.twincat.integration.large');
     const fixturePou = path.join(workspaceRoot, 'src', 'tests', 'fixtures', 'FB_IntegrationSample.TcPOU');
@@ -100,9 +112,10 @@ export async function runIntegrationChecks(): Promise<void> {
         });
 
         await editor!.document.save();
-        await waitFor(() => fs.readFileSync(tempTarget, 'utf8').includes('SpeedCommand := rSpeedCommand + 2.0;'));
+        await waitFor(() => tryReadUtf8(tempTarget)?.includes('SpeedCommand := rSpeedCommand + 2.0;') === true);
 
-        const updatedXml = fs.readFileSync(tempTarget, 'utf8');
+        const updatedXml = tryReadUtf8(tempTarget);
+        assert.ok(updatedXml, 'Expected saved TwinCAT XML to exist after document save.');
         assert.ok(updatedXml.includes('SpeedCommand := rSpeedCommand + 2.0;'), 'Expected updated GET body in XML.');
     } finally {
         await closeActiveEditorIfAny();
@@ -113,4 +126,3 @@ export async function runIntegrationChecks(): Promise<void> {
 
     await runLargeWorkspaceTreeRefreshCheck(workspaceRoot);
 }
-
