@@ -735,7 +735,8 @@
     "test:integration": "npm run compile && vscode-test",
     "test:integration:compiled": "vscode-test",
     "test:all": "npm run test && npm run test:integration",
-    "test:ci": "npm run test:all"
+    "test:ci": "npm run test:all",
+    "test:ci:local": "node scripts/run-local-ci.js"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
