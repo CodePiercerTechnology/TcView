@@ -75,9 +75,8 @@ Release promotion is modeled through `release/<version>` -> `main` rather than `
 The `develop` branch policy requires:
 
 - Require a pull request before merging
-- Require approvals: `1`
+- Require approvals: `0`
 - Dismiss stale approvals when new commits are pushed
-- Require code owner review
 - Require conversation resolution before merging
 - Require status checks to pass before merging
 - Require branches to be up to date before merging
@@ -89,6 +88,8 @@ The tracked required checks are:
 
 - `Build, Test, Package`
 - `Validate GitFlow PR policy`
+
+This keeps `develop` practical for a solo-maintainer or small-team workflow while preserving PR history, CI gating, and branch safety.
 
 In this model, `develop` receives:
 

@@ -59,6 +59,27 @@ function readJson(filePath, label) {
     }
 }
 
+function stripNulls(value) {
+    if (Array.isArray(value)) {
+        return value
+            .map(stripNulls)
+            .filter(entry => entry !== undefined);
+    }
+
+    if (value && typeof value === 'object') {
+        const result = {};
+        for (const [key, nestedValue] of Object.entries(value)) {
+            const cleaned = stripNulls(nestedValue);
+            if (cleaned !== undefined) {
+                result[key] = cleaned;
+            }
+        }
+        return result;
+    }
+
+    return value === null ? undefined : value;
+}
+
 async function githubRequest({ method, url, token, body, userAgent = 'tcview-ruleset-script' }) {
     const response = await fetch(url, {
         method,
@@ -99,7 +120,7 @@ function printUsage() {
 
 async function applyRuleset(options) {
     const configPath = resolvePath(options.configPath);
-    const payload = readJson(configPath, 'ruleset config');
+    const payload = stripNulls(readJson(configPath, 'ruleset config'));
 
     if (!options.owner || !options.repo) {
         printUsage();
@@ -158,6 +179,7 @@ module.exports = {
     parseArgs,
     printUsage,
     readJson,
+    stripNulls,
     resolvePath
 };
 
