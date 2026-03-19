@@ -21,11 +21,78 @@ on:
       - hotfix/**
       - support/**
 
+concurrency:
+  group: windows-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  validate:
-    name: Build, Test, Package
+  regression:
+    name: Regression And Performance
     runs-on: windows-latest
-    timeout-minutes: 40
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Compile
+        run: npm run compile
+
+      - name: Regression tests
+        env:
+          TCVIEW_PERF_REPORT_FILE: .test-results/perf/large-workspace.json
+        run: npm run test:regression:compiled
+
+      - name: Performance guardrails
+        env:
+          TCVIEW_PERF_REPORT_FILE: .test-results/perf/large-workspace.json
+          TCVIEW_PERF_BUDGET_FILE: .github/perf/ci-budget.json
+        run: npm run test:perf:guardrails
+
+      - name: Upload performance artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tcview-performance
+          path: .test-results/perf/large-workspace.json
+          if-no-files-found: warn
+
+  integration:
+    name: Integration Smoke
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Compile
+        run: npm run compile
+
+      - name: Integration smoke tests
+        run: npm run test:integration:compiled
+
+  package:
+    name: Package Validation
+    runs-on: windows-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -43,24 +110,7 @@ jobs:
           dotnet-version: 8.0.x
 
       - name: Install dependencies
-        run: npm ci
-
-      - name: Compile
-        run: npm run compile
-
-      - name: Regression tests
-        env:
-          TCVIEW_PERF_REPORT_FILE: .test-results/perf/large-workspace.json
-        run: npm run test:regression
-
-      - name: Performance guardrails
-        env:
-          TCVIEW_PERF_REPORT_FILE: .test-results/perf/large-workspace.json
-          TCVIEW_PERF_BUDGET_FILE: .github/perf/ci-budget.json
-        run: npm run test:perf:guardrails
-
-      - name: Integration smoke tests
-        run: npm run test:integration
+        run: npm ci --no-audit --no-fund
 
       - name: Package VSIX
         run: npm exec --package @vscode/vsce -- vsce package --out tcview-ci.vsix
@@ -76,9 +126,36 @@ jobs:
           name: tcview-ci-vsix
           path: tcview-ci.vsix
 
-      - name: Upload performance artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: tcview-performance
-          path: .test-results/perf/large-workspace.json
-          if-no-files-found: warn
+  validate:
+    name: Build, Test, Package
+    runs-on: ubuntu-latest
+    needs:
+      - regression
+      - integration
+      - package
+    if: always()
+
+    steps:
+      - name: Assert required lanes passed
+        shell: bash
+        env:
+          REGRESSION_RESULT: ${{ needs.regression.result }}
+          INTEGRATION_RESULT: ${{ needs.integration.result }}
+          PACKAGE_RESULT: ${{ needs.package.result }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$REGRESSION_RESULT" != "success" ]]; then
+            echo "Regression lane failed with result: $REGRESSION_RESULT" >&2
+            exit 1
+          fi
+
+          if [[ "$INTEGRATION_RESULT" != "success" ]]; then
+            echo "Integration lane failed with result: $INTEGRATION_RESULT" >&2
+            exit 1
+          fi
+
+          if [[ "$PACKAGE_RESULT" != "success" ]]; then
+            echo "Package lane failed with result: $PACKAGE_RESULT" >&2
+            exit 1
+          fi

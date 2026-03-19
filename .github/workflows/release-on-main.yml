@@ -77,10 +77,6 @@ jobs:
         if: steps.version.outputs.skip_release != 'true'
         run: npm ci
 
-      - name: Build release package
-        if: steps.version.outputs.skip_release != 'true'
-        run: npm run vscode:prepublish
-
       - name: Package VSIX
         if: steps.version.outputs.skip_release != 'true'
         shell: bash

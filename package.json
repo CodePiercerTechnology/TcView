@@ -712,8 +712,11 @@
     "watch": "tsc -watch -p ./",
     "test": "npm run compile && node out/tests/run-tests.js",
     "test:functionality": "npm run compile && node out/tests/run-tests.js --suite functionality",
+    "test:functionality:compiled": "node out/tests/run-tests.js --suite functionality",
     "test:regression": "npm run compile && node out/tests/run-tests.js --suite regression",
+    "test:regression:compiled": "node out/tests/run-tests.js --suite regression",
     "test:regression:update": "npm run compile && node out/tests/run-tests.js --suite regression --update",
+    "test:regression:update:compiled": "node out/tests/run-tests.js --suite regression --update",
     "test:perf:guardrails": "node scripts/check-perf-guardrails.js",
     "test:perf:runtime": "node scripts/check-runtime-baseline.js",
     "test:perf:runtime:compare": "node scripts/compare-runtime-baselines.js",
@@ -730,8 +733,10 @@
     "github:repo-settings:apply": "node scripts/apply-github-repo-settings.js --owner CodePiercerTechnology --repo TcView --apply",
     "gitflow": "node scripts/gitflow.js",
     "test:integration": "npm run compile && vscode-test",
+    "test:integration:compiled": "vscode-test",
     "test:all": "npm run test && npm run test:integration",
-    "test:ci": "npm run test:all"
+    "test:ci": "npm run test:all",
+    "test:ci:local": "node scripts/run-local-ci.js"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
