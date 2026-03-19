@@ -19,6 +19,8 @@ export function activate(context: vscode.ExtensionContext) {
     console.log('TcView extension is now active!');
     const metadataConverter = new TwinCATXmlConverter();
     const backendClient = new TwinCATBackendClient(context.extensionPath);
+    const tcTidierExtensionId = 'CodePiercerTechnologies.tctidier';
+    const tcTidierPromptStateKey = 'tcview.tcTidierPromptState';
     // TwinCAT solutions can be represented by either .tsproj or .tspproj sibling files.
     const solutionProjectExtensions = ['.tsproj', '.tspproj'];
     const supportedTwinCATExts = new Set(['.tcpou', '.tcgvl', '.tcdut', '.tcprg', '.tcapp', '.tccom', '.tcvar', '.tcgds', '.tcio', '.tcitf']);
@@ -26,6 +28,8 @@ export function activate(context: vscode.ExtensionContext) {
     const libraryViewCache = new Map<string, { revision: number; html: string }>();
     const maxLibraryViewCacheEntries = 16;
     const libraryOutput = vscode.window.createOutputChannel('TcView Libraries');
+    let tcTidierPromptInFlight = false;
+    let tcTidierPromptAttemptedThisSession = false;
     type PendingFilesystemClipboard = {
         mode: 'copy' | 'cut';
         kind: 'filesystem';
@@ -84,6 +88,53 @@ export function activate(context: vscode.ExtensionContext) {
             });
         }
         await analyzerInitPromise;
+    };
+
+    const maybePromptInstallTcTidier = async (document?: vscode.TextDocument) => {
+        if (!document || document.languageId !== 'iec-st') {
+            return;
+        }
+        if (tcTidierPromptInFlight || tcTidierPromptAttemptedThisSession) {
+            return;
+        }
+
+        const storedPromptState = context.globalState.get<'dismissed' | 'installed'>(tcTidierPromptStateKey);
+        if (storedPromptState === 'dismissed' || storedPromptState === 'installed') {
+            return;
+        }
+
+        if (vscode.extensions.getExtension(tcTidierExtensionId)) {
+            await context.globalState.update(tcTidierPromptStateKey, 'installed');
+            return;
+        }
+
+        tcTidierPromptInFlight = true;
+        tcTidierPromptAttemptedThisSession = true;
+        try {
+            const selection = await vscode.window.showInformationMessage(
+                'TcTidier adds advanced formatting for TcView Structured Text documents. Install it now?',
+                'Install TcTidier',
+                'Not now'
+            );
+
+            if (selection === 'Install TcTidier') {
+                try {
+                    await vscode.commands.executeCommand('workbench.extensions.installExtension', tcTidierExtensionId);
+                    await context.globalState.update(tcTidierPromptStateKey, 'installed');
+                } catch (error) {
+                    logError(`TcTidier install suggestion failed: ${String(error)}`);
+                    void vscode.commands.executeCommand('workbench.extensions.search', `@id:${tcTidierExtensionId}`);
+                    vscode.window.showInformationMessage('TcTidier could not be installed automatically. The extension page has been opened instead.');
+                }
+                return;
+            }
+
+            if (selection === 'Not now') {
+                await context.globalState.update(tcTidierPromptStateKey, 'dismissed');
+            }
+        } finally {
+            tcTidierPromptInFlight = false;
+        }
     };
 
     const getCachedLibraryViewHtml = (libraryName: string, revision: number) => {
@@ -4692,6 +4743,7 @@ export function activate(context: vscode.ExtensionContext) {
                 );
 
                 await vscode.languages.setTextDocumentLanguage(document, 'iec-st');
+                void maybePromptInstallTcTidier(document);
             } else {
                 // Regular file - preload and open
                 const virtualUri = await withPerfMetric('open.file.preload', () =>
@@ -4708,6 +4760,7 @@ export function activate(context: vscode.ExtensionContext) {
                 
                 // Set language mode explicitly for syntax highlighting
                 await vscode.languages.setTextDocumentLanguage(document, 'iec-st');
+                void maybePromptInstallTcTidier(document);
             }
             
         } catch (error) {
@@ -4736,6 +4789,8 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Auto-open: Intercept TwinCAT file opens and redirect to ST editor
     const openListener = vscode.workspace.onDidOpenTextDocument(async (document) => {
+        void maybePromptInstallTcTidier(document);
+
         if (document.uri.scheme !== 'file') {
             return;
         }
@@ -4769,6 +4824,10 @@ export function activate(context: vscode.ExtensionContext) {
         } finally {
             redirectInProgress.delete(document.uri.toString());
         }
+    });
+
+    const activeEditorListener = vscode.window.onDidChangeActiveTextEditor(editor => {
+        void maybePromptInstallTcTidier(editor?.document);
     });
 
     // Recovery for restored virtual tabs from previous session.
@@ -4857,6 +4916,7 @@ export function activate(context: vscode.ExtensionContext) {
         { dispose: () => activeAnalyzerRefreshDisposable?.dispose() },
         saveListener,
         openListener,
+        activeEditorListener,
         solutionWatcher,
         tmcWatcher,
         workspaceFolderChangeListener,
