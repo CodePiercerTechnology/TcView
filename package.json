@@ -27,6 +27,10 @@
     "onFileSystem:twincat",
     "onView:twincat.files",
     "onLanguage:iec-st",
+    "workspaceContains:*.sln",
+    "workspaceContains:*.plcproj",
+    "workspaceContains:*.tsproj",
+    "workspaceContains:*.tspproj",
     "onCommand:tcview.refreshFiles",
     "onCommand:tcview.openFile",
     "onCommand:tcview.openLibraryReference",
@@ -86,6 +90,11 @@
         "view": "twincat.files",
         "contents": "No folder is open.\n[Open TwinCAT Solution](command:tcview.openSolution)",
         "when": "workspaceFolderCount == 0 && tcview.discoveryComplete"
+      },
+      {
+        "view": "twincat.files",
+        "contents": "TcView is loading this workspace...\nThe Explorer will appear here when TwinCAT root discovery completes.",
+        "when": "workspaceFolderCount != 0 && !tcview.discoveryComplete"
       },
       {
         "view": "twincat.files",

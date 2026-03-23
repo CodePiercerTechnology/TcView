@@ -65,11 +65,11 @@ TcView should not drift into:
 ### Alpha Readiness
 
 - Windows CI now runs compile, regression tests, integration smoke tests, performance guardrails, and VSIX packaging validation
-- alpha release checklist, tester troubleshooting guide, and initial support matrix are now documented
+- user-facing troubleshooting guidance, support matrix, and release notes are now in place for public alpha use
 - GitHub issue templates now exist for alpha bug and performance reports
-- repo-local governance files now cover CODEOWNERS, PR validation checklist, and recommended GitHub ruleset settings
+- repo-local governance files now cover CODEOWNERS, PR validation checklist, and branch/ruleset guidance
 - local validation now checks that the bundled backend is present in both release output and packaged VSIX artifacts
-- backend validation runbook now documents repeatable bundled-backend and failure-path checks for alpha machines
+- backend validation coverage now includes bundled-backend and failure-path checks for alpha machines
 
 ### Performance Baseline
 
@@ -97,10 +97,10 @@ TcView should not drift into:
 
 ### Performance
 
-1. Add pass/fail guardrails for CI performance metrics once baseline history is established
-2. Continue collecting representative workspace baseline documents for alpha test environments and tighten guardrail thresholds from observed history
-3. Keep trace triage guidance aligned with new metric families and alpha issue patterns
-4. Reduce post-`openFolder` TcView activation/focus latency so opening a TwinCAT solution from TcView returns to the TcView container with less visible startup lag
+1. Continue collecting representative workspace baseline documents for alpha test environments and tighten guardrail thresholds from observed history
+2. Keep trace triage guidance aligned with new metric families and alpha issue patterns
+3. Reduce post-`openFolder` TcView activation/focus latency so opening a TwinCAT solution from TcView returns to the TcView container with less visible startup lag
+4. Keep watching startup and webview refresh regressions as the explorer evolves so the recent gains hold up under new UX work
 
 ### Library Metadata
 
@@ -129,7 +129,7 @@ TcView should not drift into:
 
 #### Near-Term
 
-1. Expand tree and explorer context menus with authoring actions such as add folder, add POU, add DUT, and related TwinCAT item creation flows
+1. Continue closing remaining authoring workflow gaps above the current file/member creation support, especially at the solution/project level
 2. Automatically switch focus to the TcView container when a TwinCAT solution or project is opened, including after reload when the workspace was opened directly through TcView
 3. Add a guided "Add PLC Project to Solution" workflow with options to either copy the PLC project into the solution structure or reference the original project directory in place
 

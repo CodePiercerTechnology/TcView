@@ -104,7 +104,8 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
         private readonly context: vscode.ExtensionContext,
         private readonly fileExplorerProvider: TwinCATFileExplorerProvider,
         private readonly openTreeItem: (item: TwinCATFileTreeItem) => Promise<void>,
-        private readonly runTreeAction: (action: string, item: TwinCATFileTreeItem, value?: string) => Promise<void>
+        private readonly runTreeAction: (action: string, item: TwinCATFileTreeItem, value?: string) => Promise<void>,
+        private readonly onWebviewReady?: () => void
     ) {
         this.disposables.push(this.fileExplorerProvider.onDidChangeTreeData(() => {
             this.scheduleRefresh(140);
@@ -280,6 +281,7 @@ export class TwinCATWebviewExplorerProvider implements vscode.WebviewViewProvide
                 this.groupRootStateReady = false;
                 this.itemById.clear();
                 await this.refresh();
+                this.onWebviewReady?.();
                 return;
             case 'refresh':
                 await this.refresh();

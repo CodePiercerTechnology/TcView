@@ -21,6 +21,8 @@ export function activate(context: vscode.ExtensionContext) {
     const backendClient = new TwinCATBackendClient(context.extensionPath);
     const tcTidierExtensionId = 'CodePiercerTechnologies.tctidier';
     const tcTidierPromptStateKey = 'tcview.tcTidierPromptState';
+    const pendingContainerFocusStateKey = 'tcview.pendingContainerFocus';
+    const pendingContainerFocusMaxAgeMs = 10 * 60 * 1000;
     // TwinCAT solutions can be represented by either .tsproj or .tspproj sibling files.
     const solutionProjectExtensions = ['.tsproj', '.tspproj'];
     const supportedTwinCATExts = new Set(['.tcpou', '.tcgvl', '.tcdut', '.tcprg', '.tcapp', '.tccom', '.tcvar', '.tcgds', '.tcio', '.tcitf']);
@@ -30,6 +32,12 @@ export function activate(context: vscode.ExtensionContext) {
     const libraryOutput = vscode.window.createOutputChannel('TcView Libraries');
     let tcTidierPromptInFlight = false;
     let tcTidierPromptAttemptedThisSession = false;
+    let pendingContainerFocusInSession = false;
+    let pendingContainerFocusAttemptToken = 0;
+    type PendingContainerFocus = {
+        rootPath: string;
+        requestedAt: number;
+    };
     type PendingFilesystemClipboard = {
         mode: 'copy' | 'cut';
         kind: 'filesystem';
@@ -77,6 +85,51 @@ export function activate(context: vscode.ExtensionContext) {
         await vscode.commands.executeCommand('setContext', 'tcview.hasTwinCATFiles', state.hasTwinCATFiles);
         await vscode.commands.executeCommand('setContext', 'tcview.isLookingForTwinCAT', state.isLoading);
         await vscode.commands.executeCommand('setContext', 'tcview.discoveryComplete', state.discoveryComplete);
+    };
+
+    const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+    const tryExecuteFocusCommand = async (command: string, args: unknown[] = []) => {
+        try {
+            await vscode.commands.executeCommand(command, ...args);
+            return true;
+        } catch {
+            return false;
+        }
+    };
+
+    const normalizeForComparison = (targetPath: string) => {
+        const normalized = path.normalize(targetPath).replace(/[\\\/]+$/, '');
+        return normalized.toLowerCase();
+    };
+
+    const focusTcViewContainer = async () => {
+        await tryExecuteFocusCommand('workbench.view.extension.twincat');
+        await tryExecuteFocusCommand('workbench.views.action.focusView', [TwinCATWebviewExplorerProvider.viewType]);
+        await tryExecuteFocusCommand('twincat.files.focus');
+    };
+
+    const queuePendingTcViewContainerFocus = async (rootPath: string) => {
+        const pendingState: PendingContainerFocus = {
+            rootPath: path.normalize(rootPath),
+            requestedAt: Date.now()
+        };
+        await context.globalState.update(pendingContainerFocusStateKey, pendingState);
+    };
+
+    const requestTcViewContainerFocusRecovery = (delaysMs: number[], clearPendingAtEnd = false) => {
+        const attemptToken = ++pendingContainerFocusAttemptToken;
+        void (async () => {
+            for (const waitMs of delaysMs) {
+                await delay(waitMs);
+                if (attemptToken !== pendingContainerFocusAttemptToken) {
+                    return;
+                }
+                await focusTcViewContainer();
+            }
+            if (clearPendingAtEnd && attemptToken === pendingContainerFocusAttemptToken) {
+                pendingContainerFocusInSession = false;
+            }
+        })();
     };
 
     const ensureAnalyzerInitialized = async (): Promise<void> => {
@@ -264,7 +317,13 @@ export function activate(context: vscode.ExtensionContext) {
             }
             await openFileCommandRef(item);
         },
-        async (action, item, value) => runTreeActionCommandRef(action, item, value)
+        async (action, item, value) => runTreeActionCommandRef(action, item, value),
+        () => {
+            if (!pendingContainerFocusInSession) {
+                return;
+            }
+            requestTcViewContainerFocusRecovery([0, 250, 900], true);
+        }
     );
     
     void updateTreeDiscoveryContext({
@@ -1147,6 +1206,7 @@ export function activate(context: vscode.ExtensionContext) {
 
             const folderToOpen = vscode.Uri.file(resolvedRoot.folderPath);
             await setActiveSolutionContext(resolvedRoot.solutionPath);
+            await queuePendingTcViewContainerFocus(resolvedRoot.folderPath);
             await vscode.commands.executeCommand('vscode.openFolder', folderToOpen, false);
             return;
         }
@@ -4855,6 +4915,42 @@ export function activate(context: vscode.ExtensionContext) {
             await vscode.window.showTextDocument(active.document, { preview: false, viewColumn: active.viewColumn });
         }
     };
+
+    const maybeRestorePendingTcViewContainerFocus = async () => {
+        const pending = context.globalState.get<PendingContainerFocus>(pendingContainerFocusStateKey);
+        if (!pending || !pending.rootPath || typeof pending.requestedAt !== 'number') {
+            if (pending) {
+                await context.globalState.update(pendingContainerFocusStateKey, undefined);
+            }
+            return;
+        }
+
+        if ((Date.now() - pending.requestedAt) > pendingContainerFocusMaxAgeMs) {
+            await context.globalState.update(pendingContainerFocusStateKey, undefined);
+            return;
+        }
+
+        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (!workspaceRoot) {
+            return;
+        }
+
+        if (normalizeForComparison(workspaceRoot) !== normalizeForComparison(pending.rootPath)) {
+            return;
+        }
+
+        const markers = await findTwinCATProjectMarkers(workspaceRoot);
+        await context.globalState.update(pendingContainerFocusStateKey, undefined);
+        if (!markers.hasTwinCATFiles) {
+            return;
+        }
+
+        pendingContainerFocusInSession = true;
+        await focusTcViewContainer();
+        requestTcViewContainerFocusRecovery([120, 320, 700, 1300, 2200], true);
+    };
+
+    void maybeRestorePendingTcViewContainerFocus();
 
     const startupTasksTimer = setTimeout(() => {
         void refreshActiveSolutionContext();
