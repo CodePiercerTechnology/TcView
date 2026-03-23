@@ -4076,7 +4076,6 @@ export function activate(context: vscode.ExtensionContext) {
             libraryOutput.appendLine(`[TcView Libraries] Importing library project metadata for ${importedEntry.name}`);
             const mergedEntry = await upsertWorkspaceLibraryMetadataEntry(importedEntry, { revealFile: true });
             await refreshProjectAnalyzerLibraryMetadata();
-            fileExplorerProvider.refresh();
 
             const importedLabel = mergedEntry?.name ?? importedEntry.name;
             vscode.window.showInformationMessage(`TcView: Imported library project metadata for ${importedLabel}.`);
@@ -4136,6 +4135,7 @@ export function activate(context: vscode.ExtensionContext) {
             return;
         }
 
+        await refreshProjectAnalyzerLibraryMetadata();
         vscode.window.showInformationMessage(`TcView: Removed stored metadata for ${identity.displayName}.`);
     });
 
@@ -4171,6 +4171,9 @@ export function activate(context: vscode.ExtensionContext) {
         const removedCount = await removeWorkspaceLibraryMetadataEntries(entry =>
             !referenced.some(identity => matchesLibraryIdentity(entry, identity))
         );
+        if (removedCount > 0) {
+            await refreshProjectAnalyzerLibraryMetadata();
+        }
         vscode.window.showInformationMessage(
             removedCount > 0
                 ? `TcView: Pruned ${removedCount} unused metadata entr${removedCount === 1 ? 'y' : 'ies'}.`

@@ -45,6 +45,7 @@ TcView should not drift into:
   - Managed Libraries metadata
   - built-in catalog metadata
   - global/workspace metadata
+- library-only analyzer refreshes now skip downstream reindex churn when imports or `.tmc` updates do not materially change the resolved API
 - built-in Beckhoff catalog includes core libraries such as:
   - `Tc2_Standard`
   - `Tc2_System`
@@ -107,13 +108,12 @@ TcView should not drift into:
 
 1. Expand built-in Beckhoff internal API coverage beyond the current core set
 2. Improve version-aware metadata where Beckhoff library behavior changes by TwinCAT build
-3. Reindex library metadata more selectively after imports and `.tmc` updates
-4. Validate the Automation Interface library workflows across more TwinCAT/XAE versions
-5. Continue tightening PLC-project metadata import coverage and provenance details from source scanning
-6. Evaluate offline/semi-automated metadata generation for selected Beckhoff libraries and versions, potentially from official InfoSys content, only if the source structure and licensing make it maintainable
-7. Harden the DTE-hosted library-project install/export path only if the automation value still justifies the XAE-host bootstrap complexity
-8. Add a workflow to treat a library project as a reference project from TcView, so solution library references can stay aligned with that source project over time
-9. Add a guided/manual way to populate or override required library identity metadata for project-source import when `Title`, `Company`, or `LibraryCategory Version` are missing or need correction
+3. Validate the Automation Interface library workflows across more TwinCAT/XAE versions
+4. Continue tightening PLC-project metadata import coverage and provenance details from source scanning
+5. Evaluate offline/semi-automated metadata generation for selected Beckhoff libraries and versions, potentially from official InfoSys content, only if the source structure and licensing make it maintainable
+6. Harden the DTE-hosted library-project install/export path only if the automation value still justifies the XAE-host bootstrap complexity
+7. Add a workflow to treat a library project as a reference project from TcView, so solution library references can stay aligned with that source project over time
+8. Add a guided/manual way to populate or override required library identity metadata for project-source import when `Title`, `Company`, or `LibraryCategory Version` are missing or need correction
 
 ### Editor Quality
 

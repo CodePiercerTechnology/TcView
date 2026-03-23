@@ -891,16 +891,21 @@ export class TwinCATProjectAnalyzer {
         }
 
         const start = Date.now();
+        const previousFingerprint = this.buildLibraryMetadataStateFingerprint();
+        let didChange = false;
         await withPerfMetric('reindex.libraryMetadata', async () => {
             await this.refreshLibraryMetadata();
             this.lastRefreshAffectedFiles = [];
             this.lastRefreshAffectedSymbolKeys = [];
-            this.indexRevision++;
-            this.indexRefreshedEmitter.fire();
+            didChange = previousFingerprint !== this.buildLibraryMetadataStateFingerprint();
+            if (didChange) {
+                this.indexRevision++;
+                this.indexRefreshedEmitter.fire();
+            }
         });
         this.lastLibraryRefreshCompletedAt = Date.now();
         if (this.isPerfLoggingEnabled()) {
-            console.log(`[TcView Perf] Library metadata refresh: ${Date.now() - start} ms`);
+            console.log(`[TcView Perf] Library metadata refresh: ${Date.now() - start} ms (${didChange ? 'updated' : 'no-op'})`);
         }
     }
 
@@ -1365,6 +1370,58 @@ export class TwinCATProjectAnalyzer {
         for (const lib of this.libraryRefs) {
             this.libraryContextModes.set(lib.name.toUpperCase(), lib.mode);
         }
+    }
+
+    private buildLibraryMetadataStateFingerprint(): string {
+        const serializeLibraryRef = (libraryRef: TwinCATLibraryRef) => [
+            libraryRef.name,
+            libraryRef.version,
+            libraryRef.vendor ?? '',
+            libraryRef.path,
+            libraryRef.mode,
+            libraryRef.installPath ?? '',
+            (libraryRef.dependencies ?? []).slice().sort((a, b) => a.localeCompare(b)).join('|'),
+            libraryRef.metadataSource ?? '',
+            libraryRef.infoUrl ?? '',
+            libraryRef.category ?? '',
+            libraryRef.suppliedWith ?? '',
+            libraryRef.summary ?? ''
+        ];
+        const serializeSymbol = (symbol: TwinCATSymbol) => [
+            symbol.name,
+            symbol.type,
+            symbol.kind,
+            symbol.source,
+            symbol.library ?? '',
+            symbol.documentation ?? '',
+            symbol.provenance ?? ''
+        ];
+        const serializeDataType = (dataType: TwinCATDataType) => [
+            dataType.name,
+            dataType.kind,
+            dataType.source,
+            dataType.library ?? '',
+            dataType.documentation ?? '',
+            dataType.provenance ?? '',
+            [...dataType.members.entries()]
+                .sort(([leftName], [rightName]) => leftName.localeCompare(rightName))
+                .map(([memberName, memberType]) => `${memberName}:${memberType}`)
+                .join('|')
+        ];
+
+        return JSON.stringify({
+            projectBuildNumber: this.projectBuildNumber,
+            libraryRefs: this.libraryRefs.map(serializeLibraryRef),
+            librarySymbols: [...this.librarySymbols.entries()]
+                .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
+                .map(([key, symbol]) => [key, serializeSymbol(symbol)]),
+            libraryDataTypes: [...this.libraryDataTypes.entries()]
+                .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
+                .map(([key, dataType]) => [key, serializeDataType(dataType)]),
+            libraryContextModes: [...this.libraryContextModes.entries()]
+                .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey)),
+            implicitSystemLibraries: [...this.implicitSystemLibraries].sort((a, b) => a.localeCompare(b))
+        });
     }
 
     private async findProjectFiles(pattern: string): Promise<string[]> {
