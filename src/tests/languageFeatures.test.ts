@@ -7,6 +7,11 @@ import { iecStKeywordSet } from '../iecStKeywords';
 import { parseTcviewLintPragmas } from '../tcviewLintPragmas';
 import { applyFragmentSTToXml, extractFragmentSTFromXml } from '../tcViewFragmentCodec';
 import { TwinCATXmlConverter } from '../tcViewXmlConverter';
+import {
+    buildTwinCATMetadataMarkdown,
+    buildTwinCATMetadataSummarySegments,
+    formatTwinCATProvenanceLabel
+} from '../tcViewMetadataPresentation';
 import { extractQualifiedOnlyUsageInfo } from '../twinCATQualifiedOnly';
 import { parseTwinCATTypeDeclarations } from '../twinCATTypeParser';
 
@@ -404,6 +409,29 @@ export async function runLanguageFeatureUtilityTests(): Promise<void> {
     assert.ok(isKnownIecBuiltinIdentifier('WORD_TO_STRING'));
     assert.ok(isKnownIecBuiltinIdentifier('TO_UDINT'));
     assert.ok(isKnownIecBuiltinIdentifier('POINTER'));
+    assert.strictEqual(formatTwinCATProvenanceLabel('project'), 'Project source');
+    assert.strictEqual(formatTwinCATProvenanceLabel('built_in'), 'Built-in catalog');
+    assert.deepStrictEqual(
+        buildTwinCATMetadataSummarySegments({
+            library: 'Tc2_Utilities',
+            provenance: 'built_in'
+        }),
+        ['Tc2_Utilities', 'Built-in catalog']
+    );
+    assert.strictEqual(
+        buildTwinCATMetadataMarkdown({
+            library: 'Tc2_Utilities',
+            provenance: 'built_in',
+            source: 'https://infosys.beckhoff.com/example',
+            documentation: 'Helper functions for string and file operations.'
+        }),
+        [
+            'Helper functions for string and file operations.',
+            'Library: `Tc2_Utilities`',
+            'Origin: Built-in catalog',
+            'Defined in: `https://infosys.beckhoff.com/example`'
+        ].join('\n\n')
+    );
     [
         'ANDN', 'CAL', 'CALC', 'CALCN', 'JMP', 'JMPC', 'JMPCN', 'LD', 'LDN', 'LTIME',
         'ORN', 'PARAMS', 'R', 'READ_ONLY', 'READ_WRITE', 'RET', 'RETC', 'RETCN', 'S',

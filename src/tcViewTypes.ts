@@ -1,4 +1,5 @@
 export type TwinCATLibraryMode = 'metadata_only' | 'public_symbols' | 'full_source';
+export type TwinCATMetadataSource = 'plcproj' | 'managed_libraries' | 'tmc' | 'built_in' | 'user' | 'system_global';
 
 export interface TwinCATLibraryRef {
     name: string;
@@ -8,7 +9,7 @@ export interface TwinCATLibraryRef {
     mode: TwinCATLibraryMode;
     installPath?: string;
     dependencies?: string[];
-    metadataSource?: 'plcproj' | 'managed_libraries' | 'tmc' | 'built_in' | 'user' | 'system_global';
+    metadataSource?: TwinCATMetadataSource;
     infoUrl?: string;
     category?: string;
     suppliedWith?: string;

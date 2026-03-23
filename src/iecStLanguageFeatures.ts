@@ -9,6 +9,7 @@ import { TwinCATXmlConverter } from './tcViewXmlConverter';
 import { isTcviewLintRuleSuppressed, parseTcviewLintPragmas } from './tcviewLintPragmas';
 import { extractQualifiedOnlyUsageInfo, mergeQualifiedOnlyUsageInfo } from './twinCATQualifiedOnly';
 import { parseTwinCATTypeDeclarations } from './twinCATTypeParser';
+import { buildTwinCATMetadataMarkdown, buildTwinCATMetadataSummarySegments } from './tcViewMetadataPresentation';
 import {
     iecBuiltinFunctions,
     iecBuiltinNamespaces,
@@ -907,12 +908,17 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
 
         const items: vscode.CompletionItem[] = [];
         analyzer.forEachAllSymbols(symbol => {
+            const detailSegments = buildTwinCATMetadataSummarySegments(symbol);
+            const detail = [
+                `${symbol.kind}: ${symbol.type}`,
+                ...detailSegments
+            ].join(' \u2022 ');
             items.push(
                 createCompletionItem(
                     symbol.name,
                     kindMap[symbol.kind] ?? vscode.CompletionItemKind.Text,
-                    `${symbol.kind}: ${symbol.type}`,
-                    `Defined in: \`${symbol.source}\``
+                    detail,
+                    buildTwinCATMetadataMarkdown(symbol)
                 )
             );
         });
@@ -1076,21 +1082,27 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
 
                 const projectSymbol = analyzer.getSymbol(word);
                 if (projectSymbol) {
+                    const detailMarkdown = buildTwinCATMetadataMarkdown(projectSymbol);
                     return new vscode.Hover(
-                        new vscode.MarkdownString(`**${projectSymbol.name}**\n\n${projectSymbol.kind}: \`${projectSymbol.type}\`\n\nDefined in: \`${projectSymbol.source}\``),
+                        new vscode.MarkdownString(
+                            `**${projectSymbol.name}**\n\n${projectSymbol.kind}: \`${projectSymbol.type}\`` +
+                            (detailMarkdown ? `\n\n${detailMarkdown}` : '')
+                        ),
                         wordRange
                     );
                 }
 
                 const projectType = analyzer.getDataType(word);
                 if (projectType) {
+                    const detailMarkdown = buildTwinCATMetadataMarkdown(projectType);
                     const members = [...projectType.members.entries()]
                         .slice(0, 15)
                         .map(([name, type]) => `- \`${name}\` : \`${type}\``)
                         .join('\n');
+                    const detailSection = detailMarkdown ? `\n\n${detailMarkdown}` : '';
                     const memberSection = members ? `\n\nMembers:\n${members}` : '';
                     return new vscode.Hover(
-                        new vscode.MarkdownString(`**${projectType.name}**\n\n${projectType.kind} type${memberSection}`),
+                        new vscode.MarkdownString(`**${projectType.name}**\n\n${projectType.kind} type${detailSection}${memberSection}`),
                         wordRange
                     );
                 }

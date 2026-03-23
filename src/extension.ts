@@ -11,6 +11,7 @@ import { TwinCATXmlConverter } from './tcViewXmlConverter';
 import { formatBackendCommandError, TwinCATBackendClient } from './backend/tcViewBackendClient';
 import { registerLanguageFeatures } from './iecStLanguageFeatures';
 import { disposeProjectAnalyzer, getProjectAnalyzer, initializeProjectAnalyzer, onProjectAnalyzerCreated, refreshProjectAnalyzerLibraryMetadata } from './tcViewProjectAnalyzer';
+import { formatTwinCATProvenanceLabel } from './tcViewMetadataPresentation';
 import { disposeTelemetry, logError, showPerfSummary, withPerfMetric, writePerfSnapshot, writePerfTrace } from './tcViewTelemetry';
 
 let analyzerInitPromise: Promise<void> | undefined;
@@ -4374,24 +4375,6 @@ export function activate(context: vscode.ExtensionContext) {
         api: ReturnType<ReturnType<typeof getProjectAnalyzer>['getLibraryApi']>
     ) => {
         const reference = api.reference;
-        const formatMetadataSourceLabel = (metadataSource?: string) => {
-            switch (metadataSource) {
-                case 'system_global':
-                    return 'System global';
-                case 'built_in':
-                    return 'Built-in catalog';
-                case 'managed_libraries':
-                    return 'Managed Libraries';
-                case 'plcproj':
-                    return 'PLC project';
-                case 'tmc':
-                    return 'TMC';
-                case 'user':
-                    return 'User metadata';
-                default:
-                    return metadataSource ?? 'Unknown';
-            }
-        };
         const provenances = new Set([
             ...api.symbols.map(symbol => symbol.provenance).filter(Boolean),
             ...api.dataTypes.map(typeInfo => typeInfo.provenance).filter(Boolean)
@@ -4474,7 +4457,7 @@ export function activate(context: vscode.ExtensionContext) {
             ? `<span class="pill">Managed library: ${escapeHtml(reference.installPath)}</span>`
             : '';
         const metadataSourceMarkup = reference?.metadataSource
-            ? `<span class="pill">Metadata: ${escapeHtml(formatMetadataSourceLabel(reference.metadataSource))}</span>`
+            ? `<span class="pill">Metadata: ${escapeHtml(formatTwinCATProvenanceLabel(reference.metadataSource) ?? 'Unknown')}</span>`
             : '';
         const infoUrlMarkup = reference?.infoUrl
             ? `<span class="pill"><a href="${escapeHtml(reference.infoUrl)}">Docs</a></span>`

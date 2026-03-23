@@ -32,6 +32,7 @@ TcView should not drift into:
 ### Language Features
 
 - diagnostics, hover, completion, rename/references, folding, semantic tokens, and code actions are in place
+- completion and hover now surface indexed symbol origin details such as library name, metadata source, and definition path
 - conversion builtins and block comments are recognized in the editor
 - common system-global/library constants such as `E_FAIL` and `S_OK` are recognized
 - `Tc3_GlobalTypes` is treated as a special system-global family, including build-4026+ virtual child libraries
@@ -106,14 +107,13 @@ TcView should not drift into:
 
 1. Expand built-in Beckhoff internal API coverage beyond the current core set
 2. Improve version-aware metadata where Beckhoff library behavior changes by TwinCAT build
-3. Surface provenance more clearly in completions/hover, not only the library viewer
-4. Reindex library metadata more selectively after imports and `.tmc` updates
-5. Validate the Automation Interface library workflows across more TwinCAT/XAE versions
-6. Continue tightening PLC-project metadata import coverage and provenance details from source scanning
-7. Evaluate offline/semi-automated metadata generation for selected Beckhoff libraries and versions, potentially from official InfoSys content, only if the source structure and licensing make it maintainable
-8. Harden the DTE-hosted library-project install/export path only if the automation value still justifies the XAE-host bootstrap complexity
-9. Add a workflow to treat a library project as a reference project from TcView, so solution library references can stay aligned with that source project over time
-10. Add a guided/manual way to populate or override required library identity metadata for project-source import when `Title`, `Company`, or `LibraryCategory Version` are missing or need correction
+3. Reindex library metadata more selectively after imports and `.tmc` updates
+4. Validate the Automation Interface library workflows across more TwinCAT/XAE versions
+5. Continue tightening PLC-project metadata import coverage and provenance details from source scanning
+6. Evaluate offline/semi-automated metadata generation for selected Beckhoff libraries and versions, potentially from official InfoSys content, only if the source structure and licensing make it maintainable
+7. Harden the DTE-hosted library-project install/export path only if the automation value still justifies the XAE-host bootstrap complexity
+8. Add a workflow to treat a library project as a reference project from TcView, so solution library references can stay aligned with that source project over time
+9. Add a guided/manual way to populate or override required library identity metadata for project-source import when `Title`, `Company`, or `LibraryCategory Version` are missing or need correction
 
 ### Editor Quality
 

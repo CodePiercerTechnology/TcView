@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as xml2js from 'xml2js';
 import { TwinCATXmlConverter } from './tcViewXmlConverter';
-import { TwinCATLibraryRef } from './tcViewTypes';
+import { TwinCATLibraryRef, type TwinCATMetadataSource } from './tcViewTypes';
 import { withPerfMetric } from './tcViewTelemetry';
 import { buildAstAnalysis } from './iecStAst';
 import { isKnownIecBuiltinIdentifier, isKnownIecBuiltinType } from './iecStBuiltins';
@@ -21,7 +21,7 @@ export interface TwinCATSymbol {
     library?: string;
     line?: number;
     documentation?: string;
-    provenance?: 'project' | 'tmc' | 'built_in' | 'user';
+    provenance?: 'project' | TwinCATMetadataSource;
 }
 
 /**
@@ -34,7 +34,7 @@ export interface TwinCATDataType {
     source: string;
     library?: string;
     documentation?: string;
-    provenance?: 'project' | 'tmc' | 'built_in' | 'user';
+    provenance?: 'project' | TwinCATMetadataSource;
 }
 
 interface ManagedLibraryMetadata {
@@ -738,7 +738,8 @@ export class TwinCATProjectAnalyzer {
                     name: gvlName,
                     type: 'GVL',
                     kind: 'global',
-                    source: filePath
+                    source: filePath,
+                    provenance: 'project'
                 });
                 contribution.symbolKeys.add(key);
             }
@@ -791,7 +792,8 @@ export class TwinCATProjectAnalyzer {
                     name: declaration.name,
                     kind: declaration.kind,
                     members: declaration.members,
-                    source: filePath
+                    source: filePath,
+                    provenance: 'project'
                 });
                 contribution.dataTypeKeys.add(upperName);
 
@@ -799,7 +801,8 @@ export class TwinCATProjectAnalyzer {
                     name: declaration.name,
                     type: symbolType,
                     kind: 'type',
-                    source: filePath
+                    source: filePath,
+                    provenance: 'project'
                 });
                 contribution.symbolKeys.add(upperName);
 
@@ -857,7 +860,8 @@ export class TwinCATProjectAnalyzer {
                     name: declarationInfo.name,
                     type: declarationInfo.kind,
                     kind: symbolKind,
-                    source: filePath
+                    source: filePath,
+                    provenance: 'project'
                 });
                 contribution.symbolKeys.add(declarationInfo.name.toUpperCase());
             }
@@ -994,7 +998,8 @@ export class TwinCATProjectAnalyzer {
                 name: clean,
                 type,
                 kind,
-                source: filePath
+                source: filePath,
+                provenance: 'project'
             });
             contribution.symbolKeys.add(key);
         };
@@ -1039,7 +1044,8 @@ export class TwinCATProjectAnalyzer {
                     name,
                     type: declaration.type,
                     kind,
-                    source
+                    source,
+                    provenance: 'project'
                 };
 
                 if (kind === 'global') {
@@ -1327,6 +1333,7 @@ export class TwinCATProjectAnalyzer {
                 kind: 'type',
                 source: lib.path,
                 library: lib.name,
+                provenance: lib.metadataSource,
                 documentation: [lib.vendor ?? 'Unknown vendor', lib.category, lib.suppliedWith, lib.summary]
                     .filter(Boolean)
                     .join(' | ')
