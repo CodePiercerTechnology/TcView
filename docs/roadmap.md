@@ -119,11 +119,10 @@ TcView should not drift into:
 ### Editor Quality
 
 1. Continue tightening semantic-token coverage for TwinCAT-specific syntax edge cases
-2. Improve Outline/document symbol experience for XAE-like code navigation
-3. Expand known system/global type/member modeling where TwinCAT compiler behavior is predictable
-4. Add more regression tests for user-reported diagnostics and save issues
-5. Improve workspace Problems integration so TcView diagnostics behave more like project-wide TwinCAT issues, including Beckhoff pragma-aware suppression and rule shaping
-6. Add Beckhoff pragma-aware diagnostics for semantically important attributes such as `qualified_only` and `strict`, rather than limiting pragma support to comment-style suppression
+2. Expand known system/global type/member modeling where TwinCAT compiler behavior is predictable
+3. Add more regression tests for user-reported diagnostics and save issues
+4. Improve workspace Problems integration so TcView diagnostics behave more like project-wide TwinCAT issues, including Beckhoff pragma-aware suppression and rule shaping
+5. Add Beckhoff pragma-aware diagnostics for semantically important attributes such as `qualified_only` and `strict`, rather than limiting pragma support to comment-style suppression
 
 ### Tree View UX
 

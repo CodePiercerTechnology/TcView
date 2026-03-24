@@ -4,6 +4,7 @@ import * as path from 'path';
 import { buildAstAnalysis } from '../iecStAst';
 import { isKnownIecBuiltinIdentifier, isKnownIecBuiltinType } from '../iecStBuiltins';
 import { iecStKeywordSet } from '../iecStKeywords';
+import { getKnownStandardDefinition, isKnownStandardIecIdentifier } from '../iecStStandardDefinitions';
 import { parseTcviewLintPragmas } from '../tcviewLintPragmas';
 import { applyFragmentSTToXml, extractFragmentSTFromXml } from '../tcViewFragmentCodec';
 import { TwinCATXmlConverter } from '../tcViewXmlConverter';
@@ -409,6 +410,26 @@ export async function runLanguageFeatureUtilityTests(): Promise<void> {
     assert.ok(isKnownIecBuiltinIdentifier('WORD_TO_STRING'));
     assert.ok(isKnownIecBuiltinIdentifier('TO_UDINT'));
     assert.ok(isKnownIecBuiltinIdentifier('POINTER'));
+    assert.ok(isKnownStandardIecIdentifier('TwinCAT_SystemInfoVarList'));
+    assert.ok(isKnownStandardIecIdentifier('_AppInfo'));
+    assert.ok(isKnownStandardIecIdentifier('_TaskInfo'));
+    assert.ok(isKnownStandardIecIdentifier('stLibVersion_Tc2_System'));
+    assert.ok(isKnownStandardIecIdentifier('PlcAppSystemInfo'));
+    assert.ok(isKnownStandardIecIdentifier('PlcTaskSystemInfo'));
+    const systemInfoVarList = getKnownStandardDefinition('TwinCAT_SystemInfoVarList');
+    assert.ok(systemInfoVarList, 'Expected TwinCAT_SystemInfoVarList standard definition to exist.');
+    assert.deepStrictEqual(
+        systemInfoVarList?.members?.map(member => member.name),
+        ['PlcAppSystemInfo', 'PlcTaskSystemInfo', '_AppInfo', '_TaskInfo']
+    );
+    const plcAppSystemInfo = getKnownStandardDefinition('PlcAppSystemInfo');
+    assert.ok(plcAppSystemInfo, 'Expected PlcAppSystemInfo standard definition to exist.');
+    assert.ok(plcAppSystemInfo?.members?.some(member => member.name === 'AdsPort' && member.type === 'UINT'));
+    assert.ok(plcAppSystemInfo?.members?.some(member => member.name === 'TaskCnt' && member.type === 'UDINT'));
+    const libVersion = getKnownStandardDefinition('ST_LibVersion');
+    assert.ok(libVersion, 'Expected ST_LibVersion standard definition to exist.');
+    assert.ok(libVersion?.members?.some(member => member.name === 'iMajor' && member.type === 'UINT'));
+    assert.ok(libVersion?.members?.some(member => member.name === 'sVersion' && member.type === 'STRING(23)'));
     assert.strictEqual(formatTwinCATProvenanceLabel('project'), 'Project source');
     assert.strictEqual(formatTwinCATProvenanceLabel('built_in'), 'Built-in catalog');
     assert.deepStrictEqual(
