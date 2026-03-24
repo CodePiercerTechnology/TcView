@@ -515,7 +515,7 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         items: [] as vscode.CompletionItem[]
     };
     const startupValidationDelayMs = 3000;
-    const backgroundProjectValidationStartupDelayMs = 4500;
+    const initialBackgroundProjectValidationDelayMs = 1200;
     const languageFeaturesStartedAt = Date.now();
     const converter = new TwinCATXmlConverter();
     const backgroundDiagnosticExtensions = new Set([
@@ -527,6 +527,7 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
     let projectValidationInProgress = false;
     let projectValidationPending = false;
     let projectValidationNeedsFullScan = false;
+    let initialBackgroundProjectValidationScheduled = false;
 
     const ensureProjectAnalyzerReady = async () => {
         if (!analyzerReadyPromise) {
@@ -801,6 +802,22 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
             projectValidationTimer = undefined;
             void runBackgroundProjectValidation();
         }, delayMs);
+    };
+
+    const scheduleInitialBackgroundProjectValidation = () => {
+        if (initialBackgroundProjectValidationScheduled) {
+            return;
+        }
+        initialBackgroundProjectValidationScheduled = true;
+        void (async () => {
+            await ensureProjectAnalyzerReady();
+            const projectRoots = await getProjectAnalyzer().getProjectSearchRoots();
+            if (projectRoots.length > 0) {
+                scheduleBackgroundProjectValidation(initialBackgroundProjectValidationDelayMs, { projectRoots });
+                return;
+            }
+            scheduleBackgroundProjectValidation(initialBackgroundProjectValidationDelayMs, { full: true });
+        })();
     };
 
     const queueProjectScopedBackgroundValidation = async (
@@ -2212,7 +2229,7 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         startupVisibleDocs.set(vscode.window.activeTextEditor.document.uri.toString(), vscode.window.activeTextEditor.document);
     }
     startupVisibleDocs.forEach(doc => scheduleDocumentValidation(doc, startupValidationDelayMs));
-    scheduleBackgroundProjectValidation(backgroundProjectValidationStartupDelayMs, { full: true });
+    scheduleInitialBackgroundProjectValidation();
 
     const validateSyntaxCommand = vscode.commands.registerCommand('tcview.validateSyntax', async () => {
         const editor = vscode.window.activeTextEditor;
